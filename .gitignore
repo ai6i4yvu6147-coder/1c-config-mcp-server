@@ -1,0 +1,37 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# PyInstaller
+*.spec
+
+# Portable сборка
+Portable/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Базы данных (раскомментируйте если не хотите хранить в Git)
+# databases/*.db
+
+# Временные файлы
+*.log
+*.tmp
+*.bak
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
