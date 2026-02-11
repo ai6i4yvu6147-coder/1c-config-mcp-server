@@ -11,9 +11,29 @@ from shared.project_manager import ProjectManager
 class ConfigurationTools:
     """Инструменты для работы с конфигурациями 1С через несколько проектов"""
     
-    def __init__(self):
-        self.pm = ProjectManager()
-        self.connections = {}  # Кэш подключений к БД
+    def __init__(self, projects_file=None, databases_dir=None):
+        """
+        Args:
+            projects_file: Путь к projects.json (если None - автоопределение)
+            databases_dir: Путь к папке databases (если None - автоопределение)
+        """
+        # Автоопределение путей если не указаны
+        if projects_file is None or databases_dir is None:
+            if getattr(sys, 'frozen', False):
+                # Portable: exe в подпапке, поднимаемся на уровень выше
+                app_path = Path(sys.executable).parent
+                root = app_path.parent
+            else:
+                # Разработка: текущая папка - это корень
+                root = Path.cwd()
+            
+            if projects_file is None:
+                projects_file = root / "projects.json"
+            if databases_dir is None:
+                databases_dir = root / "databases"
+        
+        self.pm = ProjectManager(str(projects_file), str(databases_dir))
+        self.connections = {}
     
     def _get_active_databases(self, project_filter=None):
         """
