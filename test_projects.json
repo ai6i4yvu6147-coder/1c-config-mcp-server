@@ -1,0 +1,17 @@
+{
+  "projects": [
+    {
+      "id": "116fddb1-fd76-4ac4-8b9f-d6d6a1f40c1a",
+      "name": "Тестовый проект",
+      "active": true,
+      "databases": [
+        {
+          "id": "ca8d882a-59f3-406a-b461-8f734c5b8088",
+          "name": "Бухгалтерия 3.0",
+          "type": "base",
+          "db_file": "test_buh.db"
+        }
+      ]
+    }
+  ]
+}

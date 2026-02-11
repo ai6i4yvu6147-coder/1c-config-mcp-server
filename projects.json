@@ -1,0 +1,24 @@
+{
+  "projects": [
+    {
+      "id": "5337a1a5-9e5e-482e-b285-01516dac97be",
+      "name": "ТГ",
+      "active": false,
+      "databases": [
+        {
+          "id": "f304d564-ef05-47d5-93c9-0103c65df0e8",
+          "name": "Опер учет",
+          "type": "extension",
+          "db_file": "ТГ_Опер_учет.db"
+        },
+        {
+          "id": "97e9e6c6-b8f6-4e13-afa8-9319030a64b5",
+          "name": "БДЖ",
+          "type": "extension",
+          "db_file": "ТГ_БДЖ.db",
+          "source_xml": "C:\\Users\\Алексей Кашпур\\Documents\\Работа\\АСБ\\Выгрузка конф\\Configuration.xml"
+        }
+      ]
+    }
+  ]
+}
