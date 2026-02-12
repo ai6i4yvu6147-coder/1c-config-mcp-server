@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from pathlib import Path
 import sys
 
@@ -78,14 +79,107 @@ class DatabaseManager:
             )
         ''')
         
-        # Таблица модулей
+        # Таблица форм
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS forms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                form_name TEXT NOT NULL,
+                uuid TEXT,
+                properties_json TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        
+        # Таблица реквизитов форм
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_attributes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT,
+                title TEXT,
+                is_main INTEGER DEFAULT 0,
+                columns_json TEXT,
+                query_text TEXT,
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            )
+        ''')
+        
+        # Таблица команд форм
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT,
+                action TEXT,
+                shortcut TEXT,
+                picture TEXT,
+                representation TEXT,
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            )
+        ''')
+        
+        # Таблица событий формы
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_id INTEGER NOT NULL,
+                event_name TEXT NOT NULL,
+                handler TEXT NOT NULL,
+                call_type TEXT,
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            )
+        ''')
+        
+        # Таблица элементов UI
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                name TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                data_path TEXT,
+                title TEXT,
+                properties_json TEXT,
+                FOREIGN KEY (form_id) REFERENCES forms(id),
+                FOREIGN KEY (parent_id) REFERENCES form_items(id)
+            )
+        ''')
+        
+        # Таблица событий элементов
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_item_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                event_name TEXT NOT NULL,
+                handler TEXT NOT NULL,
+                FOREIGN KEY (item_id) REFERENCES form_items(id)
+            )
+        ''')
+        
+        # Таблица условного оформления
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_conditional_appearance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_id INTEGER NOT NULL,
+                xml_data TEXT NOT NULL,
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            )
+        ''')
+        
+        # Таблица модулей (добавляем form_id)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS modules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 object_id INTEGER NOT NULL,
+                form_id INTEGER,
                 module_type TEXT NOT NULL,
                 code TEXT NOT NULL,
-                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (form_id) REFERENCES forms(id)
             )
         ''')
         
@@ -98,6 +192,21 @@ class DatabaseManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_objects_type 
             ON metadata_objects(object_type)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_forms_name 
+            ON forms(form_name)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_form_items_name 
+            ON form_items(name)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_form_items_type 
+            ON form_items(item_type)
         ''')
         
         # Таблица для полнотекстового поиска по коду (FTS5)
@@ -135,11 +244,11 @@ class DatabaseManager:
             
             object_id = cursor.lastrowid
             
-            # Вставляем модули
+            # Вставляем модули объекта (без form_id)
             for module in obj['modules']:
                 cursor.execute('''
-                    INSERT INTO modules (object_id, module_type, code)
-                    VALUES (?, ?, ?)
+                    INSERT INTO modules (object_id, form_id, module_type, code)
+                    VALUES (?, NULL, ?, ?)
                 ''', (object_id, module['type'], module['code']))
                 
                 # Добавляем в полнотекстовый индекс
@@ -149,12 +258,151 @@ class DatabaseManager:
                     VALUES (?, ?, ?, ?)
                 ''', (module_id, obj['name'], module['type'], module['code']))
             
+            # Вставляем формы
+            for form in obj.get('forms', []):
+                self._insert_form(cursor, object_id, obj['name'], form)
+            
             # Отчет о прогрессе
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 20 + int((idx / total_objects) * 80)
                 progress_callback(progress, 100, f"Загружено {idx + 1}/{total_objects} объектов")
         
         self.conn.commit()
+    
+    def _insert_form(self, cursor, object_id, object_name, form):
+        """Вставляет данные формы в БД"""
+        # Вставляем форму
+        cursor.execute('''
+            INSERT INTO forms (object_id, form_name, uuid, properties_json)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            object_id,
+            form['name'],
+            form['uuid'],
+            json.dumps(form['properties'], ensure_ascii=False) if form['properties'] else None
+        ))
+        
+        form_id = cursor.lastrowid
+        
+        # Вставляем реквизиты
+        for attr in form.get('attributes', []):
+            cursor.execute('''
+                INSERT INTO form_attributes (
+                    form_id, name, type, title, is_main, columns_json, query_text
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                form_id,
+                attr['name'],
+                attr['type'],
+                attr['title'],
+                1 if attr['is_main'] else 0,
+                json.dumps(attr['columns'], ensure_ascii=False) if attr['columns'] else None,
+                attr['query_text']
+            ))
+        
+        # Вставляем команды
+        for cmd in form.get('commands', []):
+            cursor.execute('''
+                INSERT INTO form_commands (
+                    form_id, name, title, action, shortcut, picture, representation
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                form_id,
+                cmd['name'],
+                cmd['title'],
+                cmd['action'],
+                cmd['shortcut'],
+                cmd['picture'],
+                cmd['representation']
+            ))
+        
+        # Вставляем события формы
+        for event in form.get('events', []):
+            cursor.execute('''
+                INSERT INTO form_events (form_id, event_name, handler, call_type)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                form_id,
+                event['name'],
+                event['handler'],
+                event['call_type']
+            ))
+        
+        # Вставляем элементы UI
+        item_id_map = {}  # Маппинг item['id'] -> db_id
+        
+        for item in form.get('items', []):
+            # Определяем parent_id из БД
+            parent_db_id = None
+            if item['parent_id']:
+                parent_db_id = item_id_map.get(item['parent_id'])
+            
+            cursor.execute('''
+                INSERT INTO form_items (
+                    form_id, parent_id, name, item_type, 
+                    data_path, title, properties_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                form_id,
+                parent_db_id,
+                item['name'],
+                item['type'],
+                item['data_path'],
+                item['title'],
+                json.dumps(item['properties'], ensure_ascii=False) if item['properties'] else None
+            ))
+            
+            item_db_id = cursor.lastrowid
+            item_id_map[item['id']] = item_db_id
+            
+            # Вставляем события элемента
+            for event in item.get('events', []):
+                cursor.execute('''
+                    INSERT INTO form_item_events (item_id, event_name, handler)
+                    VALUES (?, ?, ?)
+                ''', (
+                    item_db_id,
+                    event['name'],
+                    event['handler']
+                ))
+        
+        # Вставляем условное оформление
+        if form.get('conditional_appearance'):
+            cursor.execute('''
+                INSERT INTO form_conditional_appearance (form_id, xml_data)
+                VALUES (?, ?)
+            ''', (
+                form_id,
+                form['conditional_appearance']
+            ))
+        
+        # Вставляем модуль формы
+        if form.get('module'):
+            cursor.execute('''
+                INSERT INTO modules (object_id, form_id, module_type, code)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                object_id,
+                form_id,
+                'FormModule',
+                form['module']
+            ))
+            
+            # Добавляем в полнотекстовый индекс
+            module_id = cursor.lastrowid
+            cursor.execute('''
+                INSERT INTO code_search (rowid, object_name, module_type, code)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                module_id,
+                f"{object_name}.{form['name']}",
+                'FormModule',
+                form['module']
+            ))
+    
     
     def get_statistics(self):
         """Возвращает статистику по БД"""

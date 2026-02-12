@@ -4,7 +4,7 @@ echo Building all components...
 echo.
 echo [1/3] Building Admin Tool v1...
 call venv\Scripts\activate.bat
-pyinstaller --onedir --windowed --name "1C-Config-Admin-v1" ^
+pyinstaller --onedir --windowed --name "1C-Config-Admin-v1" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=xml.etree.ElementTree ^
     --hidden-import=xml.etree ^
@@ -15,7 +15,7 @@ pyinstaller --onedir --windowed --name "1C-Config-Admin-v1" ^
 
 echo.
 echo [2/3] Building Admin Tool v2...
-pyinstaller --onedir --windowed --name "1C-Config-Admin" ^
+pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
     --hidden-import=json ^
@@ -28,7 +28,7 @@ pyinstaller --onedir --windowed --name "1C-Config-Admin" ^
 
 echo.
 echo [3/3] Building MCP Server...
-pyinstaller --onedir --name "1c-config-server" ^
+pyinstaller --onedir --name "1c-config-server" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
     --hidden-import=json ^
@@ -71,4 +71,5 @@ echo     databases/       - Your databases
 echo     projects.json    - Projects configuration
 echo     Admin.bat        - Launch Admin
 echo     Server.bat       - Launch Server (for testing)
-pause
+echo.
+echo Build completed successfully!

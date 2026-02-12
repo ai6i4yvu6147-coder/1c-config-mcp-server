@@ -194,6 +194,105 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["object_name", "procedure_name"]
             }
+        ),
+        Tool(
+            name="find_form",
+            description="Поиск форм по имени объекта и/или имени формы",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя объекта (опционально, можно частичное)"
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы (опционально, можно частичное)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="find_form_element",
+            description="Найти все формы, содержащие элемент с указанным именем",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "element_name": {
+                        "type": "string",
+                        "description": "Имя элемента формы (можно частичное)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    }
+                },
+                "required": ["element_name"]
+            }
+        ),
+        Tool(
+            name="get_form_structure",
+            description="Получить полную структуру формы: реквизиты, команды, элементы UI, события",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя объекта"
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    }
+                },
+                "required": ["object_name", "form_name"]
+            }
+        ),
+        Tool(
+            name="search_form_properties",
+            description="Поиск элементов форм по свойствам (например, Visible=false, Enabled=false)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "property_name": {
+                        "type": "string",
+                        "description": "Имя свойства (например: Visible, Enabled, ReadOnly)"
+                    },
+                    "property_value": {
+                        "type": "string",
+                        "description": "Значение свойства (опционально, например: false, true)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    }
+                },
+                "required": ["property_name"]
+            }
         )
     ]
 
@@ -345,6 +444,155 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 response += f"📁 {project_name} / {db_name}\n"
                 response += f"Код процедуры {procedure_name} из {object_name}.{module_type}:\n\n"
                 response += code + "\n\n"
+        
+        return [TextContent(type="text", text=response)]
+    
+    elif name == "find_form":
+        object_name = arguments.get("object_name")
+        form_name = arguments.get("form_name")
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        
+        results = tools.find_form(object_name, form_name, project_filter, extension_filter)
+        
+        if not results:
+            return [TextContent(type="text", text="Формы не найдены")]
+        
+        response = "Найденные формы:\n\n"
+        
+        for project_name, project_data in results.items():
+            response += f"📁 Проект: {project_name}\n"
+            for db_name, forms in project_data.items():
+                response += f"  └─ {db_name}:\n"
+                for form in forms:
+                    response += f"     • {form['object_type']}.{form['object_name']}.{form['form_name']}\n"
+                    response += f"       Реквизитов: {form['attributes_count']}, Команд: {form['commands_count']}, Элементов: {form['items_count']}\n"
+                    if form['properties']:
+                        props_str = ", ".join([f"{k}={v}" for k, v in list(form['properties'].items())[:3]])
+                        response += f"       Свойства: {props_str}\n"
+            response += "\n"
+        
+        return [TextContent(type="text", text=response)]
+    
+    elif name == "find_form_element":
+        element_name = arguments["element_name"]
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        
+        results = tools.find_form_element(element_name, project_filter, extension_filter)
+        
+        if not results:
+            return [TextContent(type="text", text=f"Элемент '{element_name}' не найден в формах")]
+        
+        response = f"Элемент '{element_name}' найден в формах:\n\n"
+        
+        for project_name, project_data in results.items():
+            response += f"📁 Проект: {project_name}\n"
+            for db_name, elements in project_data.items():
+                response += f"  └─ {db_name}:\n"
+                for elem in elements:
+                    response += f"     • {elem['object_name']}.{elem['form_name']}.{elem['element_name']}\n"
+                    response += f"       Тип: {elem['element_type']}\n"
+                    if elem['data_path']:
+                        response += f"       DataPath: {elem['data_path']}\n"
+                    if elem['title']:
+                        response += f"       Заголовок: {elem['title']}\n"
+                    if elem['properties']:
+                        visible = elem['properties'].get('Visible', 'true')
+                        enabled = elem['properties'].get('Enabled', 'true')
+                        response += f"       Visible: {visible}, Enabled: {enabled}\n"
+            response += "\n"
+        
+        return [TextContent(type="text", text=response)]
+    
+    elif name == "get_form_structure":
+        object_name = arguments["object_name"]
+        form_name = arguments["form_name"]
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        
+        results = tools.get_form_structure(object_name, form_name, project_filter, extension_filter)
+        
+        if not results:
+            return [TextContent(type="text", text=f"Форма '{object_name}.{form_name}' не найдена")]
+        
+        response = f"Структура формы {object_name}.{form_name}:\n\n"
+        
+        for project_name, project_data in results.items():
+            response += f"📁 Проект: {project_name}\n"
+            for db_name, structure in project_data.items():
+                response += f"  └─ {db_name}:\n\n"
+                
+                # Свойства формы
+                if structure['properties']:
+                    response += "  Свойства формы:\n"
+                    for key, value in structure['properties'].items():
+                        response += f"    • {key}: {value}\n"
+                    response += "\n"
+                
+                # События
+                if structure['events']:
+                    response += "  События формы:\n"
+                    for event in structure['events']:
+                        call_type = f" ({event['call_type']})" if event['call_type'] else ""
+                        response += f"    • {event['event_name']}{call_type} -> {event['handler']}\n"
+                    response += "\n"
+                
+                # Реквизиты
+                if structure['attributes']:
+                    response += "  Реквизиты:\n"
+                    for attr in structure['attributes']:
+                        main_mark = " [Основной]" if attr['is_main'] else ""
+                        response += f"    • {attr['name']}{main_mark}: {attr['type']}\n"
+                        if attr.get('query_text'):
+                            response += f"      QueryText: {attr['query_text'][:100]}...\n"
+                    response += "\n"
+                
+                # Команды
+                if structure['commands']:
+                    response += "  Команды:\n"
+                    for cmd in structure['commands']:
+                        shortcut = f" [{cmd['shortcut']}]" if cmd['shortcut'] else ""
+                        response += f"    • {cmd['name']}{shortcut}: {cmd['action']}\n"
+                    response += "\n"
+                
+                # Элементы UI
+                if structure['items']:
+                    response += f"  Элементы UI ({len(structure['items'])}):\n"
+                    for item in structure['items'][:20]:  # Первые 20
+                        data_path = f" -> {item['data_path']}" if item['data_path'] else ""
+                        response += f"    • {item['name']} ({item['type']}){data_path}\n"
+                    if len(structure['items']) > 20:
+                        response += f"    ... и ещё {len(structure['items']) - 20} элементов\n"
+                    response += "\n"
+        
+        return [TextContent(type="text", text=response)]
+    
+    elif name == "search_form_properties":
+        property_name = arguments["property_name"]
+        property_value = arguments.get("property_value")
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        
+        results = tools.search_form_properties(property_name, property_value, project_filter, extension_filter)
+        
+        if not results:
+            value_text = f"={property_value}" if property_value else ""
+            return [TextContent(type="text", text=f"Элементы со свойством '{property_name}{value_text}' не найдены")]
+        
+        value_text = f"={property_value}" if property_value else ""
+        response = f"Элементы со свойством '{property_name}{value_text}':\n\n"
+        
+        for project_name, project_data in results.items():
+            response += f"📁 Проект: {project_name}\n"
+            for db_name, elements in project_data.items():
+                response += f"  └─ {db_name}: {len(elements)} элемент(ов)\n"
+                for elem in elements:
+                    response += f"     • {elem['object_name']}.{elem['form_name']}.{elem['element_name']}\n"
+                    response += f"       Тип: {elem['element_type']}, {property_name}: {elem['property_value']}\n"
+                    if elem['data_path']:
+                        response += f"       DataPath: {elem['data_path']}\n"
+            response += "\n"
         
         return [TextContent(type="text", text=response)]
     

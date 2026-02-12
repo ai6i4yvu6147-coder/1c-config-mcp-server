@@ -451,3 +451,337 @@ class ConfigurationTools:
                 results[project_key][db_key] = procedure_code
         
         return results
+    
+    def find_form(self, object_name=None, form_name=None, project_filter=None, extension_filter=None):
+        """
+        Поиск форм по имени объекта и/или имени формы
+        
+        Args:
+            object_name: Имя объекта (опционально, можно частичное)
+            form_name: Имя формы (опционально, можно частичное)
+            project_filter: Фильтр по проекту
+            extension_filter: Фильтр по расширению/базе
+        
+        Returns:
+            Dict grouped by projects
+        """
+        databases = self._get_active_databases(project_filter)
+        
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+        
+        results = {}
+        
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+            
+            query = '''
+                SELECT 
+                    o.name as object_name,
+                    o.object_type,
+                    f.form_name,
+                    f.uuid,
+                    f.properties_json,
+                    (SELECT COUNT(*) FROM form_attributes WHERE form_id = f.id) as attributes_count,
+                    (SELECT COUNT(*) FROM form_commands WHERE form_id = f.id) as commands_count,
+                    (SELECT COUNT(*) FROM form_items WHERE form_id = f.id) as items_count
+                FROM forms f
+                JOIN metadata_objects o ON f.object_id = o.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if object_name:
+                query += ' AND o.name LIKE ?'
+                params.append(f'%{object_name}%')
+            
+            if form_name:
+                query += ' AND f.form_name LIKE ?'
+                params.append(f'%{form_name}%')
+            
+            cursor.execute(query, params)
+            
+            db_results = []
+            for row in cursor.fetchall():
+                import json
+                properties = json.loads(row['properties_json']) if row['properties_json'] else {}
+                
+                db_results.append({
+                    'object_name': row['object_name'],
+                    'object_type': row['object_type'],
+                    'form_name': row['form_name'],
+                    'uuid': row['uuid'],
+                    'properties': properties,
+                    'attributes_count': row['attributes_count'],
+                    'commands_count': row['commands_count'],
+                    'items_count': row['items_count']
+                })
+            
+            if db_results:
+                project_key = f"{db_info['project_name']}"
+                if project_key not in results:
+                    results[project_key] = {}
+                
+                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                results[project_key][db_key] = db_results
+        
+        return results
+    
+    def find_form_element(self, element_name, project_filter=None, extension_filter=None):
+        """
+        Найти все формы, содержащие элемент с указанным именем
+        
+        Args:
+            element_name: Имя элемента (можно частичное)
+            project_filter: Фильтр по проекту
+            extension_filter: Фильтр по расширению/базе
+        
+        Returns:
+            Dict grouped by projects
+        """
+        databases = self._get_active_databases(project_filter)
+        
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+        
+        results = {}
+        
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT DISTINCT
+                    o.name as object_name,
+                    o.object_type,
+                    f.form_name,
+                    fi.name as element_name,
+                    fi.item_type,
+                    fi.data_path,
+                    fi.title,
+                    fi.properties_json
+                FROM form_items fi
+                JOIN forms f ON fi.form_id = f.id
+                JOIN metadata_objects o ON f.object_id = o.id
+                WHERE fi.name LIKE ?
+                ORDER BY o.name, f.form_name
+            ''', (f'%{element_name}%',))
+            
+            db_results = []
+            for row in cursor.fetchall():
+                import json
+                properties = json.loads(row['properties_json']) if row['properties_json'] else {}
+                
+                db_results.append({
+                    'object_name': row['object_name'],
+                    'object_type': row['object_type'],
+                    'form_name': row['form_name'],
+                    'element_name': row['element_name'],
+                    'element_type': row['item_type'],
+                    'data_path': row['data_path'],
+                    'title': row['title'],
+                    'properties': properties
+                })
+            
+            if db_results:
+                project_key = f"{db_info['project_name']}"
+                if project_key not in results:
+                    results[project_key] = {}
+                
+                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                results[project_key][db_key] = db_results
+        
+        return results
+    
+    def get_form_structure(self, object_name, form_name, project_filter=None, extension_filter=None):
+        """
+        Получить полную структуру формы
+        
+        Args:
+            object_name: Имя объекта
+            form_name: Имя формы
+            project_filter: Фильтр по проекту
+            extension_filter: Фильтр по расширению/базе
+        
+        Returns:
+            Dict с полной структурой формы
+        """
+        databases = self._get_active_databases(project_filter)
+        
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+        
+        results = {}
+        
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+            
+            # Получаем форму
+            cursor.execute('''
+                SELECT f.id, f.uuid, f.properties_json
+                FROM forms f
+                JOIN metadata_objects o ON f.object_id = o.id
+                WHERE o.name = ? AND f.form_name = ?
+                LIMIT 1
+            ''', (object_name, form_name))
+            
+            form_row = cursor.fetchone()
+            if not form_row:
+                continue
+            
+            import json
+            form_id = form_row['id']
+            
+            # Получаем реквизиты
+            cursor.execute('''
+                SELECT name, type, title, is_main, columns_json, query_text
+                FROM form_attributes
+                WHERE form_id = ?
+            ''', (form_id,))
+            
+            attributes = []
+            for row in cursor.fetchall():
+                attr = {
+                    'name': row['name'],
+                    'type': row['type'],
+                    'title': row['title'],
+                    'is_main': bool(row['is_main'])
+                }
+                if row['columns_json']:
+                    attr['columns'] = json.loads(row['columns_json'])
+                if row['query_text']:
+                    attr['query_text'] = row['query_text']
+                attributes.append(attr)
+            
+            # Получаем команды
+            cursor.execute('''
+                SELECT name, title, action, shortcut, picture, representation
+                FROM form_commands
+                WHERE form_id = ?
+            ''', (form_id,))
+            
+            commands = [dict(row) for row in cursor.fetchall()]
+            
+            # Получаем события формы
+            cursor.execute('''
+                SELECT event_name, handler, call_type
+                FROM form_events
+                WHERE form_id = ?
+            ''', (form_id,))
+            
+            events = [dict(row) for row in cursor.fetchall()]
+            
+            # Получаем элементы UI
+            cursor.execute('''
+                SELECT id, parent_id, name, item_type, data_path, title, properties_json
+                FROM form_items
+                WHERE form_id = ?
+                ORDER BY id
+            ''', (form_id,))
+            
+            items = []
+            for row in cursor.fetchall():
+                item = {
+                    'name': row['name'],
+                    'type': row['item_type'],
+                    'data_path': row['data_path'],
+                    'title': row['title']
+                }
+                if row['properties_json']:
+                    item['properties'] = json.loads(row['properties_json'])
+                items.append(item)
+            
+            # Собираем результат
+            form_structure = {
+                'uuid': form_row['uuid'],
+                'properties': json.loads(form_row['properties_json']) if form_row['properties_json'] else {},
+                'events': events,
+                'attributes': attributes,
+                'commands': commands,
+                'items': items
+            }
+            
+            project_key = f"{db_info['project_name']}"
+            if project_key not in results:
+                results[project_key] = {}
+            
+            db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+            results[project_key][db_key] = form_structure
+        
+        return results
+    
+    def search_form_properties(self, property_name, property_value=None, project_filter=None, extension_filter=None):
+        """
+        Поиск форм по свойствам элементов
+        
+        Args:
+            property_name: Имя свойства (например, "Visible")
+            property_value: Значение свойства (опционально, например "false")
+            project_filter: Фильтр по проекту
+            extension_filter: Фильтр по расширению/базе
+        
+        Returns:
+            Dict с найденными элементами
+        """
+        databases = self._get_active_databases(project_filter)
+        
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+        
+        results = {}
+        
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    o.name as object_name,
+                    o.object_type,
+                    f.form_name,
+                    fi.name as element_name,
+                    fi.item_type,
+                    fi.data_path,
+                    fi.properties_json
+                FROM form_items fi
+                JOIN forms f ON fi.form_id = f.id
+                JOIN metadata_objects o ON f.object_id = o.id
+                WHERE fi.properties_json IS NOT NULL
+            ''')
+            
+            import json
+            db_results = []
+            
+            for row in cursor.fetchall():
+                try:
+                    properties = json.loads(row['properties_json'])
+                    
+                    # Проверяем наличие свойства
+                    if property_name in properties:
+                        # Если указано значение - проверяем его
+                        if property_value is None or str(properties[property_name]).lower() == property_value.lower():
+                            db_results.append({
+                                'object_name': row['object_name'],
+                                'object_type': row['object_type'],
+                                'form_name': row['form_name'],
+                                'element_name': row['element_name'],
+                                'element_type': row['item_type'],
+                                'data_path': row['data_path'],
+                                'property_name': property_name,
+                                'property_value': properties[property_name],
+                                'all_properties': properties
+                            })
+                except:
+                    continue
+            
+            if db_results:
+                project_key = f"{db_info['project_name']}"
+                if project_key not in results:
+                    results[project_key] = {}
+                
+                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                results[project_key][db_key] = db_results
+        
+        return results
