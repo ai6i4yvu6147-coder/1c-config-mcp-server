@@ -85,24 +85,44 @@ class ConfigurationTools:
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
+        # Автоматическое определение метода поиска
+        # FTS5 не поддерживает спецсимволы в запросах
+        special_chars = '.()[]"\''
+        use_exact_search = any(char in query for char in special_chars)
+        
         results = {}
         
         for db_info in databases:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
             
-            cursor.execute('''
-                SELECT 
-                    o.name as object_name,
-                    m.module_type,
-                    m.code,
-                    o.object_type
-                FROM code_search cs
-                JOIN modules m ON cs.rowid = m.id
-                JOIN metadata_objects o ON m.object_id = o.id
-                WHERE code_search MATCH ?
-                LIMIT ?
-            ''', (query, max_results))
+            if use_exact_search:
+                # Прямой LIKE поиск для запросов со спецсимволами
+                cursor.execute('''
+                    SELECT 
+                        o.name as object_name,
+                        m.module_type,
+                        m.code,
+                        o.object_type
+                    FROM modules m
+                    JOIN metadata_objects o ON m.object_id = o.id
+                    WHERE m.code LIKE ?
+                    LIMIT ?
+                ''', (f'%{query}%', max_results))
+            else:
+                # FTS5 полнотекстовый поиск (быстрее, но не работает со спецсимволами)
+                cursor.execute('''
+                    SELECT 
+                        o.name as object_name,
+                        m.module_type,
+                        m.code,
+                        o.object_type
+                    FROM code_search cs
+                    JOIN modules m ON cs.rowid = m.id
+                    JOIN metadata_objects o ON m.object_id = o.id
+                    WHERE code_search MATCH ?
+                    LIMIT ?
+                ''', (query, max_results))
             
             db_results = []
             for row in cursor.fetchall():
@@ -252,19 +272,27 @@ class ConfigurationTools:
         
         return results
     
-    def get_module_code(self, object_name, module_type='Module', project_filter=None, extension_filter=None):
+    def get_module_code(self, object_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
         """
         Получить код модуля
         
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            form_name: Имя формы (обязательно для FormModule)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
         Returns:
             Dict with code from each matching database
         """
+        # Валидация параметров
+        if module_type == 'FormModule' and not form_name:
+            raise ValueError("form_name is required when module_type is 'FormModule'")
+        
+        if form_name and module_type != 'FormModule':
+            raise ValueError("form_name can only be used with module_type='FormModule'")
+        
         databases = self._get_active_databases(project_filter)
         
         if extension_filter:
@@ -272,36 +300,62 @@ class ConfigurationTools:
         
         results = {}
         
-        for db_info in databases:
-            conn = self._get_connection(db_info['db_path'])
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT m.code
-                FROM modules m
-                JOIN metadata_objects o ON m.object_id = o.id
-                WHERE o.name = ? AND m.module_type = ?
-                LIMIT 1
-            ''', (object_name, module_type))
-            
-            row = cursor.fetchone()
-            if row:
-                project_key = f"{db_info['project_name']}"
-                if project_key not in results:
-                    results[project_key] = {}
+        if module_type == 'FormModule':
+            # Модуль формы
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
                 
-                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = row['code']
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN forms f ON m.form_id = f.id
+                    JOIN metadata_objects o ON f.object_id = o.id
+                    WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule'
+                    LIMIT 1
+                ''', (object_name, form_name))
+                
+                row = cursor.fetchone()
+                if row:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = row['code']
+        else:
+            # Модуль объекта
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN metadata_objects o ON m.object_id = o.id
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    LIMIT 1
+                ''', (object_name, module_type))
+                
+                row = cursor.fetchone()
+                if row:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = row['code']
         
         return results
     
-    def get_module_procedures(self, object_name, module_type='Module', project_filter=None, extension_filter=None):
+    def get_module_procedures(self, object_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
         """
         Получить список процедур и функций модуля
         
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            form_name: Имя формы (обязательно для FormModule)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
@@ -310,70 +364,126 @@ class ConfigurationTools:
         """
         import re
         
+        # Валидация параметров
+        if module_type == 'FormModule' and not form_name:
+            raise ValueError("form_name is required when module_type is 'FormModule'")
+        
+        if form_name and module_type != 'FormModule':
+            raise ValueError("form_name can only be used with module_type='FormModule'")
+        
         databases = self._get_active_databases(project_filter)
         
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
+        pattern = r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*$'
         
-        for db_info in databases:
-            conn = self._get_connection(db_info['db_path'])
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT m.code
-                FROM modules m
-                JOIN metadata_objects o ON m.object_id = o.id
-                WHERE o.name = ? AND m.module_type = ?
-                LIMIT 1
-            ''', (object_name, module_type))
-            
-            row = cursor.fetchone()
-            if not row:
-                continue
-            
-            code = row['code']
-            
-            # Парсинг процедур и функций
-            pattern = r'^\s*(Функция|Процедура)\s+(\w+)\s*\(([^)]*)\)(\s+Экспорт)?'
-            
-            procedures = []
-            for line_num, line in enumerate(code.split('\n'), 1):
-                match = re.match(pattern, line, re.IGNORECASE)
-                if match:
-                    proc_type = match.group(1)
-                    proc_name = match.group(2)
-                    params = match.group(3).strip()
-                    is_export = bool(match.group(4))
-                    
-                    procedures.append({
-                        'type': proc_type,
-                        'name': proc_name,
-                        'params': params if params else '(без параметров)',
-                        'export': is_export,
-                        'line': line_num,
-                        'signature': line.strip()
-                    })
-            
-            if procedures:
-                project_key = f"{db_info['project_name']}"
-                if project_key not in results:
-                    results[project_key] = {}
+        if module_type == 'FormModule':
+            # Модуль формы
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
                 
-                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = procedures
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN forms f ON m.form_id = f.id
+                    JOIN metadata_objects o ON f.object_id = o.id
+                    WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule'
+                    LIMIT 1
+                ''', (object_name, form_name))
+                
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                
+                code = row['code']
+                
+                # Парсинг процедур и функций
+                procedures = []
+                for line_num, line in enumerate(code.split('\n'), 1):
+                    match = re.match(pattern, line, re.IGNORECASE)
+                    if match:
+                        proc_type = match.group(1)
+                        proc_name = match.group(2)
+                        params = match.group(3).strip()
+                        is_export = bool(match.group(4))
+                        
+                        procedures.append({
+                            'type': proc_type,
+                            'name': proc_name,
+                            'params': params if params else '(без параметров)',
+                            'export': is_export,
+                            'line': line_num,
+                            'signature': line.strip()
+                        })
+                
+                if procedures:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = procedures
+        else:
+            # Модуль объекта
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN metadata_objects o ON m.object_id = o.id
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    LIMIT 1
+                ''', (object_name, module_type))
+                
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                
+                code = row['code']
+                
+                # Парсинг процедур и функций
+                procedures = []
+                for line_num, line in enumerate(code.split('\n'), 1):
+                    match = re.match(pattern, line, re.IGNORECASE)
+                    if match:
+                        proc_type = match.group(1)
+                        proc_name = match.group(2)
+                        params = match.group(3).strip()
+                        is_export = bool(match.group(4))
+                        
+                        procedures.append({
+                            'type': proc_type,
+                            'name': proc_name,
+                            'params': params if params else '(без параметров)',
+                            'export': is_export,
+                            'line': line_num,
+                            'signature': line.strip()
+                        })
+                
+                if procedures:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = procedures
         
         return results
     
-    def get_procedure_code(self, object_name, procedure_name, module_type='Module', project_filter=None, extension_filter=None):
+    def get_procedure_code(self, object_name, procedure_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
         """
         Получить код конкретной процедуры
         
         Args:
             object_name: Имя объекта
             procedure_name: Имя процедуры/функции
-            module_type: Тип модуля
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            form_name: Имя формы (обязательно для FormModule)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
@@ -382,6 +492,13 @@ class ConfigurationTools:
         """
         import re
         
+        # Валидация параметров
+        if module_type == 'FormModule' and not form_name:
+            raise ValueError("form_name is required when module_type is 'FormModule'")
+        
+        if form_name and module_type != 'FormModule':
+            raise ValueError("form_name can only be used with module_type='FormModule'")
+        
         databases = self._get_active_databases(project_filter)
         
         if extension_filter:
@@ -389,66 +506,92 @@ class ConfigurationTools:
         
         results = {}
         
-        for db_info in databases:
-            conn = self._get_connection(db_info['db_path'])
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT m.code
-                FROM modules m
-                JOIN metadata_objects o ON m.object_id = o.id
-                WHERE o.name = ? AND m.module_type = ?
-                LIMIT 1
-            ''', (object_name, module_type))
-            
-            row = cursor.fetchone()
-            if not row:
-                continue
-            
-            code = row['code']
+        # Общая логика поиска процедуры
+        def extract_procedure(code, proc_name):
             lines = code.split('\n')
             
-            # Поиск процедуры
-            start_pattern = rf'^\s*(Функция|Процедура)\s+{re.escape(procedure_name)}\s*\('
-            end_keywords = ['КонецФункции', 'КонецПроцедуры']
+            # Паттерны для поиска (русский и английский)
+            start_pattern = rf'^\s*(Функция|Процедура|Function|Procedure)\s+{re.escape(proc_name)}\s*\('
+            end_pattern = r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\s*$'
             
             start_line = None
-            proc_type = None
             
+            # Ищем начало процедуры
             for i, line in enumerate(lines):
                 if re.match(start_pattern, line, re.IGNORECASE):
                     start_line = i
-                    proc_type = re.match(r'^\s*(Функция|Процедура)', line, re.IGNORECASE).group(1)
                     break
             
             if start_line is None:
-                continue
+                return None
             
-            # Поиск конца
+            # Ищем конец процедуры (первое вхождение КонецПроцедуры/КонецФункции)
             end_line = None
-            indent_level = 0
-            
             for i in range(start_line + 1, len(lines)):
-                line = lines[i].strip()
-                
-                if re.match(r'^(Функция|Процедура)\s+', line, re.IGNORECASE):
-                    indent_level += 1
-                elif line in end_keywords or re.match(r'^(КонецФункции|КонецПроцедуры)', line, re.IGNORECASE):
-                    if indent_level == 0:
-                        end_line = i
-                        break
-                    else:
-                        indent_level -= 1
+                if re.match(end_pattern, lines[i], re.IGNORECASE):
+                    end_line = i
+                    break
             
             if end_line is not None:
-                procedure_code = '\n'.join(lines[start_line:end_line + 1])
+                return '\n'.join(lines[start_line:end_line + 1])
+            
+            return None
+        
+        if module_type == 'FormModule':
+            # Модуль формы
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
                 
-                project_key = f"{db_info['project_name']}"
-                if project_key not in results:
-                    results[project_key] = {}
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN forms f ON m.form_id = f.id
+                    JOIN metadata_objects o ON f.object_id = o.id
+                    WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule'
+                    LIMIT 1
+                ''', (object_name, form_name))
                 
-                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = procedure_code
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                
+                procedure_code = extract_procedure(row['code'], procedure_name)
+                
+                if procedure_code:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = procedure_code
+        else:
+            # Модуль объекта
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT m.code
+                    FROM modules m
+                    JOIN metadata_objects o ON m.object_id = o.id
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    LIMIT 1
+                ''', (object_name, module_type))
+                
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                
+                procedure_code = extract_procedure(row['code'], procedure_name)
+                
+                if procedure_code:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = procedure_code
         
         return results
     

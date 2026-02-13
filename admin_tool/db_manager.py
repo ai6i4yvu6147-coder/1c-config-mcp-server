@@ -183,6 +183,33 @@ class DatabaseManager:
             )
         ''')
         
+        # Таблица атрибутов объектов (стандартные + кастомные)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attributes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                attribute_type TEXT,
+                title TEXT,
+                is_standard INTEGER DEFAULT 0,
+                standard_type TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        
+        # Таблица колонок табличных частей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tabular_section_columns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                tabular_section_name TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                column_type TEXT,
+                title TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        
         # Индексы для быстрого поиска
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_objects_name 
@@ -207,6 +234,17 @@ class DatabaseManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_form_items_type 
             ON form_items(item_type)
+        ''')
+        
+        # Индексы для атрибутов
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_attributes_object 
+            ON attributes(object_id)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_tabular_cols_object 
+            ON tabular_section_columns(object_id)
         ''')
         
         # Таблица для полнотекстового поиска по коду (FTS5)
@@ -257,6 +295,14 @@ class DatabaseManager:
                     INSERT INTO code_search (rowid, object_name, module_type, code)
                     VALUES (?, ?, ?, ?)
                 ''', (module_id, obj['name'], module['type'], module['code']))
+            
+            # Вставляем стандартные атрибуты
+            for attr in obj['properties'].get('standard_attributes', []):
+                self._insert_attribute(cursor, object_id, attr)
+            
+            # Вставляем кастомные атрибуты
+            for attr in obj['properties'].get('custom_attributes', []):
+                self._insert_attribute(cursor, object_id, attr)
             
             # Вставляем формы
             for form in obj.get('forms', []):
@@ -403,6 +449,19 @@ class DatabaseManager:
                 form['module']
             ))
     
+    def _insert_attribute(self, cursor, object_id, attr):
+        """Вставляет атрибут объекта в БД"""
+        cursor.execute('''
+            INSERT INTO attributes (object_id, name, attribute_type, title, is_standard, standard_type)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            object_id,
+            attr['name'],
+            attr.get('type', ''),
+            attr.get('title', ''),
+            1 if attr.get('is_standard') else 0,
+            attr.get('standard_type')
+        ))
     
     def get_statistics(self):
         """Возвращает статистику по БД"""
@@ -427,6 +486,18 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM modules')
         stats['total_modules'] = cursor.fetchone()[0]
         
+        # Количество атрибутов
+        cursor.execute('SELECT COUNT(*) FROM attributes')
+        stats['total_attributes'] = cursor.fetchone()[0]
+        
+        # Количество стандартных атрибутов
+        cursor.execute('SELECT COUNT(*) FROM attributes WHERE is_standard = 1')
+        stats['total_standard_attributes'] = cursor.fetchone()[0]
+        
+        # Количество кастомных атрибутов
+        cursor.execute('SELECT COUNT(*) FROM attributes WHERE is_standard = 0')
+        stats['total_custom_attributes'] = cursor.fetchone()[0]
+        
         return stats
 
 
@@ -446,6 +517,9 @@ def test_database_creation(config_xml_path, db_path):
     stats = db.get_statistics()
     print(f"  Всего объектов: {stats['total_objects']}")
     print(f"  Всего модулей: {stats['total_modules']}")
+    print(f"  Всего атрибутов: {stats['total_attributes']}")
+    print(f"    - Стандартных: {stats['total_standard_attributes']}")
+    print(f"    - Кастомных: {stats['total_custom_attributes']}")
     print("\nПо типам:")
     for obj_type, count in stats['by_type'].items():
         print(f"  {obj_type}: {count}")

@@ -37,7 +37,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_code",
-            description="Поиск по коду конфигурации. Ищет во всех активных проектах и их базах/расширениях.",
+            description="Поиск по коду конфигурации. Ищет во всех активных проектах и их базах/расширениях. Автоматически выбирает оптимальный метод поиска.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -112,7 +112,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_module_code",
-            description="Получить код модуля объекта",
+            description="Получить код модуля объекта или модуля формы",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -122,8 +122,12 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
                         "default": "Module"
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы (обязательно для module_type='FormModule')"
                     },
                     "project_filter": {
                         "type": "string",
@@ -139,7 +143,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_module_procedures",
-            description="Получить список процедур и функций модуля (только сигнатуры, без тел)",
+            description="Получить список процедур и функций модуля объекта или модуля формы (только сигнатуры, без тел)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -149,8 +153,12 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
                         "default": "Module"
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы (обязательно для module_type='FormModule')"
                     },
                     "project_filter": {
                         "type": "string",
@@ -166,7 +174,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_procedure_code",
-            description="Получить код конкретной процедуры или функции из модуля",
+            description="Получить код конкретной процедуры или функции из модуля объекта или модуля формы",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -180,8 +188,12 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
                         "default": "Module"
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы (обязательно для module_type='FormModule')"
                     },
                     "project_filter": {
                         "type": "string",
@@ -381,10 +393,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_module_code":
         object_name = arguments["object_name"]
         module_type = arguments.get("module_type", "Module")
+        form_name = arguments.get("form_name")
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
         
-        results = tools.get_module_code(object_name, module_type, project_filter, extension_filter)
+        results = tools.get_module_code(object_name, module_type, form_name, project_filter, extension_filter)
         
         if not results:
             return [TextContent(type="text", text=f"Модуль '{module_type}' объекта '{object_name}' не найден")]
@@ -402,10 +415,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_module_procedures":
         object_name = arguments["object_name"]
         module_type = arguments.get("module_type", "Module")
+        form_name = arguments.get("form_name")
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
         
-        results = tools.get_module_procedures(object_name, module_type, project_filter, extension_filter)
+        results = tools.get_module_procedures(object_name, module_type, form_name, project_filter, extension_filter)
         
         if not results:
             return [TextContent(type="text", text=f"Модуль '{module_type}' объекта '{object_name}' не найден")]
@@ -429,10 +443,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         object_name = arguments["object_name"]
         procedure_name = arguments["procedure_name"]
         module_type = arguments.get("module_type", "Module")
+        form_name = arguments.get("form_name")
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
         
-        results = tools.get_procedure_code(object_name, procedure_name, module_type, project_filter, extension_filter)
+        results = tools.get_procedure_code(object_name, procedure_name, module_type, form_name, project_filter, extension_filter)
         
         if not results:
             return [TextContent(type="text", text=f"Процедура '{procedure_name}' не найдена в модуле {object_name}.{module_type}")]

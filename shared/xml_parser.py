@@ -85,7 +85,7 @@ class ConfigurationParser:
         uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
         
         # Получаем свойства
-        properties = self._parse_properties(root)
+        properties = self._parse_properties(root, obj_type)
         
         # Получаем модули
         modules = self._parse_modules(name, folder_name)
@@ -102,7 +102,7 @@ class ConfigurationParser:
             'forms': forms
         }
     
-    def _parse_properties(self, root):
+    def _parse_properties(self, root, obj_type=None):
         """Извлекает свойства объекта"""
         props = {}
         properties = root.find('.//Properties')
@@ -119,9 +119,127 @@ class ConfigurationParser:
             if comment_elem is not None and comment_elem.text:
                 props['comment'] = comment_elem.text
         
+        # Стандартные атрибуты
+        if obj_type:
+            props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)
+            props['custom_attributes'] = self._parse_custom_attributes(root)
+        else:
+            props['standard_attributes'] = []
+            props['custom_attributes'] = []
+        
         return props
     
-    def _parse_modules(self, obj_name, folder_name):
+    def _parse_standard_attributes(self, root, obj_type):
+        """Извлекает стандартные атрибуты объекта"""
+        standard_attrs = []
+        
+        # Стандартные атрибуты по типам объектов
+        standard_by_type = {
+            'Catalog': ['Code', 'Description', 'IsFolder', 'Parent', 'Owner'],
+            'Document': ['Date', 'Number', 'Posted', 'DeletionMark'],
+            'InformationRegister': ['Recorder', 'Period', 'Active', 'LineNumber'],
+            'AccumulationRegister': ['Recorder', 'LineNumber', 'Active', 'DeletionMark'],
+            'BusinessProcess': ['Date', 'Number', 'Posted', 'DeletionMark', 'State'],
+            'Task': ['Date', 'Number', 'Posted', 'DeletionMark', 'Importance', 'Executed']
+        }
+        
+        attrs_to_find = standard_by_type.get(obj_type, [])
+        
+        # Namespace для MDClasses
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        
+        # Ищем в StandardAttributes с учетом namespace
+        std_attrs_elem = root.find(f'.//{{{md_ns}}}StandardAttributes')
+        
+        for attr_name in attrs_to_find:
+            # Ищем элемент с именем атрибута
+            if std_attrs_elem is not None:
+                attr_elem = std_attrs_elem.find(f'.//{{{md_ns}}}{attr_name}')
+            else:
+                attr_elem = root.find(f'.//{{{md_ns}}}{attr_name}')
+            
+            if attr_elem is not None:
+                attr_data = {
+                    'name': attr_name,
+                    'type': self._extract_attribute_type(attr_elem),
+                    'title': self._extract_synonym(attr_elem),
+                    'is_standard': True,
+                    'standard_type': attr_name
+                }
+                standard_attrs.append(attr_data)
+        
+        return standard_attrs
+    
+    def _parse_custom_attributes(self, root):
+        """Извлекает кастомные атрибуты из секции Attributes"""
+        attributes = []
+        
+        # Namespace для MDClasses
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        
+        # Ищем Attributes с учетом namespace
+        attrs_elem = root.find(f'.//{{{md_ns}}}Attributes')
+        
+        if attrs_elem is None:
+            return attributes
+        
+        for attr in attrs_elem.findall(f'.//{{{md_ns}}}Attribute'):
+            attr_name = attr.get('name', '')
+            if attr_name:
+                attr_data = {
+                    'name': attr_name,
+                    'type': self._extract_attribute_type(attr),
+                    'title': self._extract_synonym(attr),
+                    'is_standard': False,
+                    'standard_type': None
+                }
+                attributes.append(attr_data)
+        
+        return attributes
+    
+    def _extract_attribute_type(self, elem):
+        """Извлекает тип атрибута"""
+        # Namespace для MDClasses и data/core
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        v8_ns = 'http://v8.1c.ru/8.1/data/core'
+        
+        # Ищем в v8:Type с учетом namespace
+        v8_type = elem.find(f'.//{{{v8_ns}}}Type')
+        if v8_type is not None and v8_type.text:
+            return v8_type.text
+        
+        # Ищем в ValueType с учетом namespace
+        value_type = elem.find(f'.//{{{md_ns}}}ValueType')
+        if value_type is not None:
+            types = []
+            for ref in value_type.findall(f'.//{{{v8_ns}}}Ref'):
+                if ref.text:
+                    types.append(ref.text)
+            if types:
+                return ', '.join(types)
+        
+        return ''
+    
+    def _extract_synonym(self, elem):
+        """Извлекает синоним атрибута"""
+        v8_ns = 'http://v8.1c.ru/8.1/data/core'
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        
+        # Ищем в v8:content с учетом namespace
+        synonym_elem = elem.find(f'.//{{{v8_ns}}}content')
+        if synonym_elem is not None and synonym_elem.text:
+            return synonym_elem.text
+        
+        # Ищем в Synonym с учетом namespace
+        syn_elem = elem.find(f'.//{{{md_ns}}}Synonym')
+        if syn_elem is not None:
+            syn_content = syn_elem.find(f'.//{{{v8_ns}}}content')
+            if syn_content is not None and syn_content.text:
+                return syn_content.text
+        
+        return ''
+    
+    def  _parse_modules(self, obj_name, folder_name):
         """Извлекает код модулей объекта"""
         modules = []
         obj_dir = self.root_dir / folder_name / obj_name / 'Ext'
