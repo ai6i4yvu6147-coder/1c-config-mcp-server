@@ -67,39 +67,42 @@ class ConfigurationTools:
             conn.close()
         self.connections.clear()
     
-    def search_code(self, query, project_filter=None, extension_filter=None, max_results=10):
+    def search_code(self, query, project_filter=None, extension_filter=None, max_results=10,
+                    object_name=None, module_type=None):
         """
         Поиск по коду во всех активных проектах
-        
+
         Args:
             query: Поисковый запрос
             project_filter: Фильтр по проекту (опционально)
             extension_filter: Фильтр по расширению/базе (опционально)
             max_results: Максимум результатов на базу
-        
+            object_name: Фильтр по имени объекта (опционально, можно частичное)
+            module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule
+
         Returns:
             Dict grouped by projects
         """
         databases = self._get_active_databases(project_filter)
-        
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
-        
+
         # Автоматическое определение метода поиска
         # FTS5 не поддерживает спецсимволы в запросах
         special_chars = '.()[]"\''
-        use_exact_search = any(char in query for char in special_chars)
-        
+        use_exact_search = any(char in query for char in special_chars) or bool(object_name) or bool(module_type)
+
         results = {}
-        
+
         for db_info in databases:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
-            
+
             if use_exact_search:
-                # Прямой LIKE поиск для запросов со спецсимволами
-                cursor.execute('''
-                    SELECT 
+                # Прямой LIKE поиск
+                sql = '''
+                    SELECT
                         o.name as object_name,
                         m.module_type,
                         m.code,
@@ -107,12 +110,21 @@ class ConfigurationTools:
                     FROM modules m
                     JOIN metadata_objects o ON m.object_id = o.id
                     WHERE m.code LIKE ?
-                    LIMIT ?
-                ''', (f'%{query}%', max_results))
+                '''
+                params = [f'%{query}%']
+                if object_name:
+                    sql += ' AND o.name LIKE ?'
+                    params.append(f'%{object_name}%')
+                if module_type:
+                    sql += ' AND m.module_type = ?'
+                    params.append(module_type)
+                sql += ' LIMIT ?'
+                params.append(max_results)
+                cursor.execute(sql, params)
             else:
                 # FTS5 полнотекстовый поиск (быстрее, но не работает со спецсимволами)
                 cursor.execute('''
-                    SELECT 
+                    SELECT
                         o.name as object_name,
                         m.module_type,
                         m.code,
@@ -180,28 +192,37 @@ class ConfigurationTools:
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT 
+                SELECT
+                    o.id,
                     o.name,
                     o.object_type,
                     o.uuid,
                     o.synonym,
-                    GROUP_CONCAT(m.module_type) as modules
+                    GROUP_CONCAT(DISTINCT m.module_type) as modules
                 FROM metadata_objects o
-                LEFT JOIN modules m ON o.id = m.object_id
+                LEFT JOIN modules m ON o.id = m.object_id AND m.form_id IS NULL
                 WHERE o.name LIKE ?
                 GROUP BY o.id
             ''', (f'%{name}%',))
-            
+
             db_results = []
             for row in cursor.fetchall():
                 modules = row['modules'].split(',') if row['modules'] else []
-                
+
+                # Получаем список форм объекта
+                cursor2 = conn.cursor()
+                cursor2.execute('''
+                    SELECT form_name FROM forms WHERE object_id = ? ORDER BY form_name
+                ''', (row['id'],))
+                forms = [r['form_name'] for r in cursor2.fetchall()]
+
                 db_results.append({
                     'name': row['name'],
                     'type': row['object_type'],
                     'uuid': row['uuid'],
                     'synonym': row['synonym'],
-                    'modules': modules
+                    'modules': modules,
+                    'forms': forms,
                 })
             
             if db_results:
@@ -671,30 +692,31 @@ class ConfigurationTools:
         
         return results
     
-    def find_form_element(self, element_name, project_filter=None, extension_filter=None):
+    def find_form_element(self, element_name, object_name=None, project_filter=None, extension_filter=None):
         """
         Найти все формы, содержащие элемент с указанным именем
-        
+
         Args:
             element_name: Имя элемента (можно частичное)
+            object_name: Имя объекта для фильтрации (опционально, можно частичное)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
-        
+
         Returns:
             Dict grouped by projects
         """
         databases = self._get_active_databases(project_filter)
-        
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
-        
+
         results = {}
-        
+
         for db_info in databases:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
-            
-            cursor.execute('''
+
+            query = '''
                 SELECT DISTINCT
                     o.name as object_name,
                     o.object_type,
@@ -708,8 +730,16 @@ class ConfigurationTools:
                 JOIN forms f ON fi.form_id = f.id
                 JOIN metadata_objects o ON f.object_id = o.id
                 WHERE fi.name LIKE ?
-                ORDER BY o.name, f.form_name
-            ''', (f'%{element_name}%',))
+            '''
+            params = [f'%{element_name}%']
+
+            if object_name:
+                query += ' AND o.name LIKE ?'
+                params.append(f'%{object_name}%')
+
+            query += ' ORDER BY o.name, f.form_name'
+
+            cursor.execute(query, params)
             
             db_results = []
             for row in cursor.fetchall():
@@ -918,13 +948,202 @@ class ConfigurationTools:
                             })
                 except:
                     continue
-            
+
             if db_results:
                 project_key = f"{db_info['project_name']}"
                 if project_key not in results:
                     results[project_key] = {}
-                
+
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
                 results[project_key][db_key] = db_results
-        
+
+        return results
+
+    def get_object_structure(self, object_name, project_filter=None, extension_filter=None):
+        """
+        Получить полную структуру метаданных объекта 1С:
+        реквизиты, табличные части, измерения/ресурсы регистров, значения перечислений.
+
+        Args:
+            object_name: Имя объекта (частичное совпадение)
+            project_filter: Фильтр по проекту (опционально)
+            extension_filter: Фильтр по расширению/базе (опционально)
+
+        Returns:
+            Dict сгруппированный по проектам/базам
+        """
+        databases = self._get_active_databases(project_filter)
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+
+        results = {}
+
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT id, name, object_type, uuid, synonym, comment
+                FROM metadata_objects
+                WHERE name LIKE ?
+                LIMIT 1
+            ''', (f'%{object_name}%',))
+
+            obj_row = cursor.fetchone()
+            if not obj_row:
+                continue
+
+            object_id = obj_row['id']
+
+            # Реквизиты, измерения, ресурсы
+            cursor.execute('''
+                SELECT name, attribute_type, title, is_standard, standard_type, section
+                FROM attributes
+                WHERE object_id = ?
+                ORDER BY section, is_standard DESC, name
+            ''', (object_id,))
+
+            attributes_by_section = {}
+            for row in cursor.fetchall():
+                section = row['section'] or 'Attribute'
+                if section not in attributes_by_section:
+                    attributes_by_section[section] = []
+                attributes_by_section[section].append({
+                    'name': row['name'],
+                    'type': row['attribute_type'],
+                    'title': row['title'],
+                    'is_standard': bool(row['is_standard']),
+                    'standard_type': row['standard_type'],
+                })
+
+            # Табличные части с колонками
+            cursor.execute('''
+                SELECT tabular_section_name, tabular_section_title,
+                       column_name, column_type, title
+                FROM tabular_section_columns
+                WHERE object_id = ?
+                ORDER BY tabular_section_name, column_name
+            ''', (object_id,))
+
+            tabular_sections = {}
+            for row in cursor.fetchall():
+                ts_name = row['tabular_section_name']
+                if ts_name not in tabular_sections:
+                    tabular_sections[ts_name] = {
+                        'name': ts_name,
+                        'title': row['tabular_section_title'],
+                        'columns': [],
+                    }
+                tabular_sections[ts_name]['columns'].append({
+                    'name': row['column_name'],
+                    'type': row['column_type'],
+                    'title': row['title'],
+                })
+
+            # Значения перечислений
+            cursor.execute('''
+                SELECT name, enum_order, title
+                FROM enum_values
+                WHERE object_id = ?
+                ORDER BY enum_order, name
+            ''', (object_id,))
+
+            enum_values = [dict(row) for row in cursor.fetchall()]
+
+            # Модули (краткий список)
+            cursor.execute('''
+                SELECT module_type FROM modules
+                WHERE object_id = ? AND form_id IS NULL
+            ''', (object_id,))
+            modules = [row['module_type'] for row in cursor.fetchall()]
+
+            # Формы (краткий список)
+            cursor.execute('''
+                SELECT form_name FROM forms
+                WHERE object_id = ?
+            ''', (object_id,))
+            forms = [row['form_name'] for row in cursor.fetchall()]
+
+            structure = {
+                'name': obj_row['name'],
+                'type': obj_row['object_type'],
+                'uuid': obj_row['uuid'],
+                'synonym': obj_row['synonym'],
+                'comment': obj_row['comment'],
+                'attributes': attributes_by_section.get('Attribute', []),
+                'dimensions': attributes_by_section.get('Dimension', []),
+                'resources': attributes_by_section.get('Resource', []),
+                'tabular_sections': list(tabular_sections.values()),
+                'enum_values': enum_values,
+                'modules': modules,
+                'forms': forms,
+            }
+
+            project_key = db_info['project_name']
+            if project_key not in results:
+                results[project_key] = {}
+
+            db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+            results[project_key][db_key] = structure
+
+        return results
+
+    def find_attribute(self, attribute_name, project_filter=None, extension_filter=None, max_results=20):
+        """
+        Поиск реквизита по имени во всех объектах метаданных.
+
+        Args:
+            attribute_name: Имя реквизита (частичное совпадение)
+            project_filter: Фильтр по проекту (опционально)
+            extension_filter: Фильтр по расширению/базе (опционально)
+            max_results: Максимум результатов на базу (по умолчанию 20)
+
+        Returns:
+            Dict сгруппированный по проектам/базам
+        """
+        databases = self._get_active_databases(project_filter)
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+
+        results = {}
+
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT
+                    o.name as object_name,
+                    o.object_type,
+                    a.name as attr_name,
+                    a.attribute_type,
+                    a.title,
+                    a.is_standard,
+                    a.section
+                FROM attributes a
+                JOIN metadata_objects o ON a.object_id = o.id
+                WHERE a.name LIKE ?
+                ORDER BY o.object_type, o.name, a.section, a.name
+                LIMIT ?
+            ''', (f'%{attribute_name}%', max_results))
+
+            db_results = []
+            for row in cursor.fetchall():
+                db_results.append({
+                    'object_name': row['object_name'],
+                    'object_type': row['object_type'],
+                    'attribute_name': row['attr_name'],
+                    'attribute_type': row['attribute_type'],
+                    'title': row['title'],
+                    'is_standard': bool(row['is_standard']),
+                    'section': row['section'],
+                })
+
+            if db_results:
+                project_key = db_info['project_name']
+                if project_key not in results:
+                    results[project_key] = {}
+                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                results[project_key][db_key] = db_results
+
         return results

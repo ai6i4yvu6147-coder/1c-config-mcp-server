@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__1c-config__get_module_procedures",
+      "mcp__1c-config__get_procedure_code",
+      "mcp__1c-config__search_form_properties",
+      "mcp__1c-config__search_code",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(git -C /c/repo/1c-config-mcp-server log --oneline -5 --format=\"%h %ai %s\")",
+      "Bash(git -C /c/repo/1c-config-mcp-server diff HEAD -- server/tools.py server/server.py)"
+    ]
+  }
+}

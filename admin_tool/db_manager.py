@@ -183,7 +183,7 @@ class DatabaseManager:
             )
         ''')
         
-        # Таблица атрибутов объектов (стандартные + кастомные)
+        # Таблица атрибутов объектов (стандартные + кастомные + измерения/ресурсы регистров)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS attributes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,18 +193,32 @@ class DatabaseManager:
                 title TEXT,
                 is_standard INTEGER DEFAULT 0,
                 standard_type TEXT,
+                section TEXT NOT NULL DEFAULT 'Attribute',
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
         ''')
-        
+
         # Таблица колонок табличных частей
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tabular_section_columns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 object_id INTEGER NOT NULL,
                 tabular_section_name TEXT NOT NULL,
+                tabular_section_title TEXT,
                 column_name TEXT NOT NULL,
                 column_type TEXT,
+                title TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        # Таблица значений перечислений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS enum_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                enum_order INTEGER,
                 title TEXT,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
@@ -243,10 +257,15 @@ class DatabaseManager:
         ''')
         
         cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_tabular_cols_object 
+            CREATE INDEX IF NOT EXISTS idx_tabular_cols_object
             ON tabular_section_columns(object_id)
         ''')
-        
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_enum_values_object
+            ON enum_values(object_id)
+        ''')
+
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search 
@@ -299,11 +318,28 @@ class DatabaseManager:
             # Вставляем стандартные атрибуты
             for attr in obj['properties'].get('standard_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
-            
+
             # Вставляем кастомные атрибуты
             for attr in obj['properties'].get('custom_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
-            
+
+            # Вставляем измерения регистров
+            for dim in obj.get('dimensions', []):
+                self._insert_attribute(cursor, object_id, dim, section='Dimension')
+
+            # Вставляем ресурсы регистров
+            for res in obj.get('resources', []):
+                self._insert_attribute(cursor, object_id, res, section='Resource')
+
+            # Вставляем табличные части с колонками
+            for ts in obj.get('tabular_sections', []):
+                self._insert_tabular_section(cursor, object_id, ts)
+
+            # Вставляем значения перечислений
+            enum_values = obj.get('enum_values', [])
+            if enum_values:
+                self._insert_enum_values(cursor, object_id, enum_values)
+
             # Вставляем формы
             for form in obj.get('forms', []):
                 self._insert_form(cursor, object_id, obj['name'], form)
@@ -449,19 +485,49 @@ class DatabaseManager:
                 form['module']
             ))
     
-    def _insert_attribute(self, cursor, object_id, attr):
+    def _insert_attribute(self, cursor, object_id, attr, section='Attribute'):
         """Вставляет атрибут объекта в БД"""
         cursor.execute('''
-            INSERT INTO attributes (object_id, name, attribute_type, title, is_standard, standard_type)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO attributes (object_id, name, attribute_type, title, is_standard, standard_type, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             object_id,
             attr['name'],
             attr.get('type', ''),
             attr.get('title', ''),
             1 if attr.get('is_standard') else 0,
-            attr.get('standard_type')
+            attr.get('standard_type'),
+            section,
         ))
+
+    def _insert_tabular_section(self, cursor, object_id, ts):
+        """Вставляет табличную часть с колонками в БД"""
+        for column in ts['columns']:
+            cursor.execute('''
+                INSERT INTO tabular_section_columns
+                    (object_id, tabular_section_name, tabular_section_title, column_name, column_type, title)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                object_id,
+                ts['name'],
+                ts.get('title', ''),
+                column['name'],
+                column.get('type', ''),
+                column.get('title', ''),
+            ))
+
+    def _insert_enum_values(self, cursor, object_id, enum_values):
+        """Вставляет значения перечисления в БД"""
+        for ev in enum_values:
+            cursor.execute('''
+                INSERT INTO enum_values (object_id, name, enum_order, title)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                object_id,
+                ev['name'],
+                ev.get('order'),
+                ev.get('title', ''),
+            ))
     
     def get_statistics(self):
         """Возвращает статистику по БД"""
@@ -497,7 +563,23 @@ class DatabaseManager:
         # Количество кастомных атрибутов
         cursor.execute('SELECT COUNT(*) FROM attributes WHERE is_standard = 0')
         stats['total_custom_attributes'] = cursor.fetchone()[0]
-        
+
+        # Количество измерений регистров
+        cursor.execute("SELECT COUNT(*) FROM attributes WHERE section = 'Dimension'")
+        stats['total_dimensions'] = cursor.fetchone()[0]
+
+        # Количество ресурсов регистров
+        cursor.execute("SELECT COUNT(*) FROM attributes WHERE section = 'Resource'")
+        stats['total_resources'] = cursor.fetchone()[0]
+
+        # Количество колонок табличных частей
+        cursor.execute('SELECT COUNT(*) FROM tabular_section_columns')
+        stats['total_tabular_section_columns'] = cursor.fetchone()[0]
+
+        # Количество значений перечислений
+        cursor.execute('SELECT COUNT(*) FROM enum_values')
+        stats['total_enum_values'] = cursor.fetchone()[0]
+
         return stats
 
 

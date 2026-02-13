@@ -73,60 +73,85 @@ class ConfigurationParser:
     def _parse_object(self, name, obj_type, folder_name):
         """Парсит отдельный объект метаданных"""
         xml_file = self.root_dir / folder_name / f"{name}.xml"
-        
+
         if not xml_file.exists():
             return None
-        
+
         tree = ET.parse(xml_file)
         root = tree.getroot()
-        
+
         # Получаем UUID
-        obj_elem = root.find(f'.//{obj_type}')
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        if obj_elem is None:
+            obj_elem = root.find(f'.//{obj_type}')
         uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
-        
+
         # Получаем свойства
         properties = self._parse_properties(root, obj_type)
-        
+
         # Получаем модули
         modules = self._parse_modules(name, folder_name)
-        
+
         # Получаем формы
         forms = self._parse_forms(name, folder_name)
-        
+
+        # Парсим дополнительные структуры по типу объекта
+        register_types = ('InformationRegister', 'AccumulationRegister')
+        if obj_type in register_types:
+            tabular_sections = []
+            dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
+            resources = self._parse_register_section(root, 'Resources', obj_type)
+            enum_values = []
+        elif obj_type == 'Enum':
+            tabular_sections = []
+            dimensions = []
+            resources = []
+            enum_values = self._parse_enum_values(root)
+        else:
+            tabular_sections = self._parse_tabular_sections(root, obj_type)
+            dimensions = []
+            resources = []
+            enum_values = []
+
         return {
             'name': name,
             'type': obj_type,
             'uuid': uuid,
             'properties': properties,
             'modules': modules,
-            'forms': forms
+            'forms': forms,
+            'tabular_sections': tabular_sections,
+            'dimensions': dimensions,
+            'resources': resources,
+            'enum_values': enum_values,
         }
     
     def _parse_properties(self, root, obj_type=None):
         """Извлекает свойства объекта"""
         props = {}
         properties = root.find('.//Properties')
-        
+
         if properties is not None:
             # Синоним
             ns = {'v8': 'http://v8.1c.ru/8.1/data/core'}
             synonym_elem = properties.find('.//v8:content', ns)
             if synonym_elem is not None and synonym_elem.text:
                 props['synonym'] = synonym_elem.text
-                
+
             # Комментарий
             comment_elem = properties.find('.//Comment')
             if comment_elem is not None and comment_elem.text:
                 props['comment'] = comment_elem.text
-        
+
         # Стандартные атрибуты
         if obj_type:
             props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)
-            props['custom_attributes'] = self._parse_custom_attributes(root)
+            props['custom_attributes'] = self._parse_custom_attributes(root, obj_type)
         else:
             props['standard_attributes'] = []
             props['custom_attributes'] = []
-        
+
         return props
     
     def _parse_standard_attributes(self, root, obj_type):
@@ -170,20 +195,29 @@ class ConfigurationParser:
         
         return standard_attrs
     
-    def _parse_custom_attributes(self, root):
-        """Извлекает кастомные атрибуты из секции Attributes"""
+    def _parse_custom_attributes(self, root, obj_type=None):
+        """Извлекает кастомные атрибуты из секции Attributes (только прямые, не из TabularSections)"""
         attributes = []
-        
-        # Namespace для MDClasses
+
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
-        
-        # Ищем Attributes с учетом namespace
-        attrs_elem = root.find(f'.//{{{md_ns}}}Attributes')
-        
+
+        # Ищем Attributes как прямой дочерний элемент объекта, а не через .//{..},
+        # чтобы не захватить колонки TabularSections
+        if obj_type:
+            obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        else:
+            obj_elem = None
+
+        if obj_elem is not None:
+            attrs_elem = obj_elem.find(f'{{{md_ns}}}Attributes')
+        else:
+            # Fallback: ищем первый Attributes без погружения в TabularSections
+            attrs_elem = root.find(f'.//{{{md_ns}}}Attributes')
+
         if attrs_elem is None:
             return attributes
-        
-        for attr in attrs_elem.findall(f'.//{{{md_ns}}}Attribute'):
+
+        for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
             attr_name = attr.get('name', '')
             if attr_name:
                 attr_data = {
@@ -194,7 +228,7 @@ class ConfigurationParser:
                     'standard_type': None
                 }
                 attributes.append(attr_data)
-        
+
         return attributes
     
     def _extract_attribute_type(self, elem):
@@ -239,6 +273,105 @@ class ConfigurationParser:
         
         return ''
     
+    def _parse_tabular_sections(self, root, obj_type):
+        """Извлекает табличные части объекта с их колонками"""
+        result = []
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+
+        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        if obj_elem is None:
+            return result
+
+        ts_container = obj_elem.find(f'{{{md_ns}}}TabularSections')
+        if ts_container is None:
+            return result
+
+        for ts_elem in ts_container.findall(f'{{{md_ns}}}TabularSection'):
+            ts_name = ts_elem.get('name', '')
+            if not ts_name:
+                continue
+
+            ts_title = self._extract_synonym(ts_elem)
+            columns = []
+
+            attrs_elem = ts_elem.find(f'{{{md_ns}}}Attributes')
+            if attrs_elem is not None:
+                for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
+                    col_name = attr.get('name', '')
+                    if col_name:
+                        columns.append({
+                            'name': col_name,
+                            'type': self._extract_attribute_type(attr),
+                            'title': self._extract_synonym(attr),
+                        })
+
+            result.append({'name': ts_name, 'title': ts_title, 'columns': columns})
+
+        return result
+
+    def _parse_register_section(self, root, section_tag, obj_type):
+        """Извлекает секцию регистра: Dimensions, Resources или Attributes"""
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        singular_map = {
+            'Dimensions': 'Dimension',
+            'Resources': 'Resource',
+            'Attributes': 'Attribute',
+        }
+        child_tag = singular_map.get(section_tag, section_tag[:-1])
+
+        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        if obj_elem is None:
+            return []
+
+        container = obj_elem.find(f'{{{md_ns}}}{section_tag}')
+        if container is None:
+            return []
+
+        result = []
+        for elem in container.findall(f'{{{md_ns}}}{child_tag}'):
+            elem_name = elem.get('name', '')
+            if elem_name:
+                result.append({
+                    'name': elem_name,
+                    'type': self._extract_attribute_type(elem),
+                    'title': self._extract_synonym(elem),
+                })
+        return result
+
+    def _parse_enum_values(self, root):
+        """Извлекает значения перечисления"""
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+
+        obj_elem = root.find(f'{{{md_ns}}}Enum')
+        if obj_elem is None:
+            return []
+
+        ev_container = obj_elem.find(f'{{{md_ns}}}EnumValues')
+        if ev_container is None:
+            return []
+
+        result = []
+        for ev_elem in ev_container.findall(f'{{{md_ns}}}EnumValue'):
+            ev_name = ev_elem.get('name', '')
+            if not ev_name:
+                continue
+
+            ev_title = self._extract_synonym(ev_elem)
+
+            ev_order = None
+            props_elem = ev_elem.find(f'{{{md_ns}}}Properties')
+            if props_elem is not None:
+                order_elem = props_elem.find(f'{{{md_ns}}}Order')
+                if order_elem is not None and order_elem.text:
+                    try:
+                        ev_order = int(order_elem.text)
+                    except ValueError:
+                        pass
+
+            result.append({'name': ev_name, 'title': ev_title, 'order': ev_order})
+
+        return result
+
     def  _parse_modules(self, obj_name, folder_name):
         """Извлекает код модулей объекта"""
         modules = []

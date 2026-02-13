@@ -53,6 +53,14 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально). Например: 'РАСШ1_Бюджет'"
                     },
+                    "object_name": {
+                        "type": "string",
+                        "description": "Фильтр по имени объекта (опционально, можно частичное). Например: 'ФТ_Конвертации'"
+                    },
+                    "module_type": {
+                        "type": "string",
+                        "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule"
+                    },
                     "max_results": {
                         "type": "number",
                         "description": "Максимум результатов на базу (по умолчанию 10)",
@@ -242,6 +250,10 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Имя элемента формы (можно частичное)"
                     },
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя объекта для фильтрации (опционально, можно частичное)"
+                    },
                     "project_filter": {
                         "type": "string",
                         "description": "Фильтр по проекту (опционально)"
@@ -305,6 +317,55 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["property_name"]
             }
+        ),
+        Tool(
+            name="get_object_structure",
+            description="Получить полную структуру метаданных объекта 1С: реквизиты, табличные части с колонками, измерения/ресурсы регистров, значения перечислений, список форм и модулей",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя объекта (можно частичное)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    }
+                },
+                "required": ["object_name"]
+            }
+        ),
+        Tool(
+            name="find_attribute",
+            description="Поиск реквизита по имени во всех объектах метаданных. Находит совпадения в реквизитах, измерениях и ресурсах регистров",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "attribute_name": {
+                        "type": "string",
+                        "description": "Имя реквизита (можно частичное)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (опционально)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Фильтр по базе/расширению (опционально)"
+                    },
+                    "max_results": {
+                        "type": "number",
+                        "description": "Максимум результатов на базу (по умолчанию 20)",
+                        "default": 20
+                    }
+                },
+                "required": ["attribute_name"]
+            }
         )
     ]
 
@@ -317,9 +378,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         query = arguments["query"]
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
+        object_name = arguments.get("object_name")
+        module_type = arguments.get("module_type")
         max_results = arguments.get("max_results", 10)
-        
-        results = tools.search_code(query, project_filter, extension_filter, max_results)
+
+        results = tools.search_code(query, project_filter, extension_filter, max_results,
+                                    object_name, module_type)
         
         if not results:
             return [TextContent(type="text", text=f"Ничего не найдено по запросу '{query}'")]
@@ -359,6 +423,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"       Синоним: {obj['synonym']}\n"
                     if obj['modules']:
                         response += f"       Модули: {', '.join(obj['modules'])}\n"
+                    if obj.get('forms'):
+                        response += f"       Формы: {', '.join(obj['forms'])}\n"
             response += "\n"
         
         return [TextContent(type="text", text=response)]
@@ -491,10 +557,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     
     elif name == "find_form_element":
         element_name = arguments["element_name"]
+        object_name = arguments.get("object_name")
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
-        
-        results = tools.find_form_element(element_name, project_filter, extension_filter)
+
+        results = tools.find_form_element(element_name, object_name, project_filter, extension_filter)
         
         if not results:
             return [TextContent(type="text", text=f"Элемент '{element_name}' не найден в формах")]
@@ -574,11 +641,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 # Элементы UI
                 if structure['items']:
                     response += f"  Элементы UI ({len(structure['items'])}):\n"
-                    for item in structure['items'][:20]:  # Первые 20
+                    for item in structure['items']:
                         data_path = f" -> {item['data_path']}" if item['data_path'] else ""
-                        response += f"    • {item['name']} ({item['type']}){data_path}\n"
-                    if len(structure['items']) > 20:
-                        response += f"    ... и ещё {len(structure['items']) - 20} элементов\n"
+                        title = f" «{item['title']}»" if item.get('title') else ""
+                        props = item.get('properties', {})
+                        visible = props.get('Visible', '')
+                        enabled = props.get('Enabled', '')
+                        vis_str = ""
+                        if visible == 'false':
+                            vis_str += " [скрыт]"
+                        if enabled == 'false':
+                            vis_str += " [недоступен]"
+                        response += f"    • {item['name']} ({item['type']}){data_path}{title}{vis_str}\n"
                     response += "\n"
         
         return [TextContent(type="text", text=response)]
@@ -611,6 +685,104 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         
         return [TextContent(type="text", text=response)]
     
+    elif name == "get_object_structure":
+        object_name = arguments["object_name"]
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+
+        results = tools.get_object_structure(object_name, project_filter, extension_filter)
+
+        if not results:
+            return [TextContent(type="text", text=f"Объект '{object_name}' не найден")]
+
+        response = f"Структура объекта '{object_name}':\n\n"
+
+        for project_name, project_data in results.items():
+            response += f"Проект: {project_name}\n"
+            for db_name, structure in project_data.items():
+                response += f"  {db_name}:\n\n"
+                synonym = f" ({structure['synonym']})" if structure['synonym'] else ""
+                response += f"  {structure['type']}: {structure['name']}{synonym}\n"
+                if structure['uuid']:
+                    response += f"  UUID: {structure['uuid']}\n"
+                if structure['comment']:
+                    response += f"  Комментарий: {structure['comment']}\n"
+                response += "\n"
+
+                if structure['attributes']:
+                    response += f"  Реквизиты ({len(structure['attributes'])}):\n"
+                    for attr in structure['attributes']:
+                        std = " [стд]" if attr['is_standard'] else ""
+                        title = f" — {attr['title']}" if attr['title'] else ""
+                        response += f"    - {attr['name']}{std}: {attr['type']}{title}\n"
+                    response += "\n"
+
+                if structure['dimensions']:
+                    response += f"  Измерения ({len(structure['dimensions'])}):\n"
+                    for dim in structure['dimensions']:
+                        title = f" — {dim['title']}" if dim['title'] else ""
+                        response += f"    - {dim['name']}: {dim['type']}{title}\n"
+                    response += "\n"
+
+                if structure['resources']:
+                    response += f"  Ресурсы ({len(structure['resources'])}):\n"
+                    for res in structure['resources']:
+                        title = f" — {res['title']}" if res['title'] else ""
+                        response += f"    - {res['name']}: {res['type']}{title}\n"
+                    response += "\n"
+
+                if structure['tabular_sections']:
+                    response += f"  Табличные части ({len(structure['tabular_sections'])}):\n"
+                    for ts in structure['tabular_sections']:
+                        ts_title = f" ({ts['title']})" if ts['title'] else ""
+                        response += f"    [{ts['name']}{ts_title}]:\n"
+                        for col in ts['columns']:
+                            col_title = f" — {col['title']}" if col['title'] else ""
+                            response += f"      - {col['name']}: {col['type']}{col_title}\n"
+                    response += "\n"
+
+                if structure['enum_values']:
+                    response += f"  Значения перечисления ({len(structure['enum_values'])}):\n"
+                    for ev in structure['enum_values']:
+                        order = f" (порядок: {ev['enum_order']})" if ev['enum_order'] is not None else ""
+                        title = f" — {ev['title']}" if ev['title'] else ""
+                        response += f"    - {ev['name']}{order}{title}\n"
+                    response += "\n"
+
+                if structure['forms']:
+                    response += f"  Формы: {', '.join(structure['forms'])}\n"
+                if structure['modules']:
+                    response += f"  Модули: {', '.join(structure['modules'])}\n"
+
+            response += "\n"
+
+        return [TextContent(type="text", text=response)]
+
+    elif name == "find_attribute":
+        attribute_name = arguments["attribute_name"]
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        max_results = arguments.get("max_results", 20)
+
+        results = tools.find_attribute(attribute_name, project_filter, extension_filter, max_results)
+
+        if not results:
+            return [TextContent(type="text", text=f"Реквизит '{attribute_name}' не найден ни в одном объекте")]
+
+        response = f"Реквизит '{attribute_name}' найден в:\n\n"
+
+        for project_name, project_data in results.items():
+            response += f"Проект: {project_name}\n"
+            for db_name, db_results in project_data.items():
+                response += f"  {db_name}: {len(db_results)} совпадение(ий)\n"
+                for r in db_results:
+                    section = f" [{r['section']}]" if r['section'] != 'Attribute' else ""
+                    title = f" — {r['title']}" if r['title'] else ""
+                    response += f"    - {r['object_type']}.{r['object_name']}: {r['attribute_name']}{section}: {r['attribute_type']}{title}\n"
+            response += "\n"
+
+        return [TextContent(type="text", text=response)]
+
     else:
         return [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
 
