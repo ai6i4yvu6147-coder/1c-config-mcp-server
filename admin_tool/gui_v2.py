@@ -453,7 +453,6 @@ class AddDatabaseWindow:
         
         self.create_button.config(state=tk.DISABLED)
         
-        # Запускаем создание в отдельном потоке
         thread = threading.Thread(target=self._create_database_thread, args=(name, db_type, db_filename, db_path))
         thread.start()
     
@@ -467,7 +466,6 @@ class AddDatabaseWindow:
             
             if success:
                 db_id = self.main_app.pm.add_database(self.project["id"], name, db_type, db_filename)
-                # Сохраняем путь к исходному XML
                 self.main_app.pm.update_source_xml(self.project["id"], db_id, str(self.xml_path))
                 self.main_app._load_projects()
                 
@@ -682,7 +680,6 @@ class UpdateDatabaseWindow:
             db_manager.close()
             
             if success:
-                # Сохраняем новый путь к XML
                 self.main_app.pm.update_source_xml(
                     self.project["id"],
                     self.database["id"],

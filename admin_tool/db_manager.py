@@ -75,7 +75,9 @@ class DatabaseManager:
                 object_type TEXT NOT NULL,
                 name TEXT NOT NULL,
                 synonym TEXT,
-                comment TEXT
+                comment TEXT,
+                object_belonging TEXT,
+                extended_configuration_object TEXT
             )
         ''')
         
@@ -85,6 +87,7 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 object_id INTEGER NOT NULL,
                 form_name TEXT NOT NULL,
+                form_kind TEXT,
                 uuid TEXT,
                 properties_json TEXT,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
@@ -115,7 +118,6 @@ class DatabaseManager:
                 title TEXT,
                 action TEXT,
                 shortcut TEXT,
-                picture TEXT,
                 representation TEXT,
                 FOREIGN KEY (form_id) REFERENCES forms(id)
             )
@@ -143,7 +145,8 @@ class DatabaseManager:
                 item_type TEXT NOT NULL,
                 data_path TEXT,
                 title TEXT,
-                properties_json TEXT,
+                visible INTEGER,
+                enabled INTEGER,
                 FOREIGN KEY (form_id) REFERENCES forms(id),
                 FOREIGN KEY (parent_id) REFERENCES form_items(id)
             )
@@ -220,6 +223,8 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 enum_order INTEGER,
                 title TEXT,
+                object_belonging TEXT,
+                extended_configuration_object TEXT,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
         ''')
@@ -289,14 +294,16 @@ class DatabaseManager:
         for idx, obj in enumerate(data['objects']):
             # Вставляем объект
             cursor.execute('''
-                INSERT INTO metadata_objects (uuid, object_type, name, synonym, comment)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO metadata_objects (uuid, object_type, name, synonym, comment, object_belonging, extended_configuration_object)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 obj['uuid'],
                 obj['type'],
                 obj['name'],
                 obj['properties'].get('synonym', ''),
-                obj['properties'].get('comment', '')
+                obj['properties'].get('comment', ''),
+                obj['properties'].get('object_belonging'),
+                obj['properties'].get('extended_configuration_object')
             ))
             
             object_id = cursor.lastrowid
@@ -355,11 +362,12 @@ class DatabaseManager:
         """Вставляет данные формы в БД"""
         # Вставляем форму
         cursor.execute('''
-            INSERT INTO forms (object_id, form_name, uuid, properties_json)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO forms (object_id, form_name, form_kind, uuid, properties_json)
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             object_id,
             form['name'],
+            form.get('form_kind'),
             form['uuid'],
             json.dumps(form['properties'], ensure_ascii=False) if form['properties'] else None
         ))
@@ -387,16 +395,15 @@ class DatabaseManager:
         for cmd in form.get('commands', []):
             cursor.execute('''
                 INSERT INTO form_commands (
-                    form_id, name, title, action, shortcut, picture, representation
+                    form_id, name, title, action, shortcut, representation
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 form_id,
                 cmd['name'],
                 cmd['title'],
                 cmd['action'],
                 cmd['shortcut'],
-                cmd['picture'],
                 cmd['representation']
             ))
         
@@ -421,12 +428,18 @@ class DatabaseManager:
             if item['parent_id']:
                 parent_db_id = item_id_map.get(item['parent_id'])
             
+            visible = item.get('visible')
+            enabled = item.get('enabled')
+            if visible is not None:
+                visible = 1 if visible else 0
+            if enabled is not None:
+                enabled = 1 if enabled else 0
             cursor.execute('''
                 INSERT INTO form_items (
-                    form_id, parent_id, name, item_type, 
-                    data_path, title, properties_json
+                    form_id, parent_id, name, item_type,
+                    data_path, title, visible, enabled
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 form_id,
                 parent_db_id,
@@ -434,7 +447,8 @@ class DatabaseManager:
                 item['type'],
                 item['data_path'],
                 item['title'],
-                json.dumps(item['properties'], ensure_ascii=False) if item['properties'] else None
+                visible,
+                enabled
             ))
             
             item_db_id = cursor.lastrowid
@@ -520,13 +534,15 @@ class DatabaseManager:
         """Вставляет значения перечисления в БД"""
         for ev in enum_values:
             cursor.execute('''
-                INSERT INTO enum_values (object_id, name, enum_order, title)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO enum_values (object_id, name, enum_order, title, object_belonging, extended_configuration_object)
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 object_id,
                 ev['name'],
                 ev.get('order'),
                 ev.get('title', ''),
+                ev.get('object_belonging'),
+                ev.get('extended_configuration_object'),
             ))
     
     def get_statistics(self):

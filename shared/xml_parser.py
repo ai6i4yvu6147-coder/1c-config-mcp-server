@@ -82,9 +82,7 @@ class ConfigurationParser:
 
         # Получаем UUID
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
-        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
-        if obj_elem is None:
-            obj_elem = root.find(f'.//{obj_type}')
+        obj_elem = self._get_object_element(root, obj_type, md_ns)
         uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
 
         # Получаем свойства
@@ -93,8 +91,14 @@ class ConfigurationParser:
         # Получаем модули
         modules = self._parse_modules(name, folder_name)
 
+        # Имена форм по умолчанию для определения form_kind
+        default_forms = {
+            'Element': properties.get('default_object_form') or properties.get('auxiliary_object_form'),
+            'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
+            'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
+        }
         # Получаем формы
-        forms = self._parse_forms(name, folder_name)
+        forms = self._parse_forms(name, folder_name, default_forms)
 
         # Парсим дополнительные структуры по типу объекта
         register_types = ('InformationRegister', 'AccumulationRegister')
@@ -130,7 +134,8 @@ class ConfigurationParser:
     def _parse_properties(self, root, obj_type=None):
         """Извлекает свойства объекта"""
         props = {}
-        properties = root.find('.//Properties')
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        properties = root.find(f'.//{{{md_ns}}}Properties')
 
         if properties is not None:
             # Синоним
@@ -140,9 +145,33 @@ class ConfigurationParser:
                 props['synonym'] = synonym_elem.text
 
             # Комментарий
-            comment_elem = properties.find('.//Comment')
+            comment_elem = properties.find(f'.//{{{md_ns}}}Comment')
+            if comment_elem is None:
+                comment_elem = properties.find('.//Comment')
             if comment_elem is not None and comment_elem.text:
                 props['comment'] = comment_elem.text
+
+            # Принадлежность (расширение: Own / Adopted)
+            ob_elem = properties.find(f'{{{md_ns}}}ObjectBelonging')
+            if ob_elem is not None and ob_elem.text:
+                props['object_belonging'] = ob_elem.text.strip()
+            eco_elem = properties.find(f'{{{md_ns}}}ExtendedConfigurationObject')
+            if eco_elem is not None and eco_elem.text:
+                props['extended_configuration_object'] = eco_elem.text.strip()
+
+            # Имена форм по умолчанию (последний сегмент пути: ObjectType.Name.Form.FormName)
+            for tag, key in (
+                ('DefaultObjectForm', 'default_object_form'),
+                ('DefaultListForm', 'default_list_form'),
+                ('DefaultChoiceForm', 'default_choice_form'),
+                ('AuxiliaryObjectForm', 'auxiliary_object_form'),
+                ('AuxiliaryListForm', 'auxiliary_list_form'),
+                ('AuxiliaryChoiceForm', 'auxiliary_choice_form'),
+            ):
+                elem = properties.find(f'{{{md_ns}}}{tag}')
+                if elem is not None and elem.text and elem.text.strip():
+                    path = elem.text.strip()
+                    props[key] = path.split('.')[-1] if '.' in path else path
 
         # Стандартные атрибуты
         if obj_type:
@@ -195,40 +224,76 @@ class ConfigurationParser:
         
         return standard_attrs
     
-    def _parse_custom_attributes(self, root, obj_type=None):
-        """Извлекает кастомные атрибуты из секции Attributes (только прямые, не из TabularSections)"""
-        attributes = []
+    def _get_object_element(self, root, obj_type, md_ns):
+        """Возвращает элемент объекта (Catalog, Document и т.д.). Учитывает формат корня MetaDataObject.Catalog."""
+        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        if obj_elem is not None:
+            return obj_elem
+        obj_elem = root.find(f'.//{{{md_ns}}}{obj_type}')
+        if obj_elem is not None:
+            return obj_elem
+        # Корень файла может быть MetaDataObject.Catalog (расширения/выгрузка платформы)
+        local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
+        if local_tag == obj_type or local_tag == f'MetaDataObject.{obj_type}':
+            return root
+        return None
 
+    def _get_attribute_name(self, attr_elem, md_ns):
+        """Имя реквизита: атрибут name или Properties/Name (формат выгрузки 2.20)."""
+        name = attr_elem.get('name', '')
+        if name:
+            return name
+        props = attr_elem.find(f'{{{md_ns}}}Properties')
+        if props is not None:
+            name_elem = props.find(f'{{{md_ns}}}Name')
+            if name_elem is not None and name_elem.text:
+                return name_elem.text.strip()
+        return ''
+
+    def _parse_custom_attributes(self, root, obj_type=None):
+        """Извлекает кастомные атрибуты: из Attributes или из ChildObjects (только Attribute, не TabularSection)."""
+        attributes = []
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
 
-        # Ищем Attributes как прямой дочерний элемент объекта, а не через .//{..},
-        # чтобы не захватить колонки TabularSections
         if obj_type:
-            obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+            obj_elem = self._get_object_element(root, obj_type, md_ns)
         else:
             obj_elem = None
 
-        if obj_elem is not None:
-            attrs_elem = obj_elem.find(f'{{{md_ns}}}Attributes')
-        else:
-            # Fallback: ищем первый Attributes без погружения в TabularSections
-            attrs_elem = root.find(f'.//{{{md_ns}}}Attributes')
-
-        if attrs_elem is None:
+        if obj_elem is None:
             return attributes
 
-        for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
-            attr_name = attr.get('name', '')
-            if attr_name:
-                attr_data = {
-                    'name': attr_name,
-                    'type': self._extract_attribute_type(attr),
-                    'title': self._extract_synonym(attr),
-                    'is_standard': False,
-                    'standard_type': None
-                }
-                attributes.append(attr_data)
+        # Вариант 1: классическая обёртка Attributes
+        attrs_elem = obj_elem.find(f'{{{md_ns}}}Attributes')
+        if attrs_elem is not None:
+            for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
+                attr_name = attr.get('name', '') or self._get_attribute_name(attr, md_ns)
+                if attr_name:
+                    attributes.append({
+                        'name': attr_name,
+                        'type': self._extract_attribute_type(attr),
+                        'title': self._extract_synonym(attr),
+                        'is_standard': False,
+                        'standard_type': None
+                    })
+            return attributes
 
+        # Вариант 2: выгрузка 2.20 — реквизиты в ChildObjects рядом с TabularSection, Form
+        child_objects = obj_elem.find(f'{{{md_ns}}}ChildObjects')
+        if child_objects is not None:
+            for child in child_objects:
+                local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                if local_tag != 'Attribute':
+                    continue
+                attr_name = self._get_attribute_name(child, md_ns)
+                if attr_name:
+                    attributes.append({
+                        'name': attr_name,
+                        'type': self._extract_attribute_type(child),
+                        'title': self._extract_synonym(child),
+                        'is_standard': False,
+                        'standard_type': None
+                    })
         return attributes
     
     def _extract_attribute_type(self, elem):
@@ -274,39 +339,63 @@ class ConfigurationParser:
         return ''
     
     def _parse_tabular_sections(self, root, obj_type):
-        """Извлекает табличные части объекта с их колонками"""
+        """Извлекает табличные части: из TabularSections или из ChildObjects (формат выгрузки 2.20)."""
         result = []
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
 
-        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        obj_elem = self._get_object_element(root, obj_type, md_ns)
         if obj_elem is None:
             return result
 
+        # Вариант 1: контейнер TabularSections
         ts_container = obj_elem.find(f'{{{md_ns}}}TabularSections')
-        if ts_container is None:
+        if ts_container is not None:
+            for ts_elem in ts_container.findall(f'{{{md_ns}}}TabularSection'):
+                ts_name = ts_elem.get('name', '') or self._get_attribute_name(ts_elem, md_ns)
+                if not ts_name:
+                    continue
+                ts_title = self._extract_synonym(ts_elem)
+                columns = []
+                attrs_elem = ts_elem.find(f'{{{md_ns}}}Attributes')
+                if attrs_elem is not None:
+                    for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
+                        col_name = attr.get('name', '') or self._get_attribute_name(attr, md_ns)
+                        if col_name:
+                            columns.append({
+                                'name': col_name,
+                                'type': self._extract_attribute_type(attr),
+                                'title': self._extract_synonym(attr),
+                            })
+                result.append({'name': ts_name, 'title': ts_title, 'columns': columns})
             return result
 
-        for ts_elem in ts_container.findall(f'{{{md_ns}}}TabularSection'):
-            ts_name = ts_elem.get('name', '')
+        # Вариант 2: выгрузка 2.20 — табличные части в ChildObjects как TabularSection
+        child_objects = obj_elem.find(f'{{{md_ns}}}ChildObjects')
+        if child_objects is None:
+            return result
+        for child in child_objects:
+            local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if local_tag != 'TabularSection':
+                continue
+            ts_name = child.get('name', '') or self._get_attribute_name(child, md_ns)
             if not ts_name:
                 continue
-
-            ts_title = self._extract_synonym(ts_elem)
+            ts_title = self._extract_synonym(child)
             columns = []
-
-            attrs_elem = ts_elem.find(f'{{{md_ns}}}Attributes')
-            if attrs_elem is not None:
-                for attr in attrs_elem.findall(f'{{{md_ns}}}Attribute'):
-                    col_name = attr.get('name', '')
+            ts_child_objects = child.find(f'{{{md_ns}}}ChildObjects')
+            if ts_child_objects is not None:
+                for col_elem in ts_child_objects:
+                    col_local = col_elem.tag.split('}')[-1] if '}' in col_elem.tag else col_elem.tag
+                    if col_local != 'Attribute':
+                        continue
+                    col_name = self._get_attribute_name(col_elem, md_ns)
                     if col_name:
                         columns.append({
                             'name': col_name,
-                            'type': self._extract_attribute_type(attr),
-                            'title': self._extract_synonym(attr),
+                            'type': self._extract_attribute_type(col_elem),
+                            'title': self._extract_synonym(col_elem),
                         })
-
             result.append({'name': ts_name, 'title': ts_title, 'columns': columns})
-
         return result
 
     def _parse_register_section(self, root, section_tag, obj_type):
@@ -319,7 +408,7 @@ class ConfigurationParser:
         }
         child_tag = singular_map.get(section_tag, section_tag[:-1])
 
-        obj_elem = root.find(f'{{{md_ns}}}{obj_type}')
+        obj_elem = self._get_object_element(root, obj_type, md_ns)
         if obj_elem is None:
             return []
 
@@ -342,7 +431,7 @@ class ConfigurationParser:
         """Извлекает значения перечисления"""
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
 
-        obj_elem = root.find(f'{{{md_ns}}}Enum')
+        obj_elem = self._get_object_element(root, 'Enum', md_ns)
         if obj_elem is None:
             return []
 
@@ -359,6 +448,8 @@ class ConfigurationParser:
             ev_title = self._extract_synonym(ev_elem)
 
             ev_order = None
+            ev_belonging = None
+            ev_extended = None
             props_elem = ev_elem.find(f'{{{md_ns}}}Properties')
             if props_elem is not None:
                 order_elem = props_elem.find(f'{{{md_ns}}}Order')
@@ -367,8 +458,20 @@ class ConfigurationParser:
                         ev_order = int(order_elem.text)
                     except ValueError:
                         pass
+                ob_elem = props_elem.find(f'{{{md_ns}}}ObjectBelonging')
+                if ob_elem is not None and ob_elem.text:
+                    ev_belonging = ob_elem.text.strip()
+                eco_elem = props_elem.find(f'{{{md_ns}}}ExtendedConfigurationObject')
+                if eco_elem is not None and eco_elem.text:
+                    ev_extended = eco_elem.text.strip()
 
-            result.append({'name': ev_name, 'title': ev_title, 'order': ev_order})
+            result.append({
+                'name': ev_name,
+                'title': ev_title,
+                'order': ev_order,
+                'object_belonging': ev_belonging,
+                'extended_configuration_object': ev_extended,
+            })
 
         return result
 
@@ -399,21 +502,30 @@ class ConfigurationParser:
         
         return modules
     
-    def _parse_forms(self, obj_name, folder_name):
-        """Парсит формы объекта"""
+    def _parse_forms(self, obj_name, folder_name, default_forms=None):
+        """Парсит формы объекта. default_forms: {'Element': name|None, 'List': name|None, 'Choice': name|None} для form_kind."""
         forms = []
         forms_dir = self.root_dir / folder_name / obj_name / 'Forms'
-        
+        default_forms = default_forms or {}
+
         if not forms_dir.exists():
             return forms
-        
-        # Перебираем папки форм
+
         for form_dir in forms_dir.iterdir():
             if form_dir.is_dir():
                 form_data = self._parse_form(form_dir)
                 if form_data:
+                    form_name = form_data['name']
+                    form_kind = None
+                    if default_forms.get('List') == form_name:
+                        form_kind = 'List'
+                    elif default_forms.get('Choice') == form_name:
+                        form_kind = 'Choice'
+                    elif default_forms.get('Element') == form_name:
+                        form_kind = 'Element'
+                    form_data['form_kind'] = form_kind
                     forms.append(form_data)
-        
+
         return forms
     
     def _parse_form(self, form_dir):
@@ -560,7 +672,6 @@ class ConfigurationParser:
                 'title': self._extract_localized_string(cmd, 'Title'),
                 'action': self._get_element_text(cmd, 'Action'),
                 'shortcut': self._get_element_text(cmd, 'Shortcut'),
-                'picture': self._extract_picture(cmd),
                 'representation': self._get_element_text(cmd, 'Representation')
             }
             commands.append(cmd_data)
@@ -599,6 +710,14 @@ class ConfigurationParser:
         
         for item_type in item_types:
             for elem in parent_elem.findall(f'{{{default_ns}}}{item_type}'):
+                props = self._extract_item_properties(elem)
+                visible = None
+                enabled = None
+                if props:
+                    v = props.get('Visible', '').strip().lower()
+                    visible = True if v == 'true' else False if v == 'false' else None
+                    e = props.get('Enabled', '').strip().lower()
+                    enabled = True if e == 'true' else False if e == 'false' else None
                 item_data = {
                     'name': elem.get('name', ''),
                     'id': elem.get('id', ''),
@@ -606,10 +725,11 @@ class ConfigurationParser:
                     'parent_id': parent_id,
                     'data_path': self._get_element_text(elem, 'DataPath'),
                     'title': self._extract_localized_string(elem, 'Title'),
-                    'properties': self._extract_item_properties(elem),
+                    'visible': visible,
+                    'enabled': enabled,
                     'events': self._extract_item_events(elem)
                 }
-                
+
                 items.append(item_data)
                 
                 # Рекурсивно обрабатываем вложенные элементы
@@ -709,18 +829,6 @@ class ConfigurationParser:
         if query_elem is not None and query_elem.text:
             return query_elem.text
         return None
-    
-    def _extract_picture(self, elem):
-        """Извлекает ссылку на картинку"""
-        pic_elem = elem.find('.//Picture')
-        if pic_elem is None:
-            return ''
-        
-        ref = pic_elem.find('.//{http://v8.1c.ru/8.3/xcf/readable}Ref')
-        if ref is not None and ref.text:
-            return ref.text
-        
-        return ''
     
     def _extract_item_properties(self, elem):
         """Извлекает свойства элемента UI"""

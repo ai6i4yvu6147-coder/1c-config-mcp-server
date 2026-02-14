@@ -2,19 +2,8 @@
 echo Building all components...
 
 echo.
-echo [1/3] Building Admin Tool v1...
 call venv\Scripts\activate.bat
-pyinstaller --onedir --windowed --name "1C-Config-Admin-v1" --noconfirm ^
-    --hidden-import=sqlite3 ^
-    --hidden-import=xml.etree.ElementTree ^
-    --hidden-import=xml.etree ^
-    --collect-all xml ^
-    --add-data "admin_tool;admin_tool" ^
-    --add-data "shared;shared" ^
-    admin_tool/gui.py
-
-echo.
-echo [2/3] Building Admin Tool v2...
+echo [1/2] Building Admin Tool v2...
 pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
@@ -27,7 +16,7 @@ pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     admin_tool/gui_v2.py
 
 echo.
-echo [3/3] Building MCP Server...
+echo [2/2] Building MCP Server...
 pyinstaller --onedir --name "1c-config-server" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
@@ -58,9 +47,6 @@ echo start "" "%%~dp0Admin\1C-Config-Admin.exe" >> Portable\Admin.bat
 
 echo @echo off > Portable\Server.bat
 echo "%%~dp0Server\1c-config-server.exe" >> Portable\Server.bat
-
-echo Copying README...
-copy Portable\README.txt Portable\README.txt 2>nul
 
 echo.
 echo Done! Portable structure:

@@ -36,8 +36,17 @@ async def list_tools() -> list[Tool]:
     """Список доступных инструментов"""
     return [
         Tool(
+            name="list_active_databases",
+            description="Получить список активных проектов и их баз (основная конфигурация и расширения). Используйте для выбора project_filter и extension_filter в других инструментах.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
             name="search_code",
-            description="Поиск по коду конфигурации. Ищет во всех активных проектах и их базах/расширениях. Автоматически выбирает оптимальный метод поиска.",
+            description="Поиск по коду конфигурации. project_filter обязателен; extension_filter опционален. Используйте list_active_databases для списка проектов и баз.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -47,7 +56,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально). Например: 'ТГ'"
+                        "description": "Фильтр по проекту (обязательно). Например: 'ТГ'"
                     },
                     "extension_filter": {
                         "type": "string",
@@ -67,12 +76,12 @@ async def list_tools() -> list[Tool]:
                         "default": 10
                     }
                 },
-                "required": ["query"]
+                "required": ["query", "project_filter"]
             }
         ),
         Tool(
             name="find_object",
-            description="Найти объект метаданных по имени во всех активных проектах",
+            description="Найти объект метаданных по имени. project_filter обязателен. Для расширений в ответе возвращается object_belonging (Own/Adopted).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -82,19 +91,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["name"]
+                "required": ["name", "project_filter"]
             }
         ),
         Tool(
             name="list_objects",
-            description="Получить список объектов метаданных из всех активных проектов",
+            description="Список объектов метаданных. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -104,7 +113,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
@@ -115,12 +124,13 @@ async def list_tools() -> list[Tool]:
                         "description": "Максимум объектов на базу (по умолчанию 50)",
                         "default": 50
                     }
-                }
+                },
+                "required": ["project_filter"]
             }
         ),
         Tool(
             name="get_module_code",
-            description="Получить код модуля объекта или модуля формы",
+            description="Получить код модуля объекта или модуля формы. project_filter обязателен.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -139,19 +149,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["object_name"]
+                "required": ["object_name", "project_filter"]
             }
         ),
         Tool(
             name="get_module_procedures",
-            description="Получить список процедур и функций модуля объекта или модуля формы (только сигнатуры, без тел)",
+            description="Получить список процедур и функций модуля (сигнатуры и контекст выполнения Клиент/Сервер). project_filter обязателен.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -170,19 +180,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["object_name"]
+                "required": ["object_name", "project_filter"]
             }
         ),
         Tool(
             name="get_procedure_code",
-            description="Получить код конкретной процедуры или функции из модуля объекта или модуля формы",
+            description="Получить код конкретной процедуры или функции (включая директиву &НаКлиенте/&НаСервере). project_filter обязателен.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -205,19 +215,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["object_name", "procedure_name"]
+                "required": ["object_name", "procedure_name", "project_filter"]
             }
         ),
         Tool(
             name="find_form",
-            description="Поиск форм по имени объекта и/или имени формы",
+            description="Поиск форм по имени объекта и/или формы. project_filter обязателен. В ответе: form_kind (List/Choice/Element), для расширений — object_belonging.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -231,24 +241,29 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
-                }
+                },
+                "required": ["project_filter"]
             }
         ),
         Tool(
             name="find_form_element",
-            description="Найти все формы, содержащие элемент с указанным именем",
+            description="Найти формы по элементу: по имени элемента (element_name) или по связи с данными — ПутьКДанным (data_path). project_filter обязателен. В ответе: visible, enabled, data_path.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "element_name": {
                         "type": "string",
-                        "description": "Имя элемента формы (можно частичное)"
+                        "description": "Имя элемента формы (можно частичное). Задайте его или data_path."
+                    },
+                    "data_path": {
+                        "type": "string",
+                        "description": "Путь к данным (реквизит): поиск по полю DataPath/ПутьКДанным (можно частичное). Задайте его или element_name."
                     },
                     "object_name": {
                         "type": "string",
@@ -256,19 +271,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["element_name"]
+                "required": ["project_filter"]
             }
         ),
         Tool(
             name="get_form_structure",
-            description="Получить полную структуру формы: реквизиты, команды, элементы UI, события",
+            description="Полная структура формы: реквизиты, команды, элементы UI (visible, enabled), события. project_filter обязателен. form_kind и object_belonging для расширений.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -282,45 +297,45 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["object_name", "form_name"]
+                "required": ["object_name", "form_name", "project_filter"]
             }
         ),
         Tool(
             name="search_form_properties",
-            description="Поиск элементов форм по свойствам (например, Visible=false, Enabled=false)",
+            description="Поиск элементов форм по свойствам Visible и Enabled. Поддерживаются только эти два свойства. project_filter обязателен.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "property_name": {
                         "type": "string",
-                        "description": "Имя свойства (например: Visible, Enabled, ReadOnly)"
+                        "description": "Имя свойства: только Visible или Enabled"
                     },
                     "property_value": {
                         "type": "string",
-                        "description": "Значение свойства (опционально, например: false, true)"
+                        "description": "Значение (опционально): true, false, 1, 0"
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["property_name"]
+                "required": ["property_name", "project_filter"]
             }
         ),
         Tool(
             name="get_object_structure",
-            description="Получить полную структуру метаданных объекта 1С: реквизиты, табличные части с колонками, измерения/ресурсы регистров, значения перечислений, список форм и модулей",
+            description="Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -330,19 +345,19 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
                         "description": "Фильтр по базе/расширению (опционально)"
                     }
                 },
-                "required": ["object_name"]
+                "required": ["object_name", "project_filter"]
             }
         ),
         Tool(
             name="find_attribute",
-            description="Поиск реквизита по имени во всех объектах метаданных. Находит совпадения в реквизитах, измерениях и ресурсах регистров",
+            description="Поиск реквизита по имени. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -352,7 +367,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "project_filter": {
                         "type": "string",
-                        "description": "Фильтр по проекту (опционально)"
+                        "description": "Фильтр по проекту (обязательно)"
                     },
                     "extension_filter": {
                         "type": "string",
@@ -364,7 +379,7 @@ async def list_tools() -> list[Tool]:
                         "default": 20
                     }
                 },
-                "required": ["attribute_name"]
+                "required": ["attribute_name", "project_filter"]
             }
         )
     ]
@@ -373,6 +388,16 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Обработка вызова инструмента"""
+    
+    if name == "list_active_databases":
+        results = tools.list_active_databases()
+        lines = []
+        for proj in results.get("projects", []):
+            lines.append(f"Проект: {proj['name']}")
+            for db in proj.get("databases", []):
+                lines.append(f"  — {db['name']} ({db['type']})")
+            lines.append("")
+        return [TextContent(type="text", text="Активные проекты и базы:\n\n" + "\n".join(lines) if lines else "Нет активных проектов.")]
     
     if name == "search_code":
         query = arguments["query"]
@@ -419,6 +444,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 response += f"  └─ {db_name}:\n"
                 for obj in db_results:
                     response += f"     • {obj['type']}.{obj['name']}\n"
+                    if obj.get('object_belonging'):
+                        response += f"       Принадлежность: {obj['object_belonging']}\n"
                     if obj['synonym']:
                         response += f"       Синоним: {obj['synonym']}\n"
                     if obj['modules']:
@@ -448,8 +475,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 response += f"  └─ {db_name}:\n"
                 for obj_type, objects in sorted(db_results.items()):
                     response += f"     {obj_type} ({len(objects)}):\n"
-                    for obj_name in objects[:10]:  # Первые 10
-                        response += f"       - {obj_name}\n"
+                    for obj_entry in objects[:10]:
+                        name = obj_entry['name'] if isinstance(obj_entry, dict) else obj_entry
+                        belong = f" [{obj_entry.get('object_belonging')}]" if isinstance(obj_entry, dict) and obj_entry.get('object_belonging') else ""
+                        response += f"       - {name}{belong}\n"
                     if len(objects) > 10:
                         response += f"       ... еще {len(objects) - 10}\n"
             response += "\n"
@@ -499,7 +528,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 
                 for proc in procedures:
                     export_mark = " [Экспорт]" if proc['export'] else ""
-                    response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}\n"
+                    ctx = f" [{proc['execution_context']}]" if proc.get('execution_context') else ""
+                    response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}\n"
                 
                 response += "\n"
         
@@ -546,9 +576,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             for db_name, forms in project_data.items():
                 response += f"  └─ {db_name}:\n"
                 for form in forms:
-                    response += f"     • {form['object_type']}.{form['object_name']}.{form['form_name']}\n"
+                    kind = f" ({form['form_kind']})" if form.get('form_kind') else ""
+                    response += f"     • {form['object_type']}.{form['object_name']}.{form['form_name']}{kind}\n"
+                    if form.get('object_belonging'):
+                        response += f"       Принадлежность: {form['object_belonging']}\n"
                     response += f"       Реквизитов: {form['attributes_count']}, Команд: {form['commands_count']}, Элементов: {form['items_count']}\n"
-                    if form['properties']:
+                    if form.get('properties'):
                         props_str = ", ".join([f"{k}={v}" for k, v in list(form['properties'].items())[:3]])
                         response += f"       Свойства: {props_str}\n"
             response += "\n"
@@ -556,17 +589,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=response)]
     
     elif name == "find_form_element":
-        element_name = arguments["element_name"]
+        element_name = arguments.get("element_name")
+        data_path = arguments.get("data_path")
         object_name = arguments.get("object_name")
         project_filter = arguments.get("project_filter")
         extension_filter = arguments.get("extension_filter")
+        if not element_name and not data_path:
+            return [TextContent(type="text", text="Укажите element_name и/или data_path для поиска элемента формы.")]
 
-        results = tools.find_form_element(element_name, object_name, project_filter, extension_filter)
+        results = tools.find_form_element(element_name=element_name, data_path=data_path, object_name=object_name, project_filter=project_filter, extension_filter=extension_filter)
         
         if not results:
-            return [TextContent(type="text", text=f"Элемент '{element_name}' не найден в формах")]
+            search_desc = element_name or data_path
+            return [TextContent(type="text", text=f"Элемент/путь к данным '{search_desc}' не найден в формах")]
         
-        response = f"Элемент '{element_name}' найден в формах:\n\n"
+        search_desc = " или ".join(filter(None, [element_name and f"имя: {element_name}", data_path and f"data_path: {data_path}"]))
+        response = f"Найдено по критерию ({search_desc}):\n\n"
         
         for project_name, project_data in results.items():
             response += f"📁 Проект: {project_name}\n"
@@ -575,14 +613,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for elem in elements:
                     response += f"     • {elem['object_name']}.{elem['form_name']}.{elem['element_name']}\n"
                     response += f"       Тип: {elem['element_type']}\n"
-                    if elem['data_path']:
+                    if elem.get('data_path'):
                         response += f"       DataPath: {elem['data_path']}\n"
-                    if elem['title']:
+                    if elem.get('title'):
                         response += f"       Заголовок: {elem['title']}\n"
-                    if elem['properties']:
-                        visible = elem['properties'].get('Visible', 'true')
-                        enabled = elem['properties'].get('Enabled', 'true')
-                        response += f"       Visible: {visible}, Enabled: {enabled}\n"
+                    if elem.get('object_belonging'):
+                        response += f"       Принадлежность: {elem['object_belonging']}\n"
+                    v, e = elem.get('visible'), elem.get('enabled')
+                    if v is not None or e is not None:
+                        response += f"       Visible: {v}, Enabled: {e}\n"
             response += "\n"
         
         return [TextContent(type="text", text=response)]
@@ -604,9 +643,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             response += f"📁 Проект: {project_name}\n"
             for db_name, structure in project_data.items():
                 response += f"  └─ {db_name}:\n\n"
-                
+                if structure.get('form_kind'):
+                    response += f"  Тип формы: {structure['form_kind']}\n"
+                if structure.get('object_belonging'):
+                    response += f"  Принадлежность: {structure['object_belonging']}\n\n"
                 # Свойства формы
-                if structure['properties']:
+                if structure.get('properties'):
                     response += "  Свойства формы:\n"
                     for key, value in structure['properties'].items():
                         response += f"    • {key}: {value}\n"
@@ -642,15 +684,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if structure['items']:
                     response += f"  Элементы UI ({len(structure['items'])}):\n"
                     for item in structure['items']:
-                        data_path = f" -> {item['data_path']}" if item['data_path'] else ""
+                        data_path = f" -> {item['data_path']}" if item.get('data_path') else ""
                         title = f" «{item['title']}»" if item.get('title') else ""
-                        props = item.get('properties', {})
-                        visible = props.get('Visible', '')
-                        enabled = props.get('Enabled', '')
+                        v, e = item.get('visible'), item.get('enabled')
                         vis_str = ""
-                        if visible == 'false':
+                        if v == 0:
                             vis_str += " [скрыт]"
-                        if enabled == 'false':
+                        if e == 0:
                             vis_str += " [недоступен]"
                         response += f"    • {item['name']} ({item['type']}){data_path}{title}{vis_str}\n"
                     response += "\n"
@@ -701,9 +741,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             response += f"Проект: {project_name}\n"
             for db_name, structure in project_data.items():
                 response += f"  {db_name}:\n\n"
-                synonym = f" ({structure['synonym']})" if structure['synonym'] else ""
+                synonym = f" ({structure['synonym']})" if structure.get('synonym') else ""
                 response += f"  {structure['type']}: {structure['name']}{synonym}\n"
-                if structure['uuid']:
+                if structure.get('object_belonging'):
+                    response += f"  Принадлежность: {structure['object_belonging']}\n"
+                if structure.get('uuid'):
                     response += f"  UUID: {structure['uuid']}\n"
                 if structure['comment']:
                     response += f"  Комментарий: {structure['comment']}\n"
@@ -744,9 +786,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if structure['enum_values']:
                     response += f"  Значения перечисления ({len(structure['enum_values'])}):\n"
                     for ev in structure['enum_values']:
-                        order = f" (порядок: {ev['enum_order']})" if ev['enum_order'] is not None else ""
-                        title = f" — {ev['title']}" if ev['title'] else ""
-                        response += f"    - {ev['name']}{order}{title}\n"
+                        order = f" (порядок: {ev['enum_order']})" if ev.get('enum_order') is not None else ""
+                        title = f" — {ev['title']}" if ev.get('title') else ""
+                        belong = f" [{ev['object_belonging']}]" if ev.get('object_belonging') else ""
+                        response += f"    - {ev['name']}{order}{title}{belong}\n"
                     response += "\n"
 
                 if structure['forms']:
@@ -776,9 +819,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             for db_name, db_results in project_data.items():
                 response += f"  {db_name}: {len(db_results)} совпадение(ий)\n"
                 for r in db_results:
-                    section = f" [{r['section']}]" if r['section'] != 'Attribute' else ""
-                    title = f" — {r['title']}" if r['title'] else ""
-                    response += f"    - {r['object_type']}.{r['object_name']}: {r['attribute_name']}{section}: {r['attribute_type']}{title}\n"
+                    section = f" [{r['section']}]" if r.get('section') != 'Attribute' else ""
+                    title = f" — {r['title']}" if r.get('title') else ""
+                    belong = f" [{r['object_belonging']}]" if r.get('object_belonging') else ""
+                    response += f"    - {r['object_type']}.{r['object_name']}: {r['attribute_name']}{section}: {r['attribute_type']}{title}{belong}\n"
             response += "\n"
 
         return [TextContent(type="text", text=response)]
