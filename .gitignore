@@ -14,15 +14,22 @@ build/
 # PyInstaller
 *.spec
 
-# Portable сборка
+# Portable сборка (внутри проекта — устаревший вариант)
 Portable/
+
+# Базы данных и служебные данные
+databases/
+*.db
+
+# Планы / заметки (служебные)
+plans/
+
+# Исходники справки 1С (если подключаются отдельно)
+# help_sources/
 
 # VS Code
 .vscode/
 *.code-workspace
-
-# Базы данных (раскомментируйте если не хотите хранить в Git)
-# databases/*.db
 
 # Временные файлы
 *.log
@@ -35,4 +42,3 @@ desktop.ini
 
 # macOS
 .DS_Store
-plans/plan_metadata_objects_enhancement.md

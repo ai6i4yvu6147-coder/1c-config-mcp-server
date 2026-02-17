@@ -30,27 +30,27 @@ pyinstaller --onedir --name "1c-config-server" --noconfirm ^
     server/server.py
 
 echo.
-echo Creating Portable folder structure...
-if exist "Portable" rmdir /s /q "Portable"
-mkdir Portable
-mkdir Portable\databases
+echo Creating Portable folder structure in parent directory...
+set "PORTABLE_ROOT=..\1c_config_mcp_server_Portable"
+if exist "%PORTABLE_ROOT%" rmdir /s /q "%PORTABLE_ROOT%"
+mkdir "%PORTABLE_ROOT%"
+mkdir "%PORTABLE_ROOT%\databases"
 
 echo Copying Admin Tool v2...
-xcopy /E /I /Y dist\1C-Config-Admin Portable\Admin
+xcopy /E /I /Y dist\1C-Config-Admin "%PORTABLE_ROOT%\Admin"
 
 echo Copying MCP Server...
-xcopy /E /I /Y dist\1c-config-server Portable\Server
+xcopy /E /I /Y dist\1c-config-server "%PORTABLE_ROOT%\Server"
 
 echo Creating launchers...
-echo @echo off > Portable\Admin.bat
-echo start "" "%%~dp0Admin\1C-Config-Admin.exe" >> Portable\Admin.bat
+echo @echo off > "%PORTABLE_ROOT%\Admin.bat"
+echo start "" "%%~dp0Admin\1C-Config-Admin.exe" >> "%PORTABLE_ROOT%\Admin.bat"
 
-echo @echo off > Portable\Server.bat
-echo "%%~dp0Server\1c-config-server.exe" >> Portable\Server.bat
+echo @echo off > "%PORTABLE_ROOT%\Server.bat"
+echo "%%~dp0Server\1c-config-server.exe" >> "%PORTABLE_ROOT%\Server.bat"
 
 echo.
-echo Done! Portable structure:
-echo   Portable/
+echo Done! Portable structure: %PORTABLE_ROOT%\
 echo     Admin/           - Admin GUI v2 (with Projects)
 echo     Server/          - MCP Server
 echo     databases/       - Your databases
