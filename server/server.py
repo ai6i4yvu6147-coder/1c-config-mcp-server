@@ -755,32 +755,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     response += f"  Реквизиты ({len(structure['attributes'])}):\n"
                     for attr in structure['attributes']:
                         std = " [стд]" if attr['is_standard'] else ""
-                        title = f" — {attr['title']}" if attr['title'] else ""
-                        response += f"    - {attr['name']}{std}: {attr['type']}{title}\n"
+                        title = f" — {attr['title']}" if attr.get('title') else ""
+                        comment = f" — {attr['comment']}" if attr.get('comment') else ""
+                        response += f"    - {attr['name']}{std}: {attr['type']}{title}{comment}\n"
                     response += "\n"
 
                 if structure['dimensions']:
                     response += f"  Измерения ({len(structure['dimensions'])}):\n"
                     for dim in structure['dimensions']:
-                        title = f" — {dim['title']}" if dim['title'] else ""
-                        response += f"    - {dim['name']}: {dim['type']}{title}\n"
+                        title = f" — {dim['title']}" if dim.get('title') else ""
+                        comment = f" — {dim['comment']}" if dim.get('comment') else ""
+                        response += f"    - {dim['name']}: {dim['type']}{title}{comment}\n"
                     response += "\n"
 
                 if structure['resources']:
                     response += f"  Ресурсы ({len(structure['resources'])}):\n"
                     for res in structure['resources']:
-                        title = f" — {res['title']}" if res['title'] else ""
-                        response += f"    - {res['name']}: {res['type']}{title}\n"
+                        title = f" — {res['title']}" if res.get('title') else ""
+                        comment = f" — {res['comment']}" if res.get('comment') else ""
+                        response += f"    - {res['name']}: {res['type']}{title}{comment}\n"
                     response += "\n"
 
                 if structure['tabular_sections']:
                     response += f"  Табличные части ({len(structure['tabular_sections'])}):\n"
                     for ts in structure['tabular_sections']:
-                        ts_title = f" ({ts['title']})" if ts['title'] else ""
-                        response += f"    [{ts['name']}{ts_title}]:\n"
+                        ts_title = f" ({ts['title']})" if ts.get('title') else ""
+                        ts_comment = f" — {ts['comment']}" if ts.get('comment') else ""
+                        response += f"    [{ts['name']}{ts_title}{ts_comment}]:\n"
                         for col in ts['columns']:
-                            col_title = f" — {col['title']}" if col['title'] else ""
-                            response += f"      - {col['name']}: {col['type']}{col_title}\n"
+                            col_title = f" — {col.get('title')}" if col.get('title') else ""
+                            col_comment = f" — {col['comment']}" if col.get('comment') else ""
+                            response += f"      - {col['name']}: {col['type']}{col_title}{col_comment}\n"
                     response += "\n"
 
                 if structure['enum_values']:
@@ -788,8 +793,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     for ev in structure['enum_values']:
                         order = f" (порядок: {ev['enum_order']})" if ev.get('enum_order') is not None else ""
                         title = f" — {ev['title']}" if ev.get('title') else ""
+                        comment = f" — {ev['comment']}" if ev.get('comment') else ""
                         belong = f" [{ev['object_belonging']}]" if ev.get('object_belonging') else ""
-                        response += f"    - {ev['name']}{order}{title}{belong}\n"
+                        response += f"    - {ev['name']}{order}{title}{comment}{belong}\n"
                     response += "\n"
 
                 if structure['forms']:

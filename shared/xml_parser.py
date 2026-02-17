@@ -217,6 +217,7 @@ class ConfigurationParser:
                     'name': attr_name,
                     'type': self._extract_attribute_type(attr_elem),
                     'title': self._extract_synonym(attr_elem),
+                    'comment': self._extract_comment(attr_elem),
                     'is_standard': True,
                     'standard_type': attr_name
                 }
@@ -273,6 +274,7 @@ class ConfigurationParser:
                         'name': attr_name,
                         'type': self._extract_attribute_type(attr),
                         'title': self._extract_synonym(attr),
+                        'comment': self._extract_comment(attr),
                         'is_standard': False,
                         'standard_type': None
                     })
@@ -291,6 +293,7 @@ class ConfigurationParser:
                         'name': attr_name,
                         'type': self._extract_attribute_type(child),
                         'title': self._extract_synonym(child),
+                        'comment': self._extract_comment(child),
                         'is_standard': False,
                         'standard_type': None
                     })
@@ -337,6 +340,19 @@ class ConfigurationParser:
                 return syn_content.text
         
         return ''
+
+    def _extract_comment(self, elem):
+        """Извлекает комментарий атрибута/табличной части/значения перечисления из Properties/Comment."""
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        props = elem.find(f'{{{md_ns}}}Properties')
+        if props is None:
+            return ''
+        comment_elem = props.find(f'{{{md_ns}}}Comment')
+        if comment_elem is None:
+            comment_elem = props.find('Comment')
+        if comment_elem is not None and comment_elem.text:
+            return comment_elem.text
+        return ''
     
     def _parse_tabular_sections(self, root, obj_type):
         """Извлекает табличные части: из TabularSections или из ChildObjects (формат выгрузки 2.20)."""
@@ -365,8 +381,9 @@ class ConfigurationParser:
                                 'name': col_name,
                                 'type': self._extract_attribute_type(attr),
                                 'title': self._extract_synonym(attr),
+                                'comment': self._extract_comment(attr),
                             })
-                result.append({'name': ts_name, 'title': ts_title, 'columns': columns})
+                result.append({'name': ts_name, 'title': ts_title, 'comment': self._extract_comment(ts_elem), 'columns': columns})
             return result
 
         # Вариант 2: выгрузка 2.20 — табличные части в ChildObjects как TabularSection
@@ -394,8 +411,9 @@ class ConfigurationParser:
                             'name': col_name,
                             'type': self._extract_attribute_type(col_elem),
                             'title': self._extract_synonym(col_elem),
+                            'comment': self._extract_comment(col_elem),
                         })
-            result.append({'name': ts_name, 'title': ts_title, 'columns': columns})
+            result.append({'name': ts_name, 'title': ts_title, 'comment': self._extract_comment(child), 'columns': columns})
         return result
 
     def _parse_register_section(self, root, section_tag, obj_type):
@@ -424,6 +442,7 @@ class ConfigurationParser:
                     'name': elem_name,
                     'type': self._extract_attribute_type(elem),
                     'title': self._extract_synonym(elem),
+                    'comment': self._extract_comment(elem),
                 })
         return result
 
@@ -468,6 +487,7 @@ class ConfigurationParser:
             result.append({
                 'name': ev_name,
                 'title': ev_title,
+                'comment': self._extract_comment(ev_elem),
                 'order': ev_order,
                 'object_belonging': ev_belonging,
                 'extended_configuration_object': ev_extended,

@@ -194,6 +194,7 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 attribute_type TEXT,
                 title TEXT,
+                comment TEXT,
                 is_standard INTEGER DEFAULT 0,
                 standard_type TEXT,
                 section TEXT NOT NULL DEFAULT 'Attribute',
@@ -208,9 +209,11 @@ class DatabaseManager:
                 object_id INTEGER NOT NULL,
                 tabular_section_name TEXT NOT NULL,
                 tabular_section_title TEXT,
+                tabular_section_comment TEXT,
                 column_name TEXT NOT NULL,
                 column_type TEXT,
                 title TEXT,
+                comment TEXT,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
         ''')
@@ -223,6 +226,7 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 enum_order INTEGER,
                 title TEXT,
+                comment TEXT,
                 object_belonging TEXT,
                 extended_configuration_object TEXT,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
@@ -502,13 +506,14 @@ class DatabaseManager:
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute'):
         """Вставляет атрибут объекта в БД"""
         cursor.execute('''
-            INSERT INTO attributes (object_id, name, attribute_type, title, is_standard, standard_type, section)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO attributes (object_id, name, attribute_type, title, comment, is_standard, standard_type, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             object_id,
             attr['name'],
             attr.get('type', ''),
             attr.get('title', ''),
+            attr.get('comment', ''),
             1 if attr.get('is_standard') else 0,
             attr.get('standard_type'),
             section,
@@ -516,31 +521,35 @@ class DatabaseManager:
 
     def _insert_tabular_section(self, cursor, object_id, ts):
         """Вставляет табличную часть с колонками в БД"""
+        ts_comment = ts.get('comment', '')
         for column in ts['columns']:
             cursor.execute('''
                 INSERT INTO tabular_section_columns
-                    (object_id, tabular_section_name, tabular_section_title, column_name, column_type, title)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (object_id, tabular_section_name, tabular_section_title, tabular_section_comment, column_name, column_type, title, comment)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 object_id,
                 ts['name'],
                 ts.get('title', ''),
+                ts_comment,
                 column['name'],
                 column.get('type', ''),
                 column.get('title', ''),
+                column.get('comment', ''),
             ))
 
     def _insert_enum_values(self, cursor, object_id, enum_values):
         """Вставляет значения перечисления в БД"""
         for ev in enum_values:
             cursor.execute('''
-                INSERT INTO enum_values (object_id, name, enum_order, title, object_belonging, extended_configuration_object)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO enum_values (object_id, name, enum_order, title, comment, object_belonging, extended_configuration_object)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 object_id,
                 ev['name'],
                 ev.get('order'),
                 ev.get('title', ''),
+                ev.get('comment', ''),
                 ev.get('object_belonging'),
                 ev.get('extended_configuration_object'),
             ))

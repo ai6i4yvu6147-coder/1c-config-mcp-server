@@ -1123,7 +1123,7 @@ class ConfigurationTools:
 
             # Реквизиты, измерения, ресурсы
             cursor.execute('''
-                SELECT name, attribute_type, title, is_standard, standard_type, section
+                SELECT name, attribute_type, title, comment, is_standard, standard_type, section
                 FROM attributes
                 WHERE object_id = ?
                 ORDER BY section, is_standard DESC, name
@@ -1138,14 +1138,15 @@ class ConfigurationTools:
                     'name': row['name'],
                     'type': row['attribute_type'],
                     'title': row['title'],
+                    'comment': row['comment'] or '',
                     'is_standard': bool(row['is_standard']),
                     'standard_type': row['standard_type'],
                 })
 
             # Табличные части с колонками
             cursor.execute('''
-                SELECT tabular_section_name, tabular_section_title,
-                       column_name, column_type, title
+                SELECT tabular_section_name, tabular_section_title, tabular_section_comment,
+                       column_name, column_type, title, comment
                 FROM tabular_section_columns
                 WHERE object_id = ?
                 ORDER BY tabular_section_name, column_name
@@ -1158,17 +1159,19 @@ class ConfigurationTools:
                     tabular_sections[ts_name] = {
                         'name': ts_name,
                         'title': row['tabular_section_title'],
+                        'comment': row['tabular_section_comment'] or '',
                         'columns': [],
                     }
                 tabular_sections[ts_name]['columns'].append({
                     'name': row['column_name'],
                     'type': row['column_type'],
                     'title': row['title'],
+                    'comment': row['comment'] or '',
                 })
 
             # Значения перечислений (для extension — object_belonging)
             cursor.execute('''
-                SELECT name, enum_order, title, object_belonging, extended_configuration_object
+                SELECT name, enum_order, title, comment, object_belonging, extended_configuration_object
                 FROM enum_values
                 WHERE object_id = ?
                 ORDER BY enum_order, name
@@ -1176,7 +1179,7 @@ class ConfigurationTools:
 
             enum_values = []
             for row in cursor.fetchall():
-                ev = {'name': row['name'], 'enum_order': row['enum_order'], 'title': row['title']}
+                ev = {'name': row['name'], 'enum_order': row['enum_order'], 'title': row['title'], 'comment': row['comment'] or ''}
                 if db_info.get('db_type') == 'extension' and row['object_belonging']:
                     ev['object_belonging'] = row['object_belonging']
                     if row['extended_configuration_object']:
