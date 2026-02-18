@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from admin_tool.db_manager import DatabaseManager
 from shared.project_manager import ProjectManager
+from shared.xml_parser import get_configuration_name, get_configuration_type
 
 
 class AdminAppV2:
@@ -423,9 +424,11 @@ class AddDatabaseWindow:
         if filename:
             self.xml_path = Path(filename)
             self.xml_label.config(text=self.xml_path.name, fg="black")
-            
-            if not self.name_entry.get():
-                self.name_entry.insert(0, self.xml_path.parent.name)
+            name = get_configuration_name(self.xml_path)
+            self.name_entry.delete(0, tk.END)
+            self.name_entry.insert(0, name or self.xml_path.parent.name)
+            cfg_type = get_configuration_type(self.xml_path)
+            self.type_var.set(cfg_type)
     
     def add(self):
         name = self.name_entry.get().strip()

@@ -37,7 +37,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="list_active_databases",
-            description="Получить список активных проектов и их баз (основная конфигурация и расширения). Используйте для выбора project_filter и extension_filter в других инструментах.",
+            description="Получить список активных проектов и их баз (основная конфигурация и расширения). Используйте для выбора project_filter и extension_filter в других инструментах. При работе с расширениями сначала вызовите этот инструмент и передавайте возвращённые имена проектов и баз в project_filter и extension_filter без изменений (точное совпадение).",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -60,7 +60,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально). Например: 'РАСШ1_Бюджет'"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     },
                     "object_name": {
                         "type": "string",
@@ -95,7 +95,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["name", "project_filter"]
@@ -117,7 +117,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     },
                     "limit": {
                         "type": "number",
@@ -153,7 +153,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["object_name", "project_filter"]
@@ -184,7 +184,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["object_name", "project_filter"]
@@ -219,7 +219,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["object_name", "procedure_name", "project_filter"]
@@ -245,7 +245,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["project_filter"]
@@ -275,7 +275,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["project_filter"]
@@ -301,7 +301,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["object_name", "form_name", "project_filter"]
@@ -327,7 +327,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["property_name", "project_filter"]
@@ -349,7 +349,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     }
                 },
                 "required": ["object_name", "project_filter"]
@@ -371,7 +371,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extension_filter": {
                         "type": "string",
-                        "description": "Фильтр по базе/расширению (опционально)"
+                        "description": "Точное имя базы из ответа list_active_databases (опционально). Передавайте имя без изменений."
                     },
                     "max_results": {
                         "type": "number",

@@ -28,9 +28,10 @@ class ConfigurationParser:
         properties = config.find('md:Properties', ns)
         config_name = ''
         if properties is not None:
-            name_elem = properties.find('md:n', ns)
-            if name_elem is not None:
-                config_name = name_elem.text
+            # Имя конфигурации: в формате 2.20 — Properties/Name, в старом — возможно md:n
+            name_elem = properties.find('md:Name', ns) or properties.find('md:n', ns)
+            if name_elem is not None and name_elem.text:
+                config_name = name_elem.text.strip()
         
         objects = self._parse_child_objects(config, ns)
         
@@ -53,6 +54,10 @@ class ConfigurationParser:
             'CommonModule': 'CommonModules',
             'InformationRegister': 'InformationRegisters',
             'AccumulationRegister': 'AccumulationRegisters',
+            'AccountingRegister': 'AccountingRegisters',
+            'CalculationRegister': 'CalculationRegisters',
+            'ChartOfAccounts': 'ChartsOfAccounts',
+            'ChartOfCharacteristicTypes': 'ChartsOfCharacteristicTypes',
             'Report': 'Reports',
             'DataProcessor': 'DataProcessors',
             'Enum': 'Enums',
@@ -101,7 +106,7 @@ class ConfigurationParser:
         forms = self._parse_forms(name, folder_name, default_forms)
 
         # Парсим дополнительные структуры по типу объекта
-        register_types = ('InformationRegister', 'AccumulationRegister')
+        register_types = ('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')
         if obj_type in register_types:
             tabular_sections = []
             dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
@@ -193,6 +198,8 @@ class ConfigurationParser:
             'Document': ['Date', 'Number', 'Posted', 'DeletionMark'],
             'InformationRegister': ['Recorder', 'Period', 'Active', 'LineNumber'],
             'AccumulationRegister': ['Recorder', 'LineNumber', 'Active', 'DeletionMark'],
+            'AccountingRegister': ['Recorder', 'LineNumber'],
+            'CalculationRegister': ['Recorder', 'LineNumber', 'Period'],
             'BusinessProcess': ['Date', 'Number', 'Posted', 'DeletionMark', 'State'],
             'Task': ['Date', 'Number', 'Posted', 'DeletionMark', 'Importance', 'Executed']
         }
@@ -300,15 +307,20 @@ class ConfigurationParser:
         return attributes
     
     def _extract_attribute_type(self, elem):
-        """Извлекает тип атрибута"""
+        """Извлекает тип атрибута. Поддерживает простой тип (v8:Type), составной (v8:TypeSet) и ValueType/Ref."""
         # Namespace для MDClasses и data/core
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         v8_ns = 'http://v8.1c.ru/8.1/data/core'
         
-        # Ищем в v8:Type с учетом namespace
+        # Ищем в v8:Type с учетом namespace (простой тип)
         v8_type = elem.find(f'.//{{{v8_ns}}}Type')
-        if v8_type is not None and v8_type.text:
-            return v8_type.text
+        if v8_type is not None and v8_type.text and v8_type.text.strip():
+            return v8_type.text.strip()
+        
+        # Составной тип (множество типов) — в формате 2.20 задаётся v8:TypeSet
+        v8_type_set = elem.find(f'.//{{{v8_ns}}}TypeSet')
+        if v8_type_set is not None and v8_type_set.text and v8_type_set.text.strip():
+            return v8_type_set.text.strip()
         
         # Ищем в ValueType с учетом namespace
         value_type = elem.find(f'.//{{{md_ns}}}ValueType')
@@ -417,7 +429,9 @@ class ConfigurationParser:
         return result
 
     def _parse_register_section(self, root, section_tag, obj_type):
-        """Извлекает секцию регистра: Dimensions, Resources или Attributes"""
+        """Извлекает секцию регистра: Dimensions, Resources или Attributes.
+        Поддерживает классический формат (контейнеры Dimensions/Resources) и формат 2.20 (Dimension/Resource в ChildObjects).
+        """
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         singular_map = {
             'Dimensions': 'Dimension',
@@ -431,12 +445,26 @@ class ConfigurationParser:
             return []
 
         container = obj_elem.find(f'{{{md_ns}}}{section_tag}')
-        if container is None:
-            return []
+        if container is not None:
+            result = []
+            for elem in container.findall(f'{{{md_ns}}}{child_tag}'):
+                elem_name = elem.get('name', '') or self._get_attribute_name(elem, md_ns)
+                if elem_name:
+                    result.append({
+                        'name': elem_name,
+                        'type': self._extract_attribute_type(elem),
+                        'title': self._extract_synonym(elem),
+                        'comment': self._extract_comment(elem),
+                    })
+            return result
 
+        # Формат 2.20: Dimension/Resource лежат в ChildObjects без обёрток Dimensions/Resources
+        child_objects = obj_elem.find(f'{{{md_ns}}}ChildObjects')
+        if child_objects is None:
+            return []
         result = []
-        for elem in container.findall(f'{{{md_ns}}}{child_tag}'):
-            elem_name = elem.get('name', '')
+        for elem in child_objects.findall(f'{{{md_ns}}}{child_tag}'):
+            elem_name = elem.get('name', '') or self._get_attribute_name(elem, md_ns)
             if elem_name:
                 result.append({
                     'name': elem_name,
@@ -886,6 +914,69 @@ class ConfigurationParser:
             })
         
         return events
+
+
+def _local_tag(tag):
+    """Локальное имя тега без namespace (для сравнения)."""
+    if not tag:
+        return ''
+    return tag.split('}')[-1] if '}' in tag else tag
+
+
+def get_configuration_name(config_path):
+    """
+    Возвращает имя конфигурации из Configuration.xml (без полного парсинга).
+    Используется для подстановки имени базы в GUI при выборе выгрузки.
+    """
+    path = Path(config_path)
+    if not path.exists() or path.suffix.lower() != '.xml':
+        return ''
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        config = root.find(f'{{{md_ns}}}Configuration')
+        if config is None:
+            config = root.find('.//{http://v8.1c.ru/8.3/MDClasses}Configuration')
+        if config is None:
+            return ''
+        properties = config.find(f'{{{md_ns}}}Properties')
+        if properties is None:
+            properties = config.find(f'.//{{{md_ns}}}Properties')
+        if properties is None:
+            return ''
+        for child in properties:
+            if _local_tag(child.tag) in ('Name', 'n') and child.text:
+                return child.text.strip()
+    except (ET.ParseError, OSError):
+        pass
+    return ''
+
+
+def get_configuration_type(config_path):
+    """
+    Возвращает тип конфигурации: 'extension' или 'base'.
+    Расширение определяется по наличию ConfigurationExtensionPurpose в Configuration.xml.
+    """
+    path = Path(config_path)
+    if not path.exists() or path.suffix.lower() != '.xml':
+        return 'base'
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
+        config = root.find('md:Configuration', ns)
+        if config is None:
+            return 'base'
+        properties = config.find('md:Properties', ns)
+        if properties is None:
+            return 'base'
+        purpose_elem = properties.find('md:ConfigurationExtensionPurpose', ns)
+        if purpose_elem is not None and purpose_elem.text and purpose_elem.text.strip():
+            return 'extension'
+    except (ET.ParseError, OSError):
+        pass
+    return 'base'
 
 
 def test_parser(config_path):
