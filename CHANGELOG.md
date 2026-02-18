@@ -13,5 +13,6 @@
 - **Парсер, типы регистров:** добавлены AccountingRegister и CalculationRegister (object_types, register_types, standard_by_type).
 - **Парсер, составные типы:** в _extract_attribute_type добавлена поддержка v8:TypeSet — тип заполняется для реквизитов с составным типом (множество типов).
 - **Парсер, планы:** добавлены ChartOfAccounts (план счетов) и ChartOfCharacteristicTypes (план видов характеристик) в object_types — объекты парсятся и попадают в БД.
+- **Парсер, значения перечислений (формат 2.20):** в _parse_enum_values добавлен fallback на ChildObjects при отсутствии контейнера EnumValues — значения перечисления (EnumValue) извлекаются из дочерних элементов; имя из атрибута или Properties/Name. get_object_structure возвращает enum_values для перечислений после пересоздания баз.
 - **README_AI:** добавлен раздел «Цикл проверки изменений» (тестирование на реальном MCP после пересборки пользователем).
 - **Имя и тип конфигурации из XML (GUI):** при выборе Configuration.xml название базы и признак «Основная конфигурация»/«Расширение» берутся из файла, а не из имени папки. Имя — из Properties/Name (get_configuration_name с поиском через ns, как в parse()); тип — по наличию ConfigurationExtensionPurpose (get_configuration_type()). Поле «Название» при выборе файла всегда перезаполняется из XML.

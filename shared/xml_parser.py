@@ -474,8 +474,40 @@ class ConfigurationParser:
                 })
         return result
 
+    def _parse_enum_value_elem(self, ev_elem, md_ns):
+        """Из одного элемента EnumValue собирает словарь для БД."""
+        ev_name = ev_elem.get('name', '') or self._get_attribute_name(ev_elem, md_ns)
+        if not ev_name:
+            return None
+        ev_title = self._extract_synonym(ev_elem)
+        ev_order = None
+        ev_belonging = None
+        ev_extended = None
+        props_elem = ev_elem.find(f'{{{md_ns}}}Properties')
+        if props_elem is not None:
+            order_elem = props_elem.find(f'{{{md_ns}}}Order')
+            if order_elem is not None and order_elem.text:
+                try:
+                    ev_order = int(order_elem.text)
+                except ValueError:
+                    pass
+            ob_elem = props_elem.find(f'{{{md_ns}}}ObjectBelonging')
+            if ob_elem is not None and ob_elem.text:
+                ev_belonging = ob_elem.text.strip()
+            eco_elem = props_elem.find(f'{{{md_ns}}}ExtendedConfigurationObject')
+            if eco_elem is not None and eco_elem.text:
+                ev_extended = eco_elem.text.strip()
+        return {
+            'name': ev_name,
+            'title': ev_title,
+            'comment': self._extract_comment(ev_elem),
+            'order': ev_order,
+            'object_belonging': ev_belonging,
+            'extended_configuration_object': ev_extended,
+        }
+
     def _parse_enum_values(self, root):
-        """Извлекает значения перечисления"""
+        """Извлекает значения перечисления. Поддерживает контейнер EnumValues и формат 2.20 (EnumValue в ChildObjects)."""
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
 
         obj_elem = self._get_object_element(root, 'Enum', md_ns)
@@ -483,44 +515,23 @@ class ConfigurationParser:
             return []
 
         ev_container = obj_elem.find(f'{{{md_ns}}}EnumValues')
-        if ev_container is None:
+        if ev_container is not None:
+            result = []
+            for ev_elem in ev_container.findall(f'{{{md_ns}}}EnumValue'):
+                ev = self._parse_enum_value_elem(ev_elem, md_ns)
+                if ev:
+                    result.append(ev)
+            return result
+
+        # Формат 2.20: значения перечисления в ChildObjects без обёртки EnumValues
+        child_objects = obj_elem.find(f'{{{md_ns}}}ChildObjects')
+        if child_objects is None:
             return []
-
         result = []
-        for ev_elem in ev_container.findall(f'{{{md_ns}}}EnumValue'):
-            ev_name = ev_elem.get('name', '')
-            if not ev_name:
-                continue
-
-            ev_title = self._extract_synonym(ev_elem)
-
-            ev_order = None
-            ev_belonging = None
-            ev_extended = None
-            props_elem = ev_elem.find(f'{{{md_ns}}}Properties')
-            if props_elem is not None:
-                order_elem = props_elem.find(f'{{{md_ns}}}Order')
-                if order_elem is not None and order_elem.text:
-                    try:
-                        ev_order = int(order_elem.text)
-                    except ValueError:
-                        pass
-                ob_elem = props_elem.find(f'{{{md_ns}}}ObjectBelonging')
-                if ob_elem is not None and ob_elem.text:
-                    ev_belonging = ob_elem.text.strip()
-                eco_elem = props_elem.find(f'{{{md_ns}}}ExtendedConfigurationObject')
-                if eco_elem is not None and eco_elem.text:
-                    ev_extended = eco_elem.text.strip()
-
-            result.append({
-                'name': ev_name,
-                'title': ev_title,
-                'comment': self._extract_comment(ev_elem),
-                'order': ev_order,
-                'object_belonging': ev_belonging,
-                'extended_configuration_object': ev_extended,
-            })
-
+        for ev_elem in child_objects.findall(f'{{{md_ns}}}EnumValue'):
+            ev = self._parse_enum_value_elem(ev_elem, md_ns)
+            if ev:
+                result.append(ev)
         return result
 
     def  _parse_modules(self, obj_name, folder_name):
