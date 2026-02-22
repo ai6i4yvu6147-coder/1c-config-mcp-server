@@ -63,6 +63,7 @@ class ConfigurationParser:
             'Enum': 'Enums',
             'BusinessProcess': 'BusinessProcesses',
             'Task': 'Tasks',
+            'FunctionalOption': 'FunctionalOptions',
         }
         
         for obj_type, folder_name in object_types.items():
@@ -177,6 +178,26 @@ class ConfigurationParser:
                 if elem is not None and elem.text and elem.text.strip():
                     path = elem.text.strip()
                     props[key] = path.split('.')[-1] if '.' in path else path
+
+        # Функциональные опции: свои свойства (Location, PrivilegedGetMode, Content)
+        if obj_type == 'FunctionalOption':
+            props['standard_attributes'] = []
+            props['custom_attributes'] = []
+            loc_elem = properties.find(f'{{{md_ns}}}Location')
+            if loc_elem is not None and loc_elem.text and loc_elem.text.strip():
+                props['location'] = loc_elem.text.strip()
+            priv_elem = properties.find(f'{{{md_ns}}}PrivilegedGetMode')
+            if priv_elem is not None and priv_elem.text and priv_elem.text.strip():
+                props['privileged_get_mode'] = priv_elem.text.strip().lower() == 'true'
+            content_elem = properties.find(f'{{{md_ns}}}Content')
+            if content_elem is not None:
+                content_refs = []
+                for obj_ref in content_elem.findall('.//{http://v8.1c.ru/8.3/xcf/readable}Object'):
+                    if obj_ref.text and obj_ref.text.strip():
+                        content_refs.append(obj_ref.text.strip())
+                if content_refs:
+                    props['content_refs'] = content_refs
+            return props
 
         # Стандартные атрибуты
         if obj_type:
@@ -710,7 +731,8 @@ class ConfigurationParser:
                 'title': self._extract_localized_string(attr, 'Title'),
                 'is_main': attr.find(f'{{{default_ns}}}MainAttribute') is not None,
                 'columns': self._extract_columns(attr),
-                'query_text': self._extract_query_text(attr)
+                'query_text': self._extract_query_text(attr),
+                'functional_options': self._extract_form_functional_options(attr, default_ns),
             }
             attributes.append(attr_data)
         
@@ -731,7 +753,8 @@ class ConfigurationParser:
                 'title': self._extract_localized_string(cmd, 'Title'),
                 'action': self._get_element_text(cmd, 'Action'),
                 'shortcut': self._get_element_text(cmd, 'Shortcut'),
-                'representation': self._get_element_text(cmd, 'Representation')
+                'representation': self._get_element_text(cmd, 'Representation'),
+                'functional_options': self._extract_form_functional_options(cmd, default_ns),
             }
             commands.append(cmd_data)
         
@@ -786,7 +809,8 @@ class ConfigurationParser:
                     'title': self._extract_localized_string(elem, 'Title'),
                     'visible': visible,
                     'enabled': enabled,
-                    'events': self._extract_item_events(elem)
+                    'events': self._extract_item_events(elem),
+                    'functional_options': self._extract_form_functional_options(elem, default_ns),
                 }
 
                 items.append(item_data)
@@ -859,6 +883,18 @@ class ConfigurationParser:
         default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
         child = elem.find(f'{{{default_ns}}}{tag_name}')
         return child.text if child is not None and child.text else ''
+
+    def _extract_form_functional_options(self, elem, default_ns='http://v8.1c.ru/8.3/xcf/logform'):
+        """Извлекает список FunctionalOptions/Item из элемента формы (Attribute, Command или UI element).
+        Item может быть UUID или строка вида FunctionalOption.Имя."""
+        fo_elem = elem.find(f'{{{default_ns}}}FunctionalOptions')
+        if fo_elem is None:
+            return []
+        result = []
+        for item in fo_elem.findall(f'{{{default_ns}}}Item'):
+            if item.text and item.text.strip():
+                result.append(item.text.strip())
+        return result
     
     def _extract_columns(self, attr_elem):
         """Извлекает колонки табличной части"""

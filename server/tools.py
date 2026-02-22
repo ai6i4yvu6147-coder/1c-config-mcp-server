@@ -1108,112 +1108,199 @@ class ConfigurationTools:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
+            # Сначала точное совпадение по имени
             cursor.execute('''
                 SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
                 FROM metadata_objects
-                WHERE name LIKE ?
+                WHERE name = ?
                 LIMIT 1
-            ''', (f'%{object_name}%',))
-
+            ''', (object_name,))
             obj_row = cursor.fetchone()
+
             if not obj_row:
-                continue
+                # Частичное совпадение — все кандидаты
+                cursor.execute('''
+                    SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
+                    FROM metadata_objects
+                    WHERE name LIKE ?
+                    ORDER BY name
+                ''', (f'%{object_name}%',))
+                candidates = cursor.fetchall()
+                if not candidates:
+                    continue
+                if len(candidates) > 1:
+                    # Неоднозначность — возвращаем список для уточнения
+                    project_key = db_info['project_name']
+                    if project_key not in results:
+                        results[project_key] = {}
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = {
+                        'ambiguous': True,
+                        'requested_name': object_name,
+                        'candidates': [
+                            {'name': r['name'], 'type': r['object_type'], 'synonym': r['synonym'] or ''}
+                            for r in candidates
+                        ],
+                    }
+                    continue
+                obj_row = candidates[0]
 
             object_id = obj_row['id']
+            obj_type = obj_row['object_type']
 
-            # Реквизиты, измерения, ресурсы
-            cursor.execute('''
-                SELECT name, attribute_type, title, comment, is_standard, standard_type, section
-                FROM attributes
-                WHERE object_id = ?
-                ORDER BY section, is_standard DESC, name
-            ''', (object_id,))
+            if obj_type == 'FunctionalOption':
+                # Функциональная опция: данные из functional_options; Content из fo_content_ref; использования на формах из fo_form_usage
+                cursor.execute('''
+                    SELECT location_constant, privileged_get_mode
+                    FROM functional_options WHERE object_id = ?
+                ''', (object_id,))
+                fo_row = cursor.fetchone()
+                location_constant = privileged_get_mode = None
+                if fo_row:
+                    location_constant = fo_row['location_constant']
+                    privileged_get_mode = bool(fo_row['privileged_get_mode']) if fo_row['privileged_get_mode'] is not None else None
+                cursor.execute('''
+                    SELECT mo.object_type, mo.name, r.content_ref_type, r.tabular_section_name, r.element_name
+                    FROM fo_content_ref r
+                    JOIN metadata_objects mo ON r.metadata_object_id = mo.id
+                    WHERE r.functional_option_id = ?
+                    ORDER BY mo.object_type, mo.name, r.content_ref_type, r.tabular_section_name, r.element_name
+                ''', (object_id,))
+                content_refs = []
+                for row in cursor.fetchall():
+                    ot, on = row['object_type'], row['name']
+                    rt, ts, en = row['content_ref_type'], row['tabular_section_name'], row['element_name']
+                    if rt == 'Object':
+                        content_refs.append(f"{ot}.{on}")
+                    elif rt in ('Attribute', 'Resource', 'Dimension'):
+                        content_refs.append(f"{ot}.{on}.{rt}.{en or ''}")
+                    elif rt == 'TabularSectionColumn':
+                        content_refs.append(f"{ot}.{on}.TabularSection.{ts or ''}.Attribute.{en or ''}")
+                    else:
+                        content_refs.append(f"{ot}.{on}")
+                cursor.execute('''
+                    SELECT o.name AS owner_name, f.form_name, fo.element_type, fo.element_name
+                    FROM fo_form_usage fo
+                    JOIN metadata_objects o ON fo.owner_object_id = o.id
+                    LEFT JOIN forms f ON fo.form_id = f.id
+                    WHERE fo.functional_option_id = ?
+                    ORDER BY o.name, f.form_name, fo.element_type, fo.element_name
+                ''', (object_id,))
+                used_in = []
+                for row in cursor.fetchall():
+                    used_in.append({
+                        'owner_object': row['owner_name'],
+                        'form_name': row['form_name'],
+                        'element_type': row['element_type'],
+                        'element_name': row['element_name'],
+                    })
+                structure = {
+                    'name': obj_row['name'],
+                    'type': obj_type,
+                    'uuid': obj_row['uuid'],
+                    'synonym': obj_row['synonym'],
+                    'comment': obj_row['comment'],
+                    'location_constant': location_constant,
+                    'content_refs': content_refs,
+                    'privileged_get_mode': privileged_get_mode,
+                    'used_in': used_in,
+                    'modules': [],
+                    'forms': [],
+                }
+            else:
+                # Реквизиты, измерения, ресурсы
+                cursor.execute('''
+                    SELECT name, attribute_type, title, comment, is_standard, standard_type, section
+                    FROM attributes
+                    WHERE object_id = ?
+                    ORDER BY section, is_standard DESC, name
+                ''', (object_id,))
 
-            attributes_by_section = {}
-            for row in cursor.fetchall():
-                section = row['section'] or 'Attribute'
-                if section not in attributes_by_section:
-                    attributes_by_section[section] = []
-                attributes_by_section[section].append({
-                    'name': row['name'],
-                    'type': row['attribute_type'],
-                    'title': row['title'],
-                    'comment': row['comment'] or '',
-                    'is_standard': bool(row['is_standard']),
-                    'standard_type': row['standard_type'],
-                })
+                attributes_by_section = {}
+                for row in cursor.fetchall():
+                    section = row['section'] or 'Attribute'
+                    if section not in attributes_by_section:
+                        attributes_by_section[section] = []
+                    attributes_by_section[section].append({
+                        'name': row['name'],
+                        'type': row['attribute_type'],
+                        'title': row['title'],
+                        'comment': row['comment'] or '',
+                        'is_standard': bool(row['is_standard']),
+                        'standard_type': row['standard_type'],
+                    })
 
-            # Табличные части с колонками
-            cursor.execute('''
-                SELECT tabular_section_name, tabular_section_title, tabular_section_comment,
-                       column_name, column_type, title, comment
-                FROM tabular_section_columns
-                WHERE object_id = ?
-                ORDER BY tabular_section_name, column_name
-            ''', (object_id,))
+                # Табличные части с колонками
+                cursor.execute('''
+                    SELECT tabular_section_name, tabular_section_title, tabular_section_comment,
+                           column_name, column_type, title, comment
+                    FROM tabular_section_columns
+                    WHERE object_id = ?
+                    ORDER BY tabular_section_name, column_name
+                ''', (object_id,))
 
-            tabular_sections = {}
-            for row in cursor.fetchall():
-                ts_name = row['tabular_section_name']
-                if ts_name not in tabular_sections:
-                    tabular_sections[ts_name] = {
-                        'name': ts_name,
-                        'title': row['tabular_section_title'],
-                        'comment': row['tabular_section_comment'] or '',
-                        'columns': [],
-                    }
-                tabular_sections[ts_name]['columns'].append({
-                    'name': row['column_name'],
-                    'type': row['column_type'],
-                    'title': row['title'],
-                    'comment': row['comment'] or '',
-                })
+                tabular_sections = {}
+                for row in cursor.fetchall():
+                    ts_name = row['tabular_section_name']
+                    if ts_name not in tabular_sections:
+                        tabular_sections[ts_name] = {
+                            'name': ts_name,
+                            'title': row['tabular_section_title'],
+                            'comment': row['tabular_section_comment'] or '',
+                            'columns': [],
+                        }
+                    tabular_sections[ts_name]['columns'].append({
+                        'name': row['column_name'],
+                        'type': row['column_type'],
+                        'title': row['title'],
+                        'comment': row['comment'] or '',
+                    })
 
-            # Значения перечислений (для extension — object_belonging)
-            cursor.execute('''
-                SELECT name, enum_order, title, comment, object_belonging, extended_configuration_object
-                FROM enum_values
-                WHERE object_id = ?
-                ORDER BY enum_order, name
-            ''', (object_id,))
+                # Значения перечислений (для extension — object_belonging)
+                cursor.execute('''
+                    SELECT name, enum_order, title, comment, object_belonging, extended_configuration_object
+                    FROM enum_values
+                    WHERE object_id = ?
+                    ORDER BY enum_order, name
+                ''', (object_id,))
 
-            enum_values = []
-            for row in cursor.fetchall():
-                ev = {'name': row['name'], 'enum_order': row['enum_order'], 'title': row['title'], 'comment': row['comment'] or ''}
-                if db_info.get('db_type') == 'extension' and row['object_belonging']:
-                    ev['object_belonging'] = row['object_belonging']
-                    if row['extended_configuration_object']:
-                        ev['extended_configuration_object'] = row['extended_configuration_object']
-                enum_values.append(ev)
+                enum_values = []
+                for row in cursor.fetchall():
+                    ev = {'name': row['name'], 'enum_order': row['enum_order'], 'title': row['title'], 'comment': row['comment'] or ''}
+                    if db_info.get('db_type') == 'extension' and row['object_belonging']:
+                        ev['object_belonging'] = row['object_belonging']
+                        if row['extended_configuration_object']:
+                            ev['extended_configuration_object'] = row['extended_configuration_object']
+                    enum_values.append(ev)
 
-            # Модули (краткий список)
-            cursor.execute('''
-                SELECT module_type FROM modules
-                WHERE object_id = ? AND form_id IS NULL
-            ''', (object_id,))
-            modules = [row['module_type'] for row in cursor.fetchall()]
+                # Модули (краткий список)
+                cursor.execute('''
+                    SELECT module_type FROM modules
+                    WHERE object_id = ? AND form_id IS NULL
+                ''', (object_id,))
+                modules = [row['module_type'] for row in cursor.fetchall()]
 
-            # Формы (краткий список)
-            cursor.execute('''
-                SELECT form_name FROM forms
-                WHERE object_id = ?
-            ''', (object_id,))
-            forms = [row['form_name'] for row in cursor.fetchall()]
+                # Формы (краткий список)
+                cursor.execute('''
+                    SELECT form_name FROM forms
+                    WHERE object_id = ?
+                ''', (object_id,))
+                forms = [row['form_name'] for row in cursor.fetchall()]
 
-            structure = {
-                'name': obj_row['name'],
-                'type': obj_row['object_type'],
-                'uuid': obj_row['uuid'],
-                'synonym': obj_row['synonym'],
-                'comment': obj_row['comment'],
-                'attributes': attributes_by_section.get('Attribute', []),
-                'dimensions': attributes_by_section.get('Dimension', []),
-                'resources': attributes_by_section.get('Resource', []),
-                'tabular_sections': list(tabular_sections.values()),
-                'enum_values': enum_values,
-                'modules': modules,
-                'forms': forms,
-            }
+                structure = {
+                    'name': obj_row['name'],
+                    'type': obj_type,
+                    'uuid': obj_row['uuid'],
+                    'synonym': obj_row['synonym'],
+                    'comment': obj_row['comment'],
+                    'attributes': attributes_by_section.get('Attribute', []),
+                    'dimensions': attributes_by_section.get('Dimension', []),
+                    'resources': attributes_by_section.get('Resource', []),
+                    'tabular_sections': list(tabular_sections.values()),
+                    'enum_values': enum_values,
+                    'modules': modules,
+                    'forms': forms,
+                }
             if db_info.get('db_type') == 'extension' and obj_row['object_belonging']:
                 structure['object_belonging'] = obj_row['object_belonging']
                 if obj_row['extended_configuration_object']:
@@ -1226,6 +1313,90 @@ class ConfigurationTools:
             db_key = f"{db_info['db_name']} ({db_info['db_type']})"
             results[project_key][db_key] = structure
 
+        return results
+
+    def get_functional_options(self, object_name, project_filter=None, extension_filter=None,
+                               form_name=None, element_type=None, element_name=None):
+        """
+        Единый инструмент: возвращает функциональные опции для объекта метаданных или для элемента формы.
+        Вызывать при вопросах: почему объект/документ недоступен; почему поле/кнопка на форме не отображается.
+
+        — Только object_name: в каких ФО задействован этот объект (документ, справочник и т.д.) — из fo_content_ref.
+        — object_name + form_name + element_type + element_name: от каких ФО зависит этот элемент формы — из fo_form_usage.
+
+        Args:
+            object_name: Имя объекта (обязательно).
+            project_filter: Фильтр по проекту (обязательно).
+            extension_filter: Фильтр по расширению/базе (опционально).
+            form_name: Имя формы (опционально; для запроса по элементу формы).
+            element_type: FormAttribute | FormCommand | FormItem (опционально).
+            element_name: Имя реквизита/команды/элемента (опционально).
+
+        Returns:
+            Dict по проектам/базам. Для объекта: список {name, synonym, content_ref_type, tabular_section_name, element_name}.
+            Для элемента формы: список {name, synonym}.
+        """
+        self._require_project_filter(project_filter)
+        databases = self._get_active_databases(project_filter)
+        if extension_filter:
+            databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
+
+        query_form_element = bool(form_name and element_type and element_name)
+
+        results = {}
+        for db_info in databases:
+            conn = self._get_connection(db_info['db_path'])
+            cursor = conn.cursor()
+
+            if query_form_element:
+                cursor.execute('''
+                    SELECT o.id AS owner_id, f.id AS form_id
+                    FROM forms f
+                    JOIN metadata_objects o ON f.object_id = o.id
+                    WHERE o.name = ? AND f.form_name = ?
+                    LIMIT 1
+                ''', (object_name, form_name))
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                owner_id, form_id = row['owner_id'], row['form_id']
+                cursor.execute('''
+                    SELECT mo.name, mo.synonym
+                    FROM fo_form_usage fo
+                    JOIN metadata_objects mo ON fo.functional_option_id = mo.id
+                    WHERE fo.owner_object_id = ? AND fo.form_id = ? AND fo.element_type = ? AND fo.element_name = ?
+                    ORDER BY mo.name
+                ''', (owner_id, form_id, element_type, element_name))
+                options = [{'name': r['name'], 'synonym': r['synonym'] or ''} for r in cursor.fetchall()]
+            else:
+                cursor.execute('SELECT id FROM metadata_objects WHERE name = ? LIMIT 1', (object_name,))
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                meta_id = row['id']
+                cursor.execute('''
+                    SELECT mo.name, mo.synonym, r.content_ref_type, r.tabular_section_name, r.element_name
+                    FROM fo_content_ref r
+                    JOIN metadata_objects mo ON r.functional_option_id = mo.id
+                    WHERE r.metadata_object_id = ?
+                    ORDER BY mo.name, r.content_ref_type, r.tabular_section_name, r.element_name
+                ''', (meta_id,))
+                options = []
+                for r in cursor.fetchall():
+                    opt = {'name': r['name'], 'synonym': r['synonym'] or ''}
+                    if r['content_ref_type']:
+                        opt['content_ref_type'] = r['content_ref_type']
+                    if r['tabular_section_name']:
+                        opt['tabular_section_name'] = r['tabular_section_name']
+                    if r['element_name']:
+                        opt['element_name'] = r['element_name']
+                    options.append(opt)
+
+            project_key = db_info['project_name']
+            if project_key not in results:
+                results[project_key] = {}
+            db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+            results[project_key][db_key] = options
         return results
 
     def find_attribute(self, attribute_name, project_filter=None, extension_filter=None, max_results=20):

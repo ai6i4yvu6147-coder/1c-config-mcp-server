@@ -6,6 +6,14 @@
 
 ---
 
+## 2025-02-22
+
+- **Очистка:** удалены черновики планов (оценка плана.txt, план предварительный.txt), скрипты разовой проверки ФО (scripts/check_fo_content.py, create_test_fo_db.py), каталоги сборки build/ и dist/.
+- **get_object_structure:** приоритет точному совпадению имени объекта; при частичном совпадении и нескольких кандидатах возвращается список для уточнения (`ambiguous: true`, `candidates`).
+- **Функциональные опции (ФО):** парсинг ФО из XML (тип FunctionalOption в object_types), извлечение свойств (Location, PrivilegedGetMode, Content) и привязок на формах (реквизиты, команды, элементы UI — FunctionalOptions/Item). Две таблицы: **fo_content_ref** (привязка ФО к объектам метаданных из Content: документ/реквизит/колонка ТЧ/ресурс; одна запись на один объект/реквизит/колонку; content_ref_type: Object | Attribute | TabularSectionColumn | Resource | Dimension) и **fo_form_usage** (привязка ФО к элементам форм — реквизит/команда/элемент формы). В **functional_options** хранятся только location_constant и privileged_get_mode (без дублирования Content). Двухпроходная вставка; заполнение fo_content_ref из Content с разрешением по (object_type, name). MCP: get_object_structure для ФО — content_refs и used_in из fo_content_ref/fo_form_usage; для любого объекта — поле in_functional_options (в каких ФО задействован). Инструмент get_element_functional_options по элементу формы. README_AI.md с путями к выгрузкам.
+
+---
+
 ## 2025-02-18
 
 - **extension_filter:** в описаниях инструментов (server/server.py) зафиксирована архитектура «точное имя» — параметр должен совпадать с именем базы из list_active_databases; в описание list_active_databases добавлена рекомендация вызывать его первым и передавать имена без изменений.

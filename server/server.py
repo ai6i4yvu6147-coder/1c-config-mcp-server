@@ -356,6 +356,40 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="get_functional_options",
+            description="Функциональные опции для объекта или элемента формы. Вызывать при вопросах: почему объект/документ недоступен; почему поле/кнопка на форме не отображается. Один tool: только object_name — в каких ФО задействован объект; object_name + form_name + element_type + element_name — от каких ФО зависит элемент формы. project_filter обязателен.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя объекта (документ, справочник и т.д.) — обязательно."
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (обязательно)."
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Точное имя базы из list_active_databases (опционально)."
+                    },
+                    "form_name": {
+                        "type": "string",
+                        "description": "Имя формы — для запроса по элементу формы (вместе с element_type и element_name)."
+                    },
+                    "element_type": {
+                        "type": "string",
+                        "description": "FormAttribute | FormCommand | FormItem — для элемента формы."
+                    },
+                    "element_name": {
+                        "type": "string",
+                        "description": "Имя реквизита/команды/элемента формы."
+                    }
+                },
+                "required": ["object_name", "project_filter"]
+            }
+        ),
+        Tool(
             name="find_attribute",
             description="Поиск реквизита по имени. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
             inputSchema={
@@ -747,11 +781,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     response += f"  Принадлежность: {structure['object_belonging']}\n"
                 if structure.get('uuid'):
                     response += f"  UUID: {structure['uuid']}\n"
-                if structure['comment']:
+                if structure.get('comment'):
                     response += f"  Комментарий: {structure['comment']}\n"
                 response += "\n"
 
-                if structure['attributes']:
+                if structure['type'] == 'FunctionalOption':
+                    if structure.get('location_constant'):
+                        response += f"  Константа хранения: {structure['location_constant']}\n"
+                    if structure.get('privileged_get_mode') is not None:
+                        response += f"  Привилегированное получение: {structure['privileged_get_mode']}\n"
+                    if structure.get('content_refs'):
+                        response += f"  Привязка к объектам: {len(structure['content_refs'])} объект(ов)\n"
+                    if structure.get('used_in'):
+                        response += f"  Используется в ({len(structure['used_in'])}):\n"
+                        for u in structure['used_in']:
+                            response += f"    - {u['owner_object']}.{u['form_name']} / {u['element_type']} {u['element_name'] or '(уровень формы)'}\n"
+                    response += "\n"
+                if structure.get('attributes'):
                     response += f"  Реквизиты ({len(structure['attributes'])}):\n"
                     for attr in structure['attributes']:
                         std = " [стд]" if attr['is_standard'] else ""
@@ -760,7 +806,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"    - {attr['name']}{std}: {attr['type']}{title}{comment}\n"
                     response += "\n"
 
-                if structure['dimensions']:
+                if structure.get('dimensions'):
                     response += f"  Измерения ({len(structure['dimensions'])}):\n"
                     for dim in structure['dimensions']:
                         title = f" — {dim['title']}" if dim.get('title') else ""
@@ -768,7 +814,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"    - {dim['name']}: {dim['type']}{title}{comment}\n"
                     response += "\n"
 
-                if structure['resources']:
+                if structure.get('resources'):
                     response += f"  Ресурсы ({len(structure['resources'])}):\n"
                     for res in structure['resources']:
                         title = f" — {res['title']}" if res.get('title') else ""
@@ -776,7 +822,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"    - {res['name']}: {res['type']}{title}{comment}\n"
                     response += "\n"
 
-                if structure['tabular_sections']:
+                if structure.get('tabular_sections'):
                     response += f"  Табличные части ({len(structure['tabular_sections'])}):\n"
                     for ts in structure['tabular_sections']:
                         ts_title = f" ({ts['title']})" if ts.get('title') else ""
@@ -788,7 +834,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             response += f"      - {col['name']}: {col['type']}{col_title}{col_comment}\n"
                     response += "\n"
 
-                if structure['enum_values']:
+                if structure.get('enum_values'):
                     response += f"  Значения перечисления ({len(structure['enum_values'])}):\n"
                     for ev in structure['enum_values']:
                         order = f" (порядок: {ev['enum_order']})" if ev.get('enum_order') is not None else ""
@@ -798,13 +844,52 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"    - {ev['name']}{order}{title}{comment}{belong}\n"
                     response += "\n"
 
-                if structure['forms']:
+                if structure.get('forms'):
                     response += f"  Формы: {', '.join(structure['forms'])}\n"
-                if structure['modules']:
+                if structure.get('modules'):
                     response += f"  Модули: {', '.join(structure['modules'])}\n"
 
             response += "\n"
 
+        return [TextContent(type="text", text=response)]
+
+    elif name == "get_functional_options":
+        object_name = arguments["object_name"]
+        project_filter = arguments.get("project_filter")
+        extension_filter = arguments.get("extension_filter")
+        form_name = arguments.get("form_name")
+        element_type = arguments.get("element_type")
+        element_name = arguments.get("element_name")
+
+        results = tools.get_functional_options(
+            object_name, project_filter, extension_filter,
+            form_name=form_name, element_type=element_type, element_name=element_name
+        )
+
+        if not results:
+            return [TextContent(type="text", text="Объект или элемент не найдены, либо привязок к функциональным опциям нет.")]
+
+        if form_name and element_type and element_name:
+            title = f"Функциональные опции элемента формы {object_name}.{form_name} / {element_type} '{element_name}':"
+        else:
+            title = f"Функциональные опции объекта {object_name}:"
+
+        response = title + "\n\n"
+        for project_name, project_data in results.items():
+            response += f"Проект: {project_name}\n"
+            for db_name, options in project_data.items():
+                response += f"  {db_name}: {len(options)} ФО\n"
+                for opt in options:
+                    syn = f" ({opt['synonym']})" if opt.get('synonym') else ""
+                    detail = ""
+                    if opt.get('content_ref_type') and opt['content_ref_type'] != 'Object':
+                        detail = f" — {opt['content_ref_type']}"
+                        if opt.get('element_name'):
+                            detail += f".{opt['element_name']}"
+                        if opt.get('tabular_section_name'):
+                            detail += f" ТЧ {opt['tabular_section_name']}"
+                    response += f"    - {opt['name']}{syn}{detail}\n"
+            response += "\n"
         return [TextContent(type="text", text=response)]
 
     elif name == "find_attribute":

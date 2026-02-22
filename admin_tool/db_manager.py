@@ -232,6 +232,43 @@ class DatabaseManager:
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
         ''')
+
+        # Таблица функциональных опций (свойства ФО; Content хранится в fo_content_ref)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS functional_options (
+                object_id INTEGER NOT NULL PRIMARY KEY,
+                location_constant TEXT,
+                privileged_get_mode INTEGER,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        # Привязка ФО к объектам метаданных (Content ФО: документ/реквизит/колонка ТЧ/ресурс)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fo_content_ref (
+                functional_option_id INTEGER NOT NULL,
+                metadata_object_id INTEGER NOT NULL,
+                content_ref_type TEXT NOT NULL,
+                tabular_section_name TEXT,
+                element_name TEXT,
+                FOREIGN KEY (functional_option_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (metadata_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        # Привязка ФО к элементам форм (реквизит/команда/элемент формы зависит от ФО)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fo_form_usage (
+                functional_option_id INTEGER NOT NULL,
+                owner_object_id INTEGER NOT NULL,
+                form_id INTEGER,
+                element_type TEXT NOT NULL,
+                element_name TEXT,
+                FOREIGN KEY (functional_option_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (owner_object_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            )
+        ''')
         
         # Индексы для быстрого поиска
         cursor.execute('''
@@ -275,6 +312,23 @@ class DatabaseManager:
             ON enum_values(object_id)
         ''')
 
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_fo_content_ref_fo
+            ON fo_content_ref(functional_option_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_fo_content_ref_object
+            ON fo_content_ref(metadata_object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_fo_form_usage_fo
+            ON fo_form_usage(functional_option_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_fo_form_usage_owner_form
+            ON fo_form_usage(owner_object_id, form_id, element_type, element_name)
+        ''')
+
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search 
@@ -290,13 +344,12 @@ class DatabaseManager:
         self.conn.commit()
     
     def _insert_configuration(self, data, progress_callback=None):
-        """Вставляет данные конфигурации в БД"""
+        """Вставляет данные конфигурации в БД. Два прохода: сначала все объекты и ФО, затем формы и fo_usage."""
         cursor = self.conn.cursor()
-        
         total_objects = len(data['objects'])
-        
+
+        # Проход 1: объекты без форм (чтобы ФО были в БД до вставки fo_form_usage и fo_content_ref)
         for idx, obj in enumerate(data['objects']):
-            # Вставляем объект
             cursor.execute('''
                 INSERT INTO metadata_objects (uuid, object_type, name, synonym, comment, object_belonging, extended_configuration_object)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -309,62 +362,134 @@ class DatabaseManager:
                 obj['properties'].get('object_belonging'),
                 obj['properties'].get('extended_configuration_object')
             ))
-            
             object_id = cursor.lastrowid
-            
-            # Вставляем модули объекта (без form_id)
+
+            if obj['type'] == 'FunctionalOption':
+                loc = obj['properties'].get('location')
+                priv = obj['properties'].get('privileged_get_mode')
+                cursor.execute('''
+                    INSERT INTO functional_options (object_id, location_constant, privileged_get_mode)
+                    VALUES (?, ?, ?)
+                ''', (object_id, loc, 1 if priv else 0))
+
             for module in obj['modules']:
                 cursor.execute('''
                     INSERT INTO modules (object_id, form_id, module_type, code)
                     VALUES (?, NULL, ?, ?)
                 ''', (object_id, module['type'], module['code']))
-                
-                # Добавляем в полнотекстовый индекс
                 module_id = cursor.lastrowid
                 cursor.execute('''
                     INSERT INTO code_search (rowid, object_name, module_type, code)
                     VALUES (?, ?, ?, ?)
                 ''', (module_id, obj['name'], module['type'], module['code']))
-            
-            # Вставляем стандартные атрибуты
+
             for attr in obj['properties'].get('standard_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
-
-            # Вставляем кастомные атрибуты
             for attr in obj['properties'].get('custom_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
-
-            # Вставляем измерения регистров
             for dim in obj.get('dimensions', []):
                 self._insert_attribute(cursor, object_id, dim, section='Dimension')
-
-            # Вставляем ресурсы регистров
             for res in obj.get('resources', []):
                 self._insert_attribute(cursor, object_id, res, section='Resource')
-
-            # Вставляем табличные части с колонками
             for ts in obj.get('tabular_sections', []):
                 self._insert_tabular_section(cursor, object_id, ts)
-
-            # Вставляем значения перечислений
             enum_values = obj.get('enum_values', [])
             if enum_values:
                 self._insert_enum_values(cursor, object_id, enum_values)
 
-            # Вставляем формы
-            for form in obj.get('forms', []):
-                self._insert_form(cursor, object_id, obj['name'], form)
-            
-            # Отчет о прогрессе
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
-                progress = 20 + int((idx / total_objects) * 80)
-                progress_callback(progress, 100, f"Загружено {idx + 1}/{total_objects} объектов")
-        
+                progress = 20 + int((idx / total_objects) * 40)
+                progress_callback(progress, 100, f"Объекты {idx + 1}/{total_objects}")
+
+        # Справочник ФО для разрешения UUID / "FunctionalOption.Имя" -> id
+        cursor.execute('SELECT id, name, uuid FROM metadata_objects WHERE object_type = ?', ('FunctionalOption',))
+        fo_resolver = {}
+        for row in cursor.fetchall():
+            fid, name, uuid_val = row[0], row[1], row[2] or ''
+            fo_resolver[uuid_val] = fid
+            fo_resolver[name] = fid
+            fo_resolver['FunctionalOption.' + name] = fid
+
+        # Справочник (object_type, name) -> id для разрешения Content
+        cursor.execute('SELECT id, object_type, name FROM metadata_objects')
+        type_name_to_id = {}
+        for row in cursor.fetchall():
+            type_name_to_id[(row['object_type'], row['name'])] = row['id']
+
+        # Заполняем fo_content_ref из Content каждой ФО
+        for obj in data['objects']:
+            if obj['type'] != 'FunctionalOption':
+                continue
+            content_refs = obj['properties'].get('content_refs') or []
+            cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
+            fo_row = cursor.fetchone()
+            if not fo_row:
+                continue
+            fo_id = fo_row['id']
+            for ref_str in content_refs:
+                parsed = self._parse_content_ref(ref_str)
+                if not parsed:
+                    continue
+                obj_type, obj_name, ref_type, ts_name, elem_name = parsed
+                meta_id = type_name_to_id.get((obj_type, obj_name))
+                if meta_id is None:
+                    continue
+                cursor.execute('''
+                    INSERT INTO fo_content_ref (functional_option_id, metadata_object_id, content_ref_type, tabular_section_name, element_name)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (fo_id, meta_id, ref_type, ts_name, elem_name))
+
+        # Проход 2: формы и fo_form_usage
+        for idx, obj in enumerate(data['objects']):
+            cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            object_id = row[0]
+            for form in obj.get('forms', []):
+                self._insert_form(cursor, object_id, obj['name'], form, fo_resolver)
+
+            if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
+                progress = 60 + int((idx / total_objects) * 40)
+                progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}")
+
         self.conn.commit()
     
-    def _insert_form(self, cursor, object_id, object_name, form):
-        """Вставляет данные формы в БД"""
-        # Вставляем форму
+    def _parse_content_ref(self, ref_str):
+        """Парсит строку Content ФО (например Document.Имя, Document.Имя.Attribute.Рекв,
+        Document.Имя.TabularSection.ТЧ.Attribute.Кол, InformationRegister.Имя.Resource.Ресурс).
+        Возвращает (object_type, object_name, content_ref_type, tabular_section_name, element_name)
+        или None при неверном формате."""
+        if not ref_str or not isinstance(ref_str, str):
+            return None
+        s = ref_str.strip()
+        parts = s.split('.')
+        if len(parts) < 2:
+            return None
+        object_type = parts[0]
+        object_name = parts[1]
+        if len(parts) == 2:
+            return (object_type, object_name, 'Object', None, None)
+        if len(parts) == 4:
+            # Type.Name.Attribute|Resource|Dimension.ElementName
+            ref_type = parts[2]
+            if ref_type in ('Attribute', 'Resource', 'Dimension'):
+                return (object_type, object_name, ref_type, None, parts[3])
+            return None
+        if len(parts) == 6 and parts[2] == 'TabularSection' and parts[4] == 'Attribute':
+            return (object_type, object_name, 'TabularSectionColumn', parts[3], parts[5])
+        return None
+
+    def _resolve_fo_id(self, fo_ref, fo_resolver):
+        """Разрешает ссылку на ФО (UUID или FunctionalOption.Имя) в id. Возвращает id или None."""
+        if not fo_ref or not fo_resolver:
+            return None
+        s = fo_ref.strip()
+        return fo_resolver.get(s)
+
+    def _insert_form(self, cursor, object_id, object_name, form, fo_resolver=None):
+        """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id) для fo_form_usage."""
+        fo_resolver = fo_resolver or {}
         cursor.execute('''
             INSERT INTO forms (object_id, form_name, form_kind, uuid, properties_json)
             VALUES (?, ?, ?, ?, ?)
@@ -375,10 +500,8 @@ class DatabaseManager:
             form['uuid'],
             json.dumps(form['properties'], ensure_ascii=False) if form['properties'] else None
         ))
-        
         form_id = cursor.lastrowid
-        
-        # Вставляем реквизиты
+
         for attr in form.get('attributes', []):
             cursor.execute('''
                 INSERT INTO form_attributes (
@@ -392,10 +515,16 @@ class DatabaseManager:
                 attr['title'],
                 1 if attr['is_main'] else 0,
                 json.dumps(attr['columns'], ensure_ascii=False) if attr['columns'] else None,
-                attr['query_text']
+                attr.get('query_text')
             ))
-        
-        # Вставляем команды
+            for fo_ref in attr.get('functional_options', []):
+                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
+                if fo_id is not None:
+                    cursor.execute('''
+                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (fo_id, object_id, form_id, 'FormAttribute', attr['name']))
+
         for cmd in form.get('commands', []):
             cursor.execute('''
                 INSERT INTO form_commands (
@@ -407,9 +536,16 @@ class DatabaseManager:
                 cmd['name'],
                 cmd['title'],
                 cmd['action'],
-                cmd['shortcut'],
-                cmd['representation']
+                cmd.get('shortcut'),
+                cmd.get('representation')
             ))
+            for fo_ref in cmd.get('functional_options', []):
+                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
+                if fo_id is not None:
+                    cursor.execute('''
+                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (fo_id, object_id, form_id, 'FormCommand', cmd['name']))
         
         # Вставляем события формы
         for event in form.get('events', []):
@@ -457,7 +593,14 @@ class DatabaseManager:
             
             item_db_id = cursor.lastrowid
             item_id_map[item['id']] = item_db_id
-            
+            for fo_ref in item.get('functional_options', []):
+                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
+                if fo_id is not None:
+                    cursor.execute('''
+                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (fo_id, object_id, form_id, 'FormItem', item['name']))
+
             # Вставляем события элемента
             for event in item.get('events', []):
                 cursor.execute('''
@@ -605,6 +748,14 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM enum_values')
         stats['total_enum_values'] = cursor.fetchone()[0]
 
+        # Функциональные опции (базы пересоздаются при изменении схемы)
+        cursor.execute('SELECT COUNT(*) FROM functional_options')
+        stats['total_functional_options'] = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM fo_form_usage')
+        stats['total_fo_form_usage'] = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM fo_content_ref')
+        stats['total_fo_content_ref'] = cursor.fetchone()[0]
+
         return stats
 
 
@@ -630,6 +781,8 @@ def test_database_creation(config_xml_path, db_path):
     print("\nПо типам:")
     for obj_type, count in stats['by_type'].items():
         print(f"  {obj_type}: {count}")
-    
+    if stats.get('total_functional_options', 0) or stats.get('total_fo_content_ref', 0) or stats.get('total_fo_form_usage', 0):
+        print(f"\n  ФО: {stats.get('total_functional_options', 0)}, content_ref: {stats.get('total_fo_content_ref', 0)}, form_usage: {stats.get('total_fo_form_usage', 0)}")
+
     db.close()
     print(f"\nБаза создана: {db_path}")
