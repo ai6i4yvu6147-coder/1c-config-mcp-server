@@ -103,7 +103,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list_objects",
-            description="Список объектов метаданных. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
+            description="Список объектов метаданных. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). В ответе по каждой базе: total_count, returned_count, is_truncated; при is_truncated: true увеличьте limit или сообщите пользователю о неполном списке.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -506,8 +506,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         for project_name, project_data in results.items():
             response += f"📁 Проект: {project_name}\n"
             for db_name, db_results in project_data.items():
+                by_type = db_results.get('by_type', db_results)
                 response += f"  └─ {db_name}:\n"
-                for obj_type, objects in sorted(db_results.items()):
+                total_count = db_results.get('total_count')
+                returned_count = db_results.get('returned_count')
+                is_truncated = db_results.get('is_truncated', db_results.get('truncated', False))
+                if total_count is not None and returned_count is not None:
+                    response += f"     total_count: {total_count}\n"
+                    response += f"     returned_count: {returned_count}\n"
+                    response += f"     is_truncated: {str(is_truncated).lower()}\n"
+                if is_truncated:
+                    response += "     При is_truncated: true увеличьте limit или сообщите пользователю о неполном списке.\n"
+                for obj_type, objects in sorted(by_type.items()):
                     response += f"     {obj_type} ({len(objects)}):\n"
                     for obj_entry in objects[:10]:
                         name = obj_entry['name'] if isinstance(obj_entry, dict) else obj_entry
@@ -714,10 +724,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"    • {cmd['name']}{shortcut}: {cmd['action']}\n"
                     response += "\n"
                 
-                # Элементы UI
+                # Элементы UI (с иерархией по depth)
                 if structure['items']:
                     response += f"  Элементы UI ({len(structure['items'])}):\n"
                     for item in structure['items']:
+                        depth = item.get('depth', 0)
+                        indent = "    " + "  " * depth
                         data_path = f" -> {item['data_path']}" if item.get('data_path') else ""
                         title = f" «{item['title']}»" if item.get('title') else ""
                         v, e = item.get('visible'), item.get('enabled')
@@ -726,7 +738,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             vis_str += " [скрыт]"
                         if e == 0:
                             vis_str += " [недоступен]"
-                        response += f"    • {item['name']} ({item['type']}){data_path}{title}{vis_str}\n"
+                        response += f"{indent}• {item['name']} ({item['type']}){data_path}{title}{vis_str}\n"
                     response += "\n"
         
         return [TextContent(type="text", text=response)]

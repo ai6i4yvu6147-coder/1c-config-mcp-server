@@ -8,22 +8,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.project_manager import ProjectManager
 
 
-def _directive_to_context(line, directive_pattern):
-    """
-    По строке директивы компиляции 1С возвращает контекст выполнения: Client, Server, ClientOrServer.
-    Используются только 4 директивы модулей форм: &НаКлиенте, &НаСервере, &НаСервереБезКонтекста, &НаКлиентеНаСервереБезКонтекста
-    (и их английские аналоги AtClient, AtServer, AtServerNoContext, AtClientAtServerNoContext).
-    """
-    if not line or not directive_pattern.match(line):
-        return None
-    # Длинные варианты проверяем первыми
-    if "AtClientAtServerNoContext" in line or "НаКлиентеНаСервереБезКонтекста" in line:
-        return "ClientOrServer"
-    if "AtClient" in line or "НаКлиенте" in line:
-        return "Client"
-    return "Server"
-
-
 class ConfigurationTools:
     """Инструменты для работы с конфигурациями 1С через несколько проектов"""
     
@@ -187,9 +171,13 @@ class ConfigurationTools:
                 if pos == -1:
                     snippet = code[:100]
                 else:
-                    start = max(0, pos - 30)
-                    end = min(len(code), pos + len(query) + 30)
-                    snippet = "..." + code[start:end] + "..."
+                    start = max(0, pos - 200)
+                    end = min(len(code), pos + len(query) + 200)
+                    line_start = code.rfind('\n', 0, start)
+                    line_start = (line_start + 1) if line_start != -1 else 0
+                    line_end = code.find('\n', end)
+                    line_end = (line_end + 1) if line_end != -1 else len(code)
+                    snippet = "..." + code[line_start:line_end] + "..."
                 
                 db_results.append({
                     'object_name': row['object_name'],
@@ -323,10 +311,17 @@ class ConfigurationTools:
                     ORDER BY object_type, name
                     LIMIT ?
                 ''', (limit,))
-            
-            # Группируем по типам
+            rows = cursor.fetchall()
+            returned_count = len(rows)
+            if object_type:
+                cursor.execute('SELECT COUNT(*) FROM metadata_objects WHERE object_type = ?', (object_type,))
+            else:
+                cursor.execute('SELECT COUNT(*) FROM metadata_objects')
+            total_count = cursor.fetchone()[0]
+            is_truncated = returned_count < total_count
+
             by_type = {}
-            for row in cursor.fetchall():
+            for row in rows:
                 obj_type = row['object_type']
                 if obj_type not in by_type:
                     by_type[obj_type] = []
@@ -336,14 +331,19 @@ class ConfigurationTools:
                     if row['extended_configuration_object']:
                         entry['extended_configuration_object'] = row['extended_configuration_object']
                 by_type[obj_type].append(entry)
-            
+
             if by_type:
                 project_key = f"{db_info['project_name']}"
                 if project_key not in results:
                     results[project_key] = {}
-                
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = by_type
+                results[project_key][db_key] = {
+                    'by_type': by_type,
+                    'total_count': total_count,
+                    'returned_count': returned_count,
+                    'is_truncated': is_truncated,
+                    'truncated': is_truncated,
+                }
         
         return results
     
@@ -426,7 +426,7 @@ class ConfigurationTools:
     
     def get_module_procedures(self, object_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
         """
-        Получить список процедур и функций модуля
+        Получить список процедур и функций модуля (из таблицы module_procedures).
         
         Args:
             object_name: Имя объекта
@@ -438,128 +438,91 @@ class ConfigurationTools:
         Returns:
             Dict with procedures from each matching database
         """
-        import re
-        
         self._require_project_filter(project_filter)
-        # Валидация параметров
         if module_type == 'FormModule' and not form_name:
             raise ValueError("form_name is required when module_type is 'FormModule'")
-        
         if form_name and module_type != 'FormModule':
             raise ValueError("form_name can only be used with module_type='FormModule'")
         
         databases = self._get_active_databases(project_filter)
-        
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
-        pattern = r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*$'
-        # Директивы компиляции модулей форм 1С (4 штуки): см. документацию по управляемым формам.
-        # ПослеЗаписиНаСервере — не директива, а типовое имя метода формы; BeforeServer — не директива.
-        directive_pattern = re.compile(
-            r'^\s*&(НаКлиентеНаСервереБезКонтекста|НаСервереБезКонтекста|НаКлиенте|НаСервере|'
-            r'AtClientAtServerNoContext|AtServerNoContext|AtClient|AtServer)\s*$',
-            re.IGNORECASE
-        )
         
         if module_type == 'FormModule':
-            # Модуль формы
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                
                 cursor.execute('''
-                    SELECT m.code
-                    FROM modules m
+                    SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
+                           p.execution_context, p.extension_call_type
+                    FROM module_procedures p
+                    JOIN modules m ON p.module_id = m.id
                     JOIN forms f ON m.form_id = f.id
                     JOIN metadata_objects o ON f.object_id = o.id
                     WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule'
-                    LIMIT 1
+                    ORDER BY p.start_line
                 ''', (object_name, form_name))
-                
-                row = cursor.fetchone()
-                if not row:
+                rows = cursor.fetchall()
+                if not rows:
                     continue
-                
-                code = row['code']
-                
-                # Парсинг процедур и функций
                 procedures = []
-                lines = code.split('\n')
-                for line_num, line in enumerate(lines, 1):
-                    match = re.match(pattern, line, re.IGNORECASE)
-                    if match:
-                        prev_line = lines[line_num - 2] if line_num >= 2 else ''
-                        execution_context = _directive_to_context(prev_line.strip(), directive_pattern)
-                        procedures.append({
-                            'type': match.group(1),
-                            'name': match.group(2),
-                            'params': match.group(3).strip() if match.group(3) else '(без параметров)',
-                            'export': bool(match.group(4)),
-                            'line': line_num,
-                            'signature': line.strip(),
-                            'execution_context': execution_context,
-                        })
-                
-                if procedures:
-                    project_key = f"{db_info['project_name']}"
-                    if project_key not in results:
-                        results[project_key] = {}
-                    
-                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                    results[project_key][db_key] = procedures
+                for row in rows:
+                    exp = ' Экспорт' if row['is_export'] else ''
+                    procedures.append({
+                        'type': row['proc_type'],
+                        'name': row['name'],
+                        'params': row['params'] or '(без параметров)',
+                        'export': bool(row['is_export']),
+                        'line': row['start_line'],
+                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
+                        'execution_context': row['execution_context'],
+                        'extension_call_type': row['extension_call_type'],
+                    })
+                project_key = db_info['project_name']
+                if project_key not in results:
+                    results[project_key] = {}
+                results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedures
         else:
-            # Модуль объекта
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                
                 cursor.execute('''
-                    SELECT m.code
-                    FROM modules m
+                    SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
+                           p.execution_context, p.extension_call_type
+                    FROM module_procedures p
+                    JOIN modules m ON p.module_id = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
                     WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
-                    LIMIT 1
+                    ORDER BY p.start_line
                 ''', (object_name, module_type))
-                
-                row = cursor.fetchone()
-                if not row:
+                rows = cursor.fetchall()
+                if not rows:
                     continue
-                
-                code = row['code']
-                
-                # Парсинг процедур и функций
                 procedures = []
-                lines = code.split('\n')
-                for line_num, line in enumerate(lines, 1):
-                    match = re.match(pattern, line, re.IGNORECASE)
-                    if match:
-                        prev_line = lines[line_num - 2] if line_num >= 2 else ''
-                        execution_context = _directive_to_context(prev_line.strip(), directive_pattern)
-                        procedures.append({
-                            'type': match.group(1),
-                            'name': match.group(2),
-                            'params': match.group(3).strip() if match.group(3) else '(без параметров)',
-                            'export': bool(match.group(4)),
-                            'line': line_num,
-                            'signature': line.strip(),
-                            'execution_context': execution_context,
-                        })
-                
-                if procedures:
-                    project_key = f"{db_info['project_name']}"
-                    if project_key not in results:
-                        results[project_key] = {}
-                    
-                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                    results[project_key][db_key] = procedures
+                for row in rows:
+                    exp = ' Экспорт' if row['is_export'] else ''
+                    procedures.append({
+                        'type': row['proc_type'],
+                        'name': row['name'],
+                        'params': row['params'] or '(без параметров)',
+                        'export': bool(row['is_export']),
+                        'line': row['start_line'],
+                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
+                        'execution_context': row['execution_context'],
+                        'extension_call_type': row['extension_call_type'],
+                    })
+                project_key = db_info['project_name']
+                if project_key not in results:
+                    results[project_key] = {}
+                results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedures
         
         return results
     
     def get_procedure_code(self, object_name, procedure_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
         """
-        Получить код конкретной процедуры
+        Получить код конкретной процедуры (по start_line/end_line из module_procedures, срез modules.code).
         
         Args:
             object_name: Имя объекта
@@ -572,118 +535,71 @@ class ConfigurationTools:
         Returns:
             Dict with procedure code from each matching database
         """
-        import re
-        
-        # Валидация параметров
         if module_type == 'FormModule' and not form_name:
             raise ValueError("form_name is required when module_type is 'FormModule'")
-        
         if form_name and module_type != 'FormModule':
             raise ValueError("form_name can only be used with module_type='FormModule'")
         
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
         
-        # Общая логика поиска процедуры
-        def extract_procedure(code, proc_name):
-            lines = code.split('\n')
-            
-            # Паттерны для поиска (русский и английский)
-            start_pattern = rf'^\s*(Функция|Процедура|Function|Procedure)\s+{re.escape(proc_name)}\s*\('
-            end_pattern = r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\s*$'
-            
-            start_line = None
-            
-            # Ищем начало процедуры
-            for i, line in enumerate(lines):
-                if re.match(start_pattern, line, re.IGNORECASE):
-                    start_line = i
-                    break
-            
-            if start_line is None:
-                return None
-            
-            # Включить строку директивы компиляции 1С (4 директивы модулей форм), если она над процедурой
-            directive_pattern = re.compile(
-                r'^\s*&(НаКлиентеНаСервереБезКонтекста|НаСервереБезКонтекста|НаКлиенте|НаСервере|'
-                r'AtClientAtServerNoContext|AtServerNoContext|AtClient|AtServer)\s*$',
-                re.IGNORECASE
-            )
-            if start_line > 0 and directive_pattern.match(lines[start_line - 1].strip()):
-                start_line = start_line - 1
-            
-            # Ищем конец процедуры (первое вхождение КонецПроцедуры/КонецФункции)
-            end_line = None
-            for i in range(start_line + 1, len(lines)):
-                if re.match(end_pattern, lines[i], re.IGNORECASE):
-                    end_line = i
-                    break
-            
-            if end_line is not None:
-                return '\n'.join(lines[start_line:end_line + 1])
-            
-            return None
-        
         if module_type == 'FormModule':
-            # Модуль формы
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                
                 cursor.execute('''
-                    SELECT m.code
-                    FROM modules m
+                    SELECT p.start_line, p.end_line, m.code
+                    FROM module_procedures p
+                    JOIN modules m ON p.module_id = m.id
                     JOIN forms f ON m.form_id = f.id
                     JOIN metadata_objects o ON f.object_id = o.id
-                    WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule'
+                    WHERE o.name = ? AND f.form_name = ? AND m.module_type = 'FormModule' AND p.name = ?
                     LIMIT 1
-                ''', (object_name, form_name))
-                
+                ''', (object_name, form_name, procedure_name))
                 row = cursor.fetchone()
-                if not row:
+                if not row or not row['code']:
                     continue
-                
-                procedure_code = extract_procedure(row['code'], procedure_name)
-                
+                lines = row['code'].split('\n')
+                start_line = row['start_line']
+                end_line = row['end_line']
+                if end_line is None:
+                    end_line = len(lines)
+                procedure_code = '\n'.join(lines[start_line - 1:end_line])
                 if procedure_code:
-                    project_key = f"{db_info['project_name']}"
+                    project_key = db_info['project_name']
                     if project_key not in results:
                         results[project_key] = {}
-                    
-                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                    results[project_key][db_key] = procedure_code
+                    results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedure_code
         else:
-            # Модуль объекта
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                
                 cursor.execute('''
-                    SELECT m.code
-                    FROM modules m
+                    SELECT p.start_line, p.end_line, m.code
+                    FROM module_procedures p
+                    JOIN modules m ON p.module_id = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
-                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL AND p.name = ?
                     LIMIT 1
-                ''', (object_name, module_type))
-                
+                ''', (object_name, module_type, procedure_name))
                 row = cursor.fetchone()
-                if not row:
+                if not row or not row['code']:
                     continue
-                
-                procedure_code = extract_procedure(row['code'], procedure_name)
-                
+                lines = row['code'].split('\n')
+                start_line = row['start_line']
+                end_line = row['end_line']
+                if end_line is None:
+                    end_line = len(lines)
+                procedure_code = '\n'.join(lines[start_line - 1:end_line])
                 if procedure_code:
-                    project_key = f"{db_info['project_name']}"
+                    project_key = db_info['project_name']
                     if project_key not in results:
                         results[project_key] = {}
-                    
-                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                    results[project_key][db_key] = procedure_code
+                    results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedure_code
         
         return results
     
@@ -947,25 +863,49 @@ class ConfigurationTools:
             
             events = [dict(row) for row in cursor.fetchall()]
             
-            # Получаем элементы UI (visible, enabled вместо properties_json)
+            # Получаем элементы UI (visible, enabled), строим дерево и порядок вывода с глубиной
             cursor.execute('''
                 SELECT id, parent_id, name, item_type, data_path, title, visible, enabled
                 FROM form_items
                 WHERE form_id = ?
                 ORDER BY id
             ''', (form_id,))
-            
-            items = []
-            for row in cursor.fetchall():
+            rows = cursor.fetchall()
+            items_by_id = {}
+            for row in rows:
                 item = {
+                    'id': row['id'],
+                    'parent_id': row['parent_id'],
                     'name': row['name'],
                     'type': row['item_type'],
                     'data_path': row['data_path'],
                     'title': row['title'],
                     'visible': row['visible'] if row['visible'] is not None else None,
                     'enabled': row['enabled'] if row['enabled'] is not None else None,
+                    'children': [],
                 }
-                items.append(item)
+                items_by_id[row['id']] = item
+            for item in items_by_id.values():
+                if item['parent_id'] is not None and item['parent_id'] in items_by_id:
+                    items_by_id[item['parent_id']]['children'].append(item)
+            roots = sorted([i for i in items_by_id.values() if i['parent_id'] is None], key=lambda x: x['id'])
+            items_ordered = []
+            def walk(n, depth):
+                out = {
+                    'name': n['name'],
+                    'type': n['type'],
+                    'data_path': n['data_path'],
+                    'title': n['title'],
+                    'visible': n['visible'],
+                    'enabled': n['enabled'],
+                    'depth': depth,
+                }
+                items_ordered.append(out)
+                for ch in sorted(n['children'], key=lambda x: x['id']):
+                    walk(ch, depth + 1)
+            for r in roots:
+                walk(r, 0)
+            items = items_ordered
             
             # Собираем результат
             form_structure = {
@@ -1230,13 +1170,14 @@ class ConfigurationTools:
                         'standard_type': row['standard_type'],
                     })
 
-                # Табличные части с колонками
+                # Табличные части с колонками (JOIN с tabular_sections)
                 cursor.execute('''
-                    SELECT tabular_section_name, tabular_section_title, tabular_section_comment,
-                           column_name, column_type, title, comment
-                    FROM tabular_section_columns
-                    WHERE object_id = ?
-                    ORDER BY tabular_section_name, column_name
+                    SELECT ts.name AS tabular_section_name, ts.title AS tabular_section_title, ts.comment AS tabular_section_comment,
+                           tsc.column_name, tsc.column_type, tsc.title, tsc.comment
+                    FROM tabular_section_columns tsc
+                    JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
+                    WHERE ts.object_id = ?
+                    ORDER BY ts.name, tsc.column_name
                 ''', (object_id,))
 
                 tabular_sections = {}
@@ -1451,6 +1392,40 @@ class ConfigurationTools:
                     'title': row['title'],
                     'is_standard': bool(row['is_standard']),
                     'section': row['section'],
+                }
+                if db_info.get('db_type') == 'extension' and row['object_belonging']:
+                    item['object_belonging'] = row['object_belonging']
+                    if row['extended_configuration_object']:
+                        item['extended_configuration_object'] = row['extended_configuration_object']
+                db_results.append(item)
+
+            cursor.execute('''
+                SELECT
+                    o.name as object_name,
+                    o.object_type,
+                    o.object_belonging,
+                    o.extended_configuration_object,
+                    ts.name as tabular_section_name,
+                    tsc.column_name as attr_name,
+                    tsc.column_type as attribute_type,
+                    tsc.title
+                FROM tabular_section_columns tsc
+                JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
+                JOIN metadata_objects o ON ts.object_id = o.id
+                WHERE tsc.column_name LIKE ?
+                ORDER BY o.object_type, o.name, ts.name, tsc.column_name
+                LIMIT ?
+            ''', (f'%{attribute_name}%', max_results))
+            for row in cursor.fetchall():
+                item = {
+                    'object_name': row['object_name'],
+                    'object_type': row['object_type'],
+                    'attribute_name': row['attr_name'],
+                    'attribute_type': row['attribute_type'],
+                    'title': row['title'],
+                    'is_standard': False,
+                    'section': 'TabularSectionColumn',
+                    'tabular_section_name': row['tabular_section_name'],
                 }
                 if db_info.get('db_type') == 'extension' and row['object_belonging']:
                     item['object_belonging'] = row['object_belonging']
