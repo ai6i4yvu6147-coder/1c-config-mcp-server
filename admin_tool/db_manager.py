@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -7,6 +8,108 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.xml_parser import ConfigurationParser
+
+
+def _parse_module_procedures(code):
+    """
+    Парсит код модуля 1С, возвращает список процедур/функций для таблицы module_procedures.
+    Каждый элемент: name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type.
+    start_line — первая строка для среза (включая все &-директивы над процедурой); 1-based.
+    execution_context и extension_call_type определяются по всем подряд идущим &-строкам над процедурой.
+    """
+    lines = code.split('\n')
+    pattern = re.compile(
+        r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*$',
+        re.IGNORECASE
+    )
+    directive_pattern = re.compile(
+        r'^\s*&(НаКлиентеНаСервереБезКонтекста|НаСервереБезКонтекста|НаКлиенте|НаСервере|'
+        r'AtClientAtServerNoContext|AtServerNoContext|AtClient|AtServer)\s*$',
+        re.IGNORECASE
+    )
+    # Аннотации расширений: с параметром &Перед("ИмяПроцедуры") или без (форма модуля)
+    extension_patterns = [
+        (re.compile(r'^\s*&ИзменениеИКонтроль\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'ChangeAndControl'),
+        (re.compile(r'^\s*&Вместо\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'Instead'),
+        (re.compile(r'^\s*&После\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'After'),
+        (re.compile(r'^\s*&Перед\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'Before'),
+    ]
+    end_pattern = re.compile(r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\s*$', re.IGNORECASE)
+
+    def directive_to_context(line):
+        """Возвращает детализированный контекст: Client, Server, ServerNoContext, ClientOrServer."""
+        if not line or not directive_pattern.match(line):
+            return None
+        if 'AtClientAtServerNoContext' in line or 'НаКлиентеНаСервереБезКонтекста' in line:
+            return 'ClientOrServer'
+        if 'AtClient' in line or 'НаКлиенте' in line:
+            return 'Client'
+        if 'AtServerNoContext' in line or 'НаСервереБезКонтекста' in line:
+            return 'ServerNoContext'
+        return 'Server'
+
+    def line_to_extension_call_type(stripped):
+        for pat, value in extension_patterns:
+            if pat.match(stripped):
+                return value
+        return None
+
+    def collect_annotation_lines_above(lines, proc_line_index):
+        """Собирает индексы всех подряд идущих &-строк непосредственно над процедурой (снизу вверх)."""
+        indices = []
+        j = proc_line_index - 1
+        while j >= 0:
+            stripped = lines[j].strip()
+            if stripped.startswith('&') and len(stripped) > 1:
+                indices.append(j)
+                j -= 1
+            else:
+                break
+        indices.reverse()
+        return indices
+
+    result = []
+    i = 0
+    while i < len(lines):
+        match = pattern.match(lines[i])
+        if match:
+            line_num = i + 1
+            proc_type = match.group(1)
+            name = match.group(2)
+            params = (match.group(3) or '').strip() or '(без параметров)'
+            is_export = bool(match.group(4))
+            ann_indices = collect_annotation_lines_above(lines, i)
+            execution_context = None
+            extension_call_type = None
+            for idx in reversed(ann_indices):
+                stripped = lines[idx].strip()
+                if execution_context is None:
+                    execution_context = directive_to_context(stripped)
+                if extension_call_type is None:
+                    extension_call_type = line_to_extension_call_type(stripped)
+            start_line = (ann_indices[0] + 1) if ann_indices else line_num
+            end_line = None
+            for j in range(i + 1, len(lines)):
+                if end_pattern.match(lines[j]):
+                    end_line = j + 1
+                    break
+            result.append({
+                'name': name,
+                'proc_type': proc_type,
+                'start_line': start_line,
+                'end_line': end_line,
+                'params': params,
+                'is_export': 1 if is_export else 0,
+                'execution_context': execution_context,
+                'extension_call_type': extension_call_type,
+            })
+            if end_line is not None:
+                i = end_line
+            else:
+                i = len(lines)
+        else:
+            i += 1
+    return result
 
 
 class DatabaseManager:
@@ -24,6 +127,7 @@ class DatabaseManager:
         """Подключение к базе данных"""
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute('PRAGMA journal_mode=WAL')
         return self.conn
     
     def close(self):
@@ -186,6 +290,23 @@ class DatabaseManager:
             )
         ''')
         
+        # Таблица процедур/функций модулей (индекс, код хранится в modules.code по start_line/end_line)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS module_procedures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                proc_type TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                end_line INTEGER,
+                params TEXT,
+                is_export INTEGER DEFAULT 0,
+                execution_context TEXT,
+                extension_call_type TEXT,
+                FOREIGN KEY (module_id) REFERENCES modules(id)
+            )
+        ''')
+        
         # Таблица атрибутов объектов (стандартные + кастомные + измерения/ресурсы регистров)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS attributes (
@@ -202,19 +323,28 @@ class DatabaseManager:
             )
         ''')
 
+        # Таблица табличных частей (нормализованная)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tabular_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT,
+                comment TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        
         # Таблица колонок табличных частей
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tabular_section_columns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                object_id INTEGER NOT NULL,
-                tabular_section_name TEXT NOT NULL,
-                tabular_section_title TEXT,
-                tabular_section_comment TEXT,
+                tabular_section_id INTEGER NOT NULL,
                 column_name TEXT NOT NULL,
                 column_type TEXT,
                 title TEXT,
                 comment TEXT,
-                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+                FOREIGN KEY (tabular_section_id) REFERENCES tabular_sections(id)
             )
         ''')
 
@@ -302,10 +432,8 @@ class DatabaseManager:
             ON attributes(object_id)
         ''')
         
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_tabular_cols_object
-            ON tabular_section_columns(object_id)
-        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_sections_object ON tabular_sections(object_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_section_columns_ts ON tabular_section_columns(tabular_section_id)')
 
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_enum_values_object
@@ -329,6 +457,13 @@ class DatabaseManager:
             ON fo_form_usage(owner_object_id, form_id, element_type, element_name)
         ''')
 
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_modules_object ON modules(object_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_forms_object ON forms(object_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_events_form ON form_events(form_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_item_events_item ON form_item_events(item_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_module_procedures_module ON module_procedures(module_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_module_procedures_name ON module_procedures(name)')
+
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search 
@@ -346,6 +481,9 @@ class DatabaseManager:
     def _insert_configuration(self, data, progress_callback=None):
         """Вставляет данные конфигурации в БД. Два прохода: сначала все объекты и ФО, затем формы и fo_usage."""
         cursor = self.conn.cursor()
+        cursor.execute('PRAGMA synchronous=OFF')
+        cursor.execute('PRAGMA cache_size=-256000')
+        cursor.execute('PRAGMA temp_store=MEMORY')
         total_objects = len(data['objects'])
 
         # Проход 1: объекты без форм (чтобы ФО были в БД до вставки fo_form_usage и fo_content_ref)
@@ -382,6 +520,13 @@ class DatabaseManager:
                     INSERT INTO code_search (rowid, object_name, module_type, code)
                     VALUES (?, ?, ?, ?)
                 ''', (module_id, obj['name'], module['type'], module['code']))
+                procs = _parse_module_procedures(module['code'])
+                if procs:
+                    cursor.executemany('''
+                        INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
+                           p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
 
             for attr in obj['properties'].get('standard_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
@@ -454,6 +599,7 @@ class DatabaseManager:
                 progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}")
 
         self.conn.commit()
+        cursor.execute('PRAGMA synchronous=NORMAL')
     
     def _parse_content_ref(self, ref_str):
         """Парсит строку Content ФО (например Document.Имя, Document.Имя.Attribute.Рекв,
@@ -645,6 +791,13 @@ class DatabaseManager:
                 'FormModule',
                 form['module']
             ))
+            procs = _parse_module_procedures(form['module'])
+            if procs:
+                cursor.executemany('''
+                    INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
+                       p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
     
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute'):
         """Вставляет атрибут объекта в БД"""
@@ -663,23 +816,17 @@ class DatabaseManager:
         ))
 
     def _insert_tabular_section(self, cursor, object_id, ts):
-        """Вставляет табличную часть с колонками в БД"""
-        ts_comment = ts.get('comment', '')
+        """Вставляет табличную часть с колонками в БД (tabular_sections + tabular_section_columns)."""
+        cursor.execute('''
+            INSERT INTO tabular_sections (object_id, name, title, comment)
+            VALUES (?, ?, ?, ?)
+        ''', (object_id, ts['name'], ts.get('title', ''), ts.get('comment', '')))
+        ts_id = cursor.lastrowid
         for column in ts['columns']:
             cursor.execute('''
-                INSERT INTO tabular_section_columns
-                    (object_id, tabular_section_name, tabular_section_title, tabular_section_comment, column_name, column_type, title, comment)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                object_id,
-                ts['name'],
-                ts.get('title', ''),
-                ts_comment,
-                column['name'],
-                column.get('type', ''),
-                column.get('title', ''),
-                column.get('comment', ''),
-            ))
+                INSERT INTO tabular_section_columns (tabular_section_id, column_name, column_type, title, comment)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (ts_id, column['name'], column.get('type', ''), column.get('title', ''), column.get('comment', '')))
 
     def _insert_enum_values(self, cursor, object_id, enum_values):
         """Вставляет значения перечисления в БД"""
