@@ -342,7 +342,6 @@ class ConfigurationTools:
                     'total_count': total_count,
                     'returned_count': returned_count,
                     'is_truncated': is_truncated,
-                    'truncated': is_truncated,
                 }
         
         return results
@@ -1432,6 +1431,8 @@ class ConfigurationTools:
                     if row['extended_configuration_object']:
                         item['extended_configuration_object'] = row['extended_configuration_object']
                 db_results.append(item)
+
+            db_results = db_results[:max_results]
 
             if db_results:
                 project_key = db_info['project_name']

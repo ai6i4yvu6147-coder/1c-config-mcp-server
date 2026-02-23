@@ -37,16 +37,14 @@ def _parse_module_procedures(code):
     end_pattern = re.compile(r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\s*$', re.IGNORECASE)
 
     def directive_to_context(line):
-        """Возвращает детализированный контекст: Client, Server, ServerNoContext, ClientOrServer."""
-        if not line or not directive_pattern.match(line):
+        """Возвращает директиву как есть (без нормализации)."""
+        if not line:
             return None
-        if 'AtClientAtServerNoContext' in line or 'НаКлиентеНаСервереБезКонтекста' in line:
-            return 'ClientOrServer'
-        if 'AtClient' in line or 'НаКлиенте' in line:
-            return 'Client'
-        if 'AtServerNoContext' in line or 'НаСервереБезКонтекста' in line:
-            return 'ServerNoContext'
-        return 'Server'
+        stripped = line.strip()
+        m = re.match(r'^&([А-Яа-яA-Za-z]+)', stripped)
+        if m and directive_pattern.match(stripped):
+            return m.group(1)
+        return None
 
     def line_to_extension_call_type(stripped):
         for pat, value in extension_patterns:
