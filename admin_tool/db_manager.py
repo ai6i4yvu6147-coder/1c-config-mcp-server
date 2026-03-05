@@ -16,10 +16,16 @@ def _parse_module_procedures(code):
     Каждый элемент: name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type.
     start_line — первая строка для среза (включая все &-директивы над процедурой); 1-based.
     execution_context и extension_call_type определяются по всем подряд идущим &-строкам над процедурой.
+    Поддерживаются многострочные объявления (закрывающая скобка ) и Экспорт на следующих строках).
     """
     lines = code.split('\n')
     pattern = re.compile(
         r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*$',
+        re.IGNORECASE
+    )
+    # Начало объявления без требования закрывающей ) на той же строке (для многострочных сигнатур)
+    start_only_pattern = re.compile(
+        r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\(',
         re.IGNORECASE
     )
     directive_pattern = re.compile(
@@ -106,7 +112,51 @@ def _parse_module_procedures(code):
             else:
                 i = len(lines)
         else:
-            i += 1
+            start_match = start_only_pattern.match(lines[i])
+            if start_match and ')' not in lines[i]:
+                # Многострочное объявление: читаем до строки с )
+                proc_type = start_match.group(1)
+                name = start_match.group(2)
+                j = i + 1
+                while j < len(lines) and ')' not in lines[j]:
+                    j += 1
+                if j >= len(lines):
+                    i += 1
+                    continue
+                closing_line = lines[j]
+                is_export = bool(re.search(r'\bЭкспорт\b', closing_line, re.IGNORECASE))
+                params = '(многострочные)'
+                ann_indices = collect_annotation_lines_above(lines, i)
+                execution_context = None
+                extension_call_type = None
+                for idx in reversed(ann_indices):
+                    stripped = lines[idx].strip()
+                    if execution_context is None:
+                        execution_context = directive_to_context(stripped)
+                    if extension_call_type is None:
+                        extension_call_type = line_to_extension_call_type(stripped)
+                start_line = (ann_indices[0] + 1) if ann_indices else (i + 1)
+                end_line = None
+                for k in range(j + 1, len(lines)):
+                    if end_pattern.match(lines[k]):
+                        end_line = k + 1
+                        break
+                result.append({
+                    'name': name,
+                    'proc_type': proc_type,
+                    'start_line': start_line,
+                    'end_line': end_line,
+                    'params': params,
+                    'is_export': 1 if is_export else 0,
+                    'execution_context': execution_context,
+                    'extension_call_type': extension_call_type,
+                })
+                if end_line is not None:
+                    i = end_line
+                else:
+                    i = len(lines)
+            else:
+                i += 1
     return result
 
 

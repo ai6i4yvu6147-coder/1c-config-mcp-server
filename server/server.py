@@ -455,6 +455,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 response += f"  └─ {db_name}: {len(db_results)} результат(ов)\n"
                 for r in db_results:
                     response += f"     • {r['object_type']}.{r['object_name']}.{r['module_type']}\n"
+                    response += f"       {r.get('procedure_display', '')}\n"
+                    id_line = f"       object_name={r['object_name']!r}, module_type={r['module_type']!r}"
+                    if r.get('form_name'):
+                        id_line += f", form_name={r['form_name']!r}"
+                    response += id_line + "\n"
                     response += f"       {r['snippet']}\n"
             response += "\n"
         

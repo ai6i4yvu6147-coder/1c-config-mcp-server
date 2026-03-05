@@ -7,6 +7,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.project_manager import ProjectManager
 
+# Максимум модулей для поиска в одной базе (лимит по модулям; внутри каждого — до max_results вхождений)
+MAX_MODULES_SEARCH_CODE = 100
+
 
 class ConfigurationTools:
     """Инструменты для работы с конфигурациями 1С через несколько проектов"""
@@ -93,18 +96,19 @@ class ConfigurationTools:
     def search_code(self, query, project_filter=None, extension_filter=None, max_results=10,
                     object_name=None, module_type=None):
         """
-        Поиск по коду во всех активных проектах
+        Поиск по коду во всех активных проектах.
+        max_results — лимит вхождений на один модуль; из каждого модуля возвращается до max_results сниппетов.
 
         Args:
             query: Поисковый запрос
             project_filter: Фильтр по проекту (опционально)
             extension_filter: Фильтр по расширению/базе (опционально)
-            max_results: Максимум результатов на базу
+            max_results: Максимум совпадений на один модуль (из каждого модуля до max_results сниппетов)
             object_name: Фильтр по имени объекта (опционально, можно частичное)
             module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule
 
         Returns:
-            Dict grouped by projects
+            Dict grouped by projects; каждый элемент содержит object_name, module_type, snippet, procedure_display, form_name (для FormModule)
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
@@ -124,15 +128,18 @@ class ConfigurationTools:
             cursor = conn.cursor()
 
             if use_exact_search:
-                # Прямой LIKE поиск
+                # Прямой LIKE поиск; лимит по числу модулей
                 sql = '''
                     SELECT
+                        m.id as module_id,
                         o.name as object_name,
                         m.module_type,
                         m.code,
-                        o.object_type
+                        o.object_type,
+                        f.form_name
                     FROM modules m
                     JOIN metadata_objects o ON m.object_id = o.id
+                    LEFT JOIN forms f ON m.form_id = f.id
                     WHERE m.code LIKE ?
                 '''
                 params = [f'%{query}%']
@@ -143,34 +150,64 @@ class ConfigurationTools:
                     sql += ' AND m.module_type = ?'
                     params.append(module_type)
                 sql += ' LIMIT ?'
-                params.append(max_results)
+                params.append(MAX_MODULES_SEARCH_CODE)
                 cursor.execute(sql, params)
             else:
-                # FTS5 полнотекстовый поиск (быстрее, но не работает со спецсимволами)
+                # FTS5 полнотекстовый поиск; лимит по числу модулей
                 cursor.execute('''
                     SELECT
+                        m.id as module_id,
                         o.name as object_name,
                         m.module_type,
                         m.code,
-                        o.object_type
+                        o.object_type,
+                        f.form_name
                     FROM code_search cs
                     JOIN modules m ON cs.rowid = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
+                    LEFT JOIN forms f ON m.form_id = f.id
                     WHERE code_search MATCH ?
                     LIMIT ?
-                ''', (query, max_results))
-            
+                ''', (query, MAX_MODULES_SEARCH_CODE))
+
             db_results = []
             for row in cursor.fetchall():
-                # Находим позицию совпадения для snippet
                 code = row['code']
+                module_id = row['module_id']
                 query_lower = query.lower()
                 code_lower = code.lower()
-                
-                pos = code_lower.find(query_lower)
-                if pos == -1:
-                    snippet = code[:100]
-                else:
+
+                # Процедуры модуля для определения имени по номеру строки
+                cursor.execute(
+                    'SELECT name, proc_type, start_line, end_line FROM module_procedures WHERE module_id = ? ORDER BY start_line',
+                    (module_id,)
+                )
+                procedures = cursor.fetchall()
+
+                def procedure_at_line(line_no):
+                    """Процедура/функция, охватывающая строку line_no (1-based), или None."""
+                    best = None
+                    for p in procedures:
+                        if p['start_line'] <= line_no:
+                            if p['end_line'] is None or p['end_line'] >= line_no:
+                                if best is None or p['start_line'] > best['start_line']:
+                                    best = p
+                    return best
+
+                pos = 0
+                count_in_module = 0
+                while count_in_module < max_results:
+                    pos = code_lower.find(query_lower, pos)
+                    if pos == -1:
+                        break
+                    count_in_module += 1
+                    line_no = code[:pos].count('\n') + 1
+                    proc = procedure_at_line(line_no)
+                    if proc:
+                        procedure_display = f"{proc['proc_type']}: {proc['name']}"
+                    else:
+                        procedure_display = '<тело модуля>'
+
                     start = max(0, pos - 200)
                     end = min(len(code), pos + len(query) + 200)
                     line_start = code.rfind('\n', 0, start)
@@ -178,22 +215,24 @@ class ConfigurationTools:
                     line_end = code.find('\n', end)
                     line_end = (line_end + 1) if line_end != -1 else len(code)
                     snippet = "..." + code[line_start:line_end] + "..."
-                
-                db_results.append({
-                    'object_name': row['object_name'],
-                    'object_type': row['object_type'],
-                    'module_type': row['module_type'],
-                    'snippet': snippet
-                })
-            
+
+                    db_results.append({
+                        'object_name': row['object_name'],
+                        'object_type': row['object_type'],
+                        'module_type': row['module_type'],
+                        'snippet': snippet,
+                        'procedure_display': procedure_display,
+                        'form_name': row['form_name'] if row['form_name'] is not None else None,
+                    })
+                    pos += 1
+
             if db_results:
                 project_key = f"{db_info['project_name']}"
                 if project_key not in results:
                     results[project_key] = {}
-                
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
                 results[project_key][db_key] = db_results
-        
+
         return results
     
     def find_object(self, name, project_filter=None, extension_filter=None):
