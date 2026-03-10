@@ -1,3 +1,5 @@
+import json
+import os
 import sqlite3
 from pathlib import Path
 import sys
@@ -37,6 +39,7 @@ class ConfigurationTools:
         
         self.pm = ProjectManager(str(projects_file), str(databases_dir))
         self.connections = {}
+        self._connection_mtime = {}
     
     def _get_active_databases(self, project_filter=None):
         """
@@ -56,12 +59,21 @@ class ConfigurationTools:
         return all_dbs
     
     def _get_connection(self, db_path):
-        """Получить подключение к БД (с кэшированием)"""
+        """Получить подключение к БД (с кэшированием). При изменении mtime файла БД соединение пересоздаётся."""
+        try:
+            current_mtime = os.path.getmtime(db_path) if os.path.exists(db_path) else 0
+        except OSError:
+            current_mtime = 0
+        if db_path in self.connections:
+            if self._connection_mtime.get(db_path) != current_mtime:
+                self.connections[db_path].close()
+                del self.connections[db_path]
+                del self._connection_mtime[db_path]
         if db_path not in self.connections:
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             self.connections[db_path] = conn
-        
+            self._connection_mtime[db_path] = current_mtime
         return self.connections[db_path]
     
     def close_all(self):
@@ -69,6 +81,7 @@ class ConfigurationTools:
         for conn in self.connections.values():
             conn.close()
         self.connections.clear()
+        self._connection_mtime.clear()
 
     def _require_project_filter(self, project_filter):
         """Требует указания project_filter. Вызвать в начале tools, где фильтр обязателен."""
@@ -185,19 +198,29 @@ class ConfigurationTools:
                     LIMIT ?
                 ''', (query, MAX_MODULES_SEARCH_CODE))
 
+            rows = cursor.fetchall()
+            if not rows:
+                continue
+            module_ids = [r['module_id'] for r in rows]
+            placeholders = ','.join('?' * len(module_ids))
+            cursor.execute(
+                f'SELECT module_id, name, proc_type, start_line, end_line FROM module_procedures WHERE module_id IN ({placeholders}) ORDER BY module_id, start_line',
+                module_ids
+            )
+            procedures_by_module = {}
+            for pr in cursor.fetchall():
+                mid = pr['module_id']
+                if mid not in procedures_by_module:
+                    procedures_by_module[mid] = []
+                procedures_by_module[mid].append(pr)
+
             db_results = []
-            for row in cursor.fetchall():
+            for row in rows:
                 code = row['code']
                 module_id = row['module_id']
+                procedures = procedures_by_module.get(module_id, [])
                 query_lower = query.lower()
                 code_lower = code.lower()
-
-                # Процедуры модуля для определения имени по номеру строки
-                cursor.execute(
-                    'SELECT name, proc_type, start_line, end_line FROM module_procedures WHERE module_id = ? ORDER BY start_line',
-                    (module_id,)
-                )
-                procedures = cursor.fetchall()
 
                 def procedure_at_line(line_no):
                     """Процедура/функция, охватывающая строку line_no (1-based), или None."""
@@ -362,20 +385,29 @@ class ConfigurationTools:
                     ORDER BY name
                     LIMIT ?
                 ''', (object_type, limit))
-            else:
-                cursor.execute('''
-                    SELECT name, object_type, object_belonging, extended_configuration_object
-                    FROM metadata_objects
-                    ORDER BY object_type, name
-                    LIMIT ?
-                ''', (limit,))
-            rows = cursor.fetchall()
-            returned_count = len(rows)
-            if object_type:
+                rows = cursor.fetchall()
                 cursor.execute('SELECT COUNT(*) FROM metadata_objects WHERE object_type = ?', (object_type,))
+                total_count = cursor.fetchone()[0]
             else:
-                cursor.execute('SELECT COUNT(*) FROM metadata_objects')
-            total_count = cursor.fetchone()[0]
+                cursor.execute('SELECT DISTINCT object_type FROM metadata_objects ORDER BY object_type')
+                types_rows = cursor.fetchall()
+                rows = []
+                total_count = 0
+                for tr in types_rows:
+                    ot = tr['object_type']
+                    cursor.execute('''
+                        SELECT name, object_type, object_belonging, extended_configuration_object
+                        FROM metadata_objects
+                        WHERE object_type = ?
+                        ORDER BY name
+                        LIMIT ?
+                    ''', (ot, limit))
+                    chunk = cursor.fetchall()
+                    cursor.execute('SELECT COUNT(*) FROM metadata_objects WHERE object_type = ?', (ot,))
+                    cnt = cursor.fetchone()[0]
+                    total_count += cnt
+                    rows.extend(chunk)
+            returned_count = len(rows)
             is_truncated = returned_count < total_count
 
             by_type = {}
@@ -720,7 +752,6 @@ class ConfigurationTools:
             
             db_results = []
             for row in cursor.fetchall():
-                import json
                 properties = json.loads(row['properties_json']) if row['properties_json'] else {}
                 item = {
                     'object_name': row['object_name'],
@@ -884,7 +915,6 @@ class ConfigurationTools:
             if not form_row:
                 continue
             
-            import json
             form_id = form_row['id']
             
             # Получаем реквизиты
@@ -970,7 +1000,6 @@ class ConfigurationTools:
                 walk(r, 0)
             items = items_ordered
             
-            # Собираем результат
             form_structure = {
                 'uuid': form_row['uuid'],
                 'form_kind': form_row['form_kind'],
@@ -1017,7 +1046,6 @@ class ConfigurationTools:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
-        col = 'visible' if property_name == 'Visible' else 'enabled'
         want_val = None
         if property_value is not None:
             pv = str(property_value).strip().lower()
@@ -1028,41 +1056,32 @@ class ConfigurationTools:
             else:
                 want_val = 1 if pv else 0  # fallback
 
+        base_sql = '''
+            SELECT
+                o.name as object_name,
+                o.object_type,
+                f.form_name,
+                fi.name as element_name,
+                fi.item_type,
+                fi.data_path,
+                fi.visible,
+                fi.enabled
+            FROM form_items fi
+            JOIN forms f ON fi.form_id = f.id
+            JOIN metadata_objects o ON f.object_id = o.id
+        '''
+        if property_name == 'Visible':
+            sql_with_filter = base_sql + (' WHERE fi.visible = ?' if want_val is not None else ' WHERE fi.visible IS NOT NULL')
+        else:
+            sql_with_filter = base_sql + (' WHERE fi.enabled = ?' if want_val is not None else ' WHERE fi.enabled IS NOT NULL')
+
         for db_info in databases:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
             if want_val is not None:
-                cursor.execute('''
-                    SELECT 
-                        o.name as object_name,
-                        o.object_type,
-                        f.form_name,
-                        fi.name as element_name,
-                        fi.item_type,
-                        fi.data_path,
-                        fi.visible,
-                        fi.enabled
-                    FROM form_items fi
-                    JOIN forms f ON fi.form_id = f.id
-                    JOIN metadata_objects o ON f.object_id = o.id
-                    WHERE fi.%s = ?
-                ''' % col, (want_val,))
+                cursor.execute(sql_with_filter, (want_val,))
             else:
-                cursor.execute('''
-                    SELECT 
-                        o.name as object_name,
-                        o.object_type,
-                        f.form_name,
-                        fi.name as element_name,
-                        fi.item_type,
-                        fi.data_path,
-                        fi.visible,
-                        fi.enabled
-                    FROM form_items fi
-                    JOIN forms f ON fi.form_id = f.id
-                    JOIN metadata_objects o ON f.object_id = o.id
-                    WHERE fi.%s IS NOT NULL
-                ''' % col)
+                cursor.execute(sql_with_filter)
             
             db_results = []
             for row in cursor.fetchall():
@@ -1466,41 +1485,41 @@ class ConfigurationTools:
                         item['extended_configuration_object'] = row['extended_configuration_object']
                 db_results.append(item)
 
-            cursor.execute('''
-                SELECT
-                    o.name as object_name,
-                    o.object_type,
-                    o.object_belonging,
-                    o.extended_configuration_object,
-                    ts.name as tabular_section_name,
-                    tsc.column_name as attr_name,
-                    tsc.column_type as attribute_type,
-                    tsc.title
-                FROM tabular_section_columns tsc
-                JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
-                JOIN metadata_objects o ON ts.object_id = o.id
-                WHERE tsc.column_name LIKE ?
-                ORDER BY o.object_type, o.name, ts.name, tsc.column_name
-                LIMIT ?
-            ''', (f'%{attribute_name}%', max_results))
-            for row in cursor.fetchall():
-                item = {
-                    'object_name': row['object_name'],
-                    'object_type': row['object_type'],
-                    'attribute_name': row['attr_name'],
-                    'attribute_type': row['attribute_type'],
-                    'title': row['title'],
-                    'is_standard': False,
-                    'section': 'TabularSectionColumn',
-                    'tabular_section_name': row['tabular_section_name'],
-                }
-                if db_info.get('db_type') == 'extension' and row['object_belonging']:
-                    item['object_belonging'] = row['object_belonging']
-                    if row['extended_configuration_object']:
-                        item['extended_configuration_object'] = row['extended_configuration_object']
-                db_results.append(item)
-
-            db_results = db_results[:max_results]
+            remaining = max_results - len(db_results)
+            if remaining > 0:
+                cursor.execute('''
+                    SELECT
+                        o.name as object_name,
+                        o.object_type,
+                        o.object_belonging,
+                        o.extended_configuration_object,
+                        ts.name as tabular_section_name,
+                        tsc.column_name as attr_name,
+                        tsc.column_type as attribute_type,
+                        tsc.title
+                    FROM tabular_section_columns tsc
+                    JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
+                    JOIN metadata_objects o ON ts.object_id = o.id
+                    WHERE tsc.column_name LIKE ?
+                    ORDER BY o.object_type, o.name, ts.name, tsc.column_name
+                    LIMIT ?
+                ''', (f'%{attribute_name}%', remaining))
+                for row in cursor.fetchall():
+                    item = {
+                        'object_name': row['object_name'],
+                        'object_type': row['object_type'],
+                        'attribute_name': row['attr_name'],
+                        'attribute_type': row['attribute_type'],
+                        'title': row['title'],
+                        'is_standard': False,
+                        'section': 'TabularSectionColumn',
+                        'tabular_section_name': row['tabular_section_name'],
+                    }
+                    if db_info.get('db_type') == 'extension' and row['object_belonging']:
+                        item['object_belonging'] = row['object_belonging']
+                        if row['extended_configuration_object']:
+                            item['extended_configuration_object'] = row['extended_configuration_object']
+                    db_results.append(item)
 
             if db_results:
                 project_key = db_info['project_name']

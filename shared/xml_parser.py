@@ -112,6 +112,7 @@ class ConfigurationParser:
             tabular_sections = []
             dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
             resources = self._parse_register_section(root, 'Resources', obj_type)
+            attributes = self._parse_register_section(root, 'Attributes', obj_type)
             enum_values = []
         elif obj_type == 'Enum':
             tabular_sections = []
@@ -124,7 +125,7 @@ class ConfigurationParser:
             resources = []
             enum_values = []
 
-        return {
+        result = {
             'name': name,
             'type': obj_type,
             'uuid': uuid,
@@ -136,6 +137,9 @@ class ConfigurationParser:
             'resources': resources,
             'enum_values': enum_values,
         }
+        if obj_type in register_types:
+            result['attributes'] = attributes
+        return result
     
     def _parse_properties(self, root, obj_type=None):
         """Извлекает свойства объекта"""
@@ -778,49 +782,49 @@ class ConfigurationParser:
         return items
     
     def _parse_child_items(self, parent_elem, parent_id):
-        """Рекурсивно парсит дочерние элементы"""
+        """Рекурсивно парсит дочерние элементы в порядке появления в документе."""
         items = []
         default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
         
-        # Типы элементов UI
-        item_types = [
-            'Button', 'InputField', 'Table', 'UsualGroup', 
+        # Множество поддерживаемых типов элементов UI (для быстрой проверки)
+        item_types_set = {
+            'Button', 'InputField', 'Table', 'UsualGroup',
             'ButtonGroup', 'Popup', 'LabelField', 'CheckBoxField',
             'RadioButtonField', 'Pages', 'Page', 'CommandBar',
-            'LabelDecoration', 'PictureDecoration', 'SpreadSheetDocumentField'
-        ]
+            'LabelDecoration', 'PictureDecoration', 'SpreadSheetDocumentField',
+            'HTMLDocumentField', 'FormattedDocumentField', 'FlowchartField',
+            'PlannerField', 'GanttChartField', 'ExtendedTooltip', 'SearchControl',
+        }
         
-        for item_type in item_types:
-            for elem in parent_elem.findall(f'{{{default_ns}}}{item_type}'):
-                props = self._extract_item_properties(elem)
-                visible = None
-                enabled = None
-                if props:
-                    v = props.get('Visible', '').strip().lower()
-                    visible = True if v == 'true' else False if v == 'false' else None
-                    e = props.get('Enabled', '').strip().lower()
-                    enabled = True if e == 'true' else False if e == 'false' else None
-                item_data = {
-                    'name': elem.get('name', ''),
-                    'id': elem.get('id', ''),
-                    'type': item_type,
-                    'parent_id': parent_id,
-                    'data_path': self._get_element_text(elem, 'DataPath'),
-                    'title': self._extract_localized_string(elem, 'Title'),
-                    'visible': visible,
-                    'enabled': enabled,
-                    'events': self._extract_item_events(elem),
-                    'functional_options': self._extract_form_functional_options(elem, default_ns),
-                }
-
-                items.append(item_data)
-                
-                # Рекурсивно обрабатываем вложенные элементы
-                child_items_elem = elem.find(f'{{{default_ns}}}ChildItems')
-                if child_items_elem is not None:
-                    nested_items = self._parse_child_items(child_items_elem, item_data['id'])
-                    items.extend(nested_items)
-        
+        for elem in parent_elem:
+            local_tag = elem.tag.split('}')[-1] if elem.tag else ''
+            if local_tag not in item_types_set:
+                continue
+            props = self._extract_item_properties(elem)
+            visible = None
+            enabled = None
+            if props:
+                v = props.get('Visible', '').strip().lower()
+                visible = True if v == 'true' else False if v == 'false' else None
+                e = props.get('Enabled', '').strip().lower()
+                enabled = True if e == 'true' else False if e == 'false' else None
+            item_data = {
+                'name': elem.get('name', ''),
+                'id': elem.get('id', ''),
+                'type': local_tag,
+                'parent_id': parent_id,
+                'data_path': self._get_element_text(elem, 'DataPath'),
+                'title': self._extract_localized_string(elem, 'Title'),
+                'visible': visible,
+                'enabled': enabled,
+                'events': self._extract_item_events(elem),
+                'functional_options': self._extract_form_functional_options(elem, default_ns),
+            }
+            items.append(item_data)
+            child_items_elem = elem.find(f'{{{default_ns}}}ChildItems')
+            if child_items_elem is not None:
+                nested_items = self._parse_child_items(child_items_elem, item_data['id'])
+                items.extend(nested_items)
         return items
     
     def _parse_form_conditional_appearance(self, root, ns):

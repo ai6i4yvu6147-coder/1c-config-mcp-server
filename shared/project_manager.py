@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import uuid
 import sys
@@ -33,7 +34,15 @@ class ProjectManager:
         self.databases_dir = Path(databases_dir)
         self.databases_dir.mkdir(exist_ok=True)
         self.projects = self._load_projects()
+        self._projects_file_mtime = self._get_projects_file_mtime()
     
+    def _get_projects_file_mtime(self) -> float:
+        """mtime файла projects.json для проверки изменений."""
+        try:
+            return os.path.getmtime(self.projects_file) if self.projects_file.exists() else 0.0
+        except OSError:
+            return 0.0
+
     def _load_projects(self) -> Dict:
         """Загрузка проектов из JSON"""
         if not self.projects_file.exists():
@@ -168,11 +177,16 @@ class ProjectManager:
     
     def get_active_databases(self) -> List[Dict]:
         """
-        Получить все БД из активных проектов
+        Получить все БД из активных проектов.
+        Перечитывает projects.json, если изменился mtime файла (изменения через GUI).
         
         Returns:
             [{"project_name": "ТГ", "db_name": "Бухгалтерия", "db_file": "...", ...}, ...]
         """
+        current_mtime = self._get_projects_file_mtime()
+        if current_mtime != self._projects_file_mtime:
+            self.projects = self._load_projects()
+            self._projects_file_mtime = current_mtime
         result = []
         for project in self.get_active_projects():
             for db in project["databases"]:

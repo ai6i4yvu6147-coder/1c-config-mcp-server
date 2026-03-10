@@ -479,9 +479,12 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_attributes_object 
             ON attributes(object_id)
         ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_attributes_name ON attributes(name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_items_data_path ON form_items(data_path)')
         
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_sections_object ON tabular_sections(object_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_section_columns_ts ON tabular_section_columns(tabular_section_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_section_columns_name ON tabular_section_columns(column_name)')
 
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_enum_values_object
@@ -584,6 +587,8 @@ class DatabaseManager:
                 self._insert_attribute(cursor, object_id, dim, section='Dimension')
             for res in obj.get('resources', []):
                 self._insert_attribute(cursor, object_id, res, section='Resource')
+            for attr in obj.get('attributes', []):
+                self._insert_attribute(cursor, object_id, attr, section='Attribute')
             for ts in obj.get('tabular_sections', []):
                 self._insert_tabular_section(cursor, object_id, ts)
             enum_values = obj.get('enum_values', [])
