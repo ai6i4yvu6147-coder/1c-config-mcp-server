@@ -54,7 +54,7 @@ def main():
         print("   FAIL: ожидалась ошибка ValueError")
         fail += 1
     except ValueError as e:
-        if "project_filter" in str(e) or "list_active_databases" in str(e).lower():
+        if "project_filter" in str(e) or "active_databases" in str(e).lower():
             print(f"   OK. Ошибка: {e}")
             ok += 1
         else:

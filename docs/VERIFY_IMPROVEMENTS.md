@@ -20,22 +20,22 @@ python scripts/verify_improvements.py --projects test_projects.json
 
 После подключения MCP выполните по шагам.
 
-### 1. Новый инструмент `list_active_databases`
+### 1. Инструмент списка проектов и баз `active_databases`
 
-- Вызвать **list_active_databases** без параметров.
+- Вызвать **active_databases** без параметров (в MCP имя инструмента: active_databases).
 - **Ожидание:** в ответе список проектов и для каждого — список баз (имя, тип base/extension).
 
 ### 2. Обязательный `project_filter`
 
 - Вызвать **search_code** с параметром `query` = "Запрос", **без** `project_filter`.
-- **Ожидание:** ошибка с требованием указать project_filter или использовать list_active_databases.
+- **Ожидание:** ошибка с требованием указать project_filter или использовать active_databases.
 
 - Вызвать **find_object** с `name` = "Справочник", **без** `project_filter`.
 - **Ожидание:** та же логика — ошибка про project_filter.
 
 ### 3. Поиск с указанием проекта
 
-- Вызвать **list_active_databases** → запомнить имя проекта (например, "ТГ" или из вашего projects.json).
+- Вызвать **active_databases** → запомнить имя проекта (например, "ТГ" или из вашего projects.json).
 - Вызвать **search_code** с `query` = "Запрос" и `project_filter` = имя проекта.
 - **Ожидание:** ответ по коду (или пустой результат), без ошибки про project_filter.
 

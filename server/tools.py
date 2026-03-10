@@ -74,7 +74,21 @@ class ConfigurationTools:
         """Требует указания project_filter. Вызвать в начале tools, где фильтр обязателен."""
         if not project_filter or not str(project_filter).strip():
             raise ValueError(
-                "project_filter is required. Use list_active_databases to get the list of projects and databases."
+                "project_filter is required. Use active_databases to get the list of projects and databases."
+            )
+
+    def _get_active_project_names(self):
+        """Список имён активных проектов (для сообщений об ошибках)."""
+        return sorted(set(db['project_name'] for db in self.pm.get_active_databases()))
+
+    def _require_project_exists(self, project_filter, databases):
+        """Если передан project_filter, но список баз пуст — явная ошибка с подсказкой доступных проектов."""
+        if project_filter and not databases:
+            names = self._get_active_project_names()
+            available = ", ".join(names) if names else "нет"
+            raise ValueError(
+                f'Проект с именем "{project_filter}" не найден. '
+                f'Доступные проекты: {available}. Используйте active_databases для полного списка.'
             )
 
     def list_active_databases(self):
@@ -112,6 +126,7 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
 
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
@@ -233,6 +248,8 @@ class ConfigurationTools:
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
                 results[project_key][db_key] = db_results
 
+        if not results:
+            return {"_empty": True, "diagnostics": {"project_filter": project_filter, "num_databases": len(databases)}}
         return results
     
     def find_object(self, name, project_filter=None, extension_filter=None):
@@ -249,7 +266,8 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -325,7 +343,8 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -408,7 +427,8 @@ class ConfigurationTools:
             raise ValueError("form_name can only be used with module_type='FormModule'")
         
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -483,6 +503,7 @@ class ConfigurationTools:
             raise ValueError("form_name can only be used with module_type='FormModule'")
         
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -580,6 +601,7 @@ class ConfigurationTools:
         
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -656,7 +678,8 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -744,6 +767,7 @@ class ConfigurationTools:
             raise ValueError("Укажите element_name и/или data_path")
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
 
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
@@ -835,7 +859,8 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -986,7 +1011,8 @@ class ConfigurationTools:
             raise ValueError("Поддерживаются только свойства Visible и Enabled. Укажите property_name 'Visible' или 'Enabled'.")
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
-        
+        self._require_project_exists(project_filter, databases)
+
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
@@ -1077,6 +1103,7 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
@@ -1317,6 +1344,7 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
@@ -1393,6 +1421,7 @@ class ConfigurationTools:
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
+        self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
