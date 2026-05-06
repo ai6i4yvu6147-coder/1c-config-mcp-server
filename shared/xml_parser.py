@@ -58,6 +58,7 @@ class ConfigurationParser:
             'CalculationRegister': 'CalculationRegisters',
             'ChartOfAccounts': 'ChartsOfAccounts',
             'ChartOfCharacteristicTypes': 'ChartsOfCharacteristicTypes',
+            'ExchangePlan': 'ExchangePlans',
             'Report': 'Reports',
             'DataProcessor': 'DataProcessors',
             'Enum': 'Enums',

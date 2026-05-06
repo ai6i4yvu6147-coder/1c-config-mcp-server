@@ -34,7 +34,6 @@ echo Creating Portable folder structure in parent directory...
 set "PORTABLE_ROOT=..\1c_config_mcp_server_Portable"
 if exist "%PORTABLE_ROOT%" rmdir /s /q "%PORTABLE_ROOT%"
 mkdir "%PORTABLE_ROOT%"
-mkdir "%PORTABLE_ROOT%\databases"
 
 echo Copying Admin Tool v2...
 xcopy /E /I /Y dist\1C-Config-Admin "%PORTABLE_ROOT%\Admin"
@@ -53,7 +52,7 @@ echo.
 echo Done! Portable structure: %PORTABLE_ROOT%\
 echo     Admin/           - Admin GUI v2 (with Projects)
 echo     Server/          - MCP Server
-echo     databases/       - Your databases
+echo     databases/       - Created on first run (Admin or MCP)
 echo     projects.json    - Projects configuration
 echo     Admin.bat        - Launch Admin
 echo     Server.bat       - Launch Server (for testing)

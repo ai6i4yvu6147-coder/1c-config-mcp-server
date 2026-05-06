@@ -440,7 +440,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         for proj in results.get("projects", []):
             lines.append(f"Проект: {proj['name']}")
             for db in proj.get("databases", []):
-                lines.append(f"  — {db['name']} ({db['type']})")
+                suffix = " [!] устарела" if db.get("is_outdated") else ""
+                lines.append(f"  — {db['name']} ({db['type']}){suffix}")
             lines.append("")
         return [TextContent(type="text", text="Активные проекты и базы:\n\n" + "\n".join(lines) if lines else "Нет активных проектов.")]
 

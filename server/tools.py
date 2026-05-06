@@ -3,14 +3,40 @@ import os
 import sqlite3
 from pathlib import Path
 import sys
+from typing import Optional
 
 # Добавляем корневую папку проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.project_manager import ProjectManager
+from shared.indexer_version import INDEXER_VERSION
 
 # Максимум модулей для поиска в одной базе (лимит по модулям; внутри каждого — до max_results вхождений)
 MAX_MODULES_SEARCH_CODE = 100
+
+
+def _read_db_user_version(db_path: str) -> Optional[int]:
+    """PRAGMA user_version из файла .db (только чтение). None — файла нет."""
+    p = Path(db_path)
+    if not p.exists():
+        return None
+    uri = p.resolve().as_uri() + '?mode=ro'
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        row = conn.execute('PRAGMA user_version').fetchone()
+        return int(row[0]) if row is not None else 0
+    finally:
+        conn.close()
+
+
+def _is_db_outdated(db_path: str) -> bool:
+    """True если базы нет, user_version == 0 или меньше ожидаемого INDEXER_VERSION."""
+    ver = _read_db_user_version(db_path)
+    if ver is None:
+        return True
+    if ver == 0:
+        return True
+    return ver < INDEXER_VERSION
 
 
 class ConfigurationTools:
@@ -117,6 +143,7 @@ class ConfigurationTools:
             by_project[pname]['databases'].append({
                 'name': db['db_name'],
                 'type': db['db_type'],
+                'is_outdated': _is_db_outdated(db['db_path']),
             })
         return {'projects': list(by_project.values())}
 

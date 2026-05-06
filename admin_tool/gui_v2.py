@@ -10,13 +10,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from admin_tool.db_manager import DatabaseManager
 from shared.project_manager import ProjectManager
 from shared.xml_parser import get_configuration_name, get_configuration_type
+from shared.indexer_version import INDEXER_VERSION
 
 
 class AdminAppV2:
     def __init__(self, root):
         self.root = root
-        self.root.title("Администратор баз 1С-MCP v2")
-        self.root.geometry("900x600")
+        self.root.title(f"Администратор баз 1С-MCP v2 — формат индекса v{INDEXER_VERSION}")
+        self.root.geometry("1000x600")
         
         self.db_dir = Path("databases")
         self.db_dir.mkdir(exist_ok=True)
@@ -51,16 +52,20 @@ class AdminAppV2:
         self.tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set, height=15)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.tree.yview)
+        self.tree.tag_configure("outdated", foreground="#b00000")
+        self.tree.tag_configure("newer_than_app", foreground="#a06000")
         
         # Колонки
-        self.tree["columns"] = ("type", "file")
-        self.tree.column("#0", width=400, minwidth=200)
-        self.tree.column("type", width=100, minwidth=80)
-        self.tree.column("file", width=300, minwidth=150)
+        self.tree["columns"] = ("type", "file", "status")
+        self.tree.column("#0", width=320, minwidth=200)
+        self.tree.column("type", width=90, minwidth=70)
+        self.tree.column("file", width=240, minwidth=120)
+        self.tree.column("status", width=280, minwidth=180)
         
         self.tree.heading("#0", text="Название", anchor=tk.W)
         self.tree.heading("type", text="Тип", anchor=tk.W)
         self.tree.heading("file", text="Файл БД", anchor=tk.W)
+        self.tree.heading("status", text="Состояние", anchor=tk.W)
         
         # Привязка двойного клика для активации
         self.tree.bind("<Double-1>", self._on_double_click)
@@ -124,7 +129,7 @@ class AdminAppV2:
         projects = self.pm.get_all_projects()
         
         if not projects:
-            self.tree.insert("", "end", text="(нет проектов)", values=("", ""))
+            self.tree.insert("", "end", text="(нет проектов)", values=("", "", ""))
             return
         
         for project in projects:
@@ -135,7 +140,7 @@ class AdminAppV2:
             project_item = self.tree.insert(
                 "", "end", 
                 text=project_text,
-                values=("Проект", ""),
+                values=("Проект", "", ""),
                 tags=("project", project["id"])
             )
             
@@ -143,12 +148,29 @@ class AdminAppV2:
             for db in project["databases"]:
                 db_icon = "📁" if db["type"] == "base" else "📦"
                 db_text = f"{db_icon} {db['name']}"
+                db_path = self.db_dir / db["db_file"]
+                ver = DatabaseManager.read_db_version(db_path)
+                if ver is None:
+                    status = "Нет файла"
+                    db_tags = ("database", project["id"], db["id"], "outdated")
+                elif ver == 0:
+                    status = "Устарела (без версии) → пересобрать"
+                    db_tags = ("database", project["id"], db["id"], "outdated")
+                elif ver < INDEXER_VERSION:
+                    status = f"Устарела (v{ver} < v{INDEXER_VERSION})"
+                    db_tags = ("database", project["id"], db["id"], "outdated")
+                elif ver == INDEXER_VERSION:
+                    status = f"OK v{INDEXER_VERSION}"
+                    db_tags = ("database", project["id"], db["id"])
+                else:
+                    status = f"Новее ПО (v{ver} > v{INDEXER_VERSION}) → обновите сервер"
+                    db_tags = ("database", project["id"], db["id"], "newer_than_app")
                 
                 self.tree.insert(
                     project_item, "end",
                     text=db_text,
-                    values=(db["type"], db["db_file"]),
-                    tags=("database", project["id"], db["id"])
+                    values=(db["type"], db["db_file"], status),
+                    tags=db_tags
                 )
     
     def _on_double_click(self, event):

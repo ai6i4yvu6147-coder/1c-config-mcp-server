@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.xml_parser import ConfigurationParser
+from shared.indexer_version import INDEXER_VERSION
 
 
 def _parse_module_procedures(code):
@@ -182,6 +183,24 @@ class DatabaseManager:
         """Закрытие подключения"""
         if self.conn:
             self.conn.close()
+
+    @staticmethod
+    def read_db_version(db_path):
+        """
+        Читает PRAGMA user_version из файла БД (только чтение).
+        Returns:
+            None если файла нет; иначе int (0 — база без записанной версии).
+        """
+        p = Path(db_path)
+        if not p.exists():
+            return None
+        uri = p.resolve().as_uri() + '?mode=ro'
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            row = conn.execute('PRAGMA user_version').fetchone()
+            return int(row[0]) if row is not None else 0
+        finally:
+            conn.close()
     
     def create_database(self, config_xml_path, progress_callback=None):
         """
@@ -209,6 +228,10 @@ class DatabaseManager:
             progress_callback(20, 100, "Загрузка объектов...")
         
         self._insert_configuration(data, progress_callback)
+
+        cursor = self.conn.cursor()
+        cursor.execute(f'PRAGMA user_version = {INDEXER_VERSION}')
+        self.conn.commit()
         
         if progress_callback:
             progress_callback(100, 100, "Готово!")
