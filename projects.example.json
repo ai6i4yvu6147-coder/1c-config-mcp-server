@@ -1,0 +1,18 @@
+{
+  "projects": [
+    {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "name": "Пример проекта",
+      "active": true,
+      "databases": [
+        {
+          "id": "00000000-0000-0000-0000-000000000000",
+          "name": "Основная конфигурация",
+          "type": "base",
+          "db_file": "example_base.db",
+          "source_xml": "D:/1c-export/Configuration.xml"
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,32 @@ from shared.indexer_version import INDEXER_VERSION
 MAX_MODULES_SEARCH_CODE = 100
 
 
+def _resolve_command_source(command_name: Optional[str]) -> Optional[str]:
+    """По сырому CommandName из Form.xml: Form | Object | Common | None."""
+    if not command_name or not str(command_name).strip():
+        return None
+    s = str(command_name).strip()
+    if s.startswith('Form.Command.'):
+        return 'Form'
+    if s.startswith('CommonCommand.'):
+        return 'Common'
+    if '.Command.' in s:
+        return 'Object'
+    return None
+
+
+def _validate_module_form_command_args(module_type: str, form_name, command_name):
+    """form_name только для FormModule; command_name только для CommandModule; взаимоисключение."""
+    fn = (form_name or '').strip() if form_name else ''
+    cn = (command_name or '').strip() if command_name is not None else ''
+    if fn and cn:
+        raise ValueError('form_name and command_name are mutually exclusive')
+    if cn and module_type != 'CommandModule':
+        raise ValueError("command_name can only be used with module_type='CommandModule'")
+    if fn and module_type != 'FormModule':
+        raise ValueError("form_name can only be used with module_type='FormModule'")
+
+
 def _read_db_user_version(db_path: str) -> Optional[int]:
     """PRAGMA user_version из файла .db (только чтение). None — файла нет."""
     p = Path(db_path)
@@ -67,12 +93,13 @@ class ConfigurationTools:
         self.connections = {}
         self._connection_mtime = {}
     
-    def _get_active_databases(self, project_filter=None):
+    def _get_active_databases(self, project_filter=None, include_outdated: bool = False):
         """
         Получить список активных БД с фильтрацией
         
         Args:
             project_filter: Имя проекта для фильтрации или None для всех
+            include_outdated: Включать ли устаревшие базы (user_version < INDEXER_VERSION).
         
         Returns:
             List of database info dicts
@@ -81,6 +108,11 @@ class ConfigurationTools:
         
         if project_filter:
             all_dbs = [db for db in all_dbs if db['project_name'].lower() == project_filter.lower()]
+
+        # По умолчанию НЕ используем устаревшие базы, чтобы не ловить ошибки схемы
+        # (no such table/column) после бампа INDEXER_VERSION.
+        if not include_outdated:
+            all_dbs = [db for db in all_dbs if not _is_db_outdated(db['db_path'])]
         
         return all_dbs
     
@@ -159,10 +191,11 @@ class ConfigurationTools:
             extension_filter: Фильтр по расширению/базе (опционально)
             max_results: Максимум совпадений на один модуль (из каждого модуля до max_results сниппетов)
             object_name: Фильтр по имени объекта (опционально, можно частичное)
-            module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule
+            module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule, CommandModule
 
         Returns:
-            Dict grouped by projects; каждый элемент содержит object_name, module_type, snippet, procedure_display, form_name (для FormModule)
+            Dict grouped by projects; каждый элемент содержит object_name, object_type, module_type, snippet,
+            procedure_display, form_name (для FormModule), command_name (для CommandModule команды объекта)
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
@@ -191,10 +224,12 @@ class ConfigurationTools:
                         m.module_type,
                         m.code,
                         o.object_type,
-                        f.form_name
+                        f.form_name,
+                        oc.name as command_name
                     FROM modules m
                     JOIN metadata_objects o ON m.object_id = o.id
                     LEFT JOIN forms f ON m.form_id = f.id
+                    LEFT JOIN object_commands oc ON m.command_id = oc.id
                     WHERE m.code LIKE ?
                 '''
                 params = [f'%{query}%']
@@ -216,11 +251,13 @@ class ConfigurationTools:
                         m.module_type,
                         m.code,
                         o.object_type,
-                        f.form_name
+                        f.form_name,
+                        oc.name as command_name
                     FROM code_search cs
                     JOIN modules m ON cs.rowid = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
                     LEFT JOIN forms f ON m.form_id = f.id
+                    LEFT JOIN object_commands oc ON m.command_id = oc.id
                     WHERE code_search MATCH ?
                     LIMIT ?
                 ''', (query, MAX_MODULES_SEARCH_CODE))
@@ -288,6 +325,7 @@ class ConfigurationTools:
                         'snippet': snippet,
                         'procedure_display': procedure_display,
                         'form_name': row['form_name'] if row['form_name'] is not None else None,
+                        'command_name': row['command_name'] if row['command_name'] is not None else None,
                     })
                     pos += 1
 
@@ -338,7 +376,7 @@ class ConfigurationTools:
                     o.extended_configuration_object,
                     GROUP_CONCAT(DISTINCT m.module_type) as modules
                 FROM metadata_objects o
-                LEFT JOIN modules m ON o.id = m.object_id AND m.form_id IS NULL
+                LEFT JOIN modules m ON o.id = m.object_id AND m.form_id IS NULL AND m.command_id IS NULL
                 WHERE o.name LIKE ?
                 GROUP BY o.id
             ''', (f'%{name}%',))
@@ -463,14 +501,16 @@ class ConfigurationTools:
         
         return results
     
-    def get_module_code(self, object_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
+    def get_module_code(self, object_name, module_type='Module', form_name=None, command_name=None,
+                        project_filter=None, extension_filter=None):
         """
         Получить код модуля
         
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
+            command_name: Имя команды объекта (для CommandModule команды объекта; для общей команды не указывать)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
@@ -478,13 +518,10 @@ class ConfigurationTools:
             Dict with code from each matching database
         """
         self._require_project_filter(project_filter)
-        # Валидация параметров
-        if module_type == 'FormModule' and not form_name:
+        _validate_module_form_command_args(module_type, form_name, command_name)
+        if module_type == 'FormModule' and not (form_name or '').strip():
             raise ValueError("form_name is required when module_type is 'FormModule'")
-        
-        if form_name and module_type != 'FormModule':
-            raise ValueError("form_name can only be used with module_type='FormModule'")
-        
+
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
 
@@ -492,9 +529,9 @@ class ConfigurationTools:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
-        
+        cn = (command_name or '').strip() if command_name is not None else ''
+
         if module_type == 'FormModule':
-            # Модуль формы
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
@@ -516,8 +553,36 @@ class ConfigurationTools:
                     
                     db_key = f"{db_info['db_name']} ({db_info['db_type']})"
                     results[project_key][db_key] = row['code']
+        elif module_type == 'CommandModule':
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                if cn:
+                    cursor.execute('''
+                        SELECT m.code
+                        FROM modules m
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        JOIN object_commands oc ON m.command_id = oc.id
+                        WHERE o.name = ? AND oc.name = ? AND m.module_type = 'CommandModule'
+                        LIMIT 1
+                    ''', (object_name, cn))
+                else:
+                    cursor.execute('''
+                        SELECT m.code
+                        FROM modules m
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        WHERE o.name = ? AND m.module_type = 'CommandModule'
+                          AND m.form_id IS NULL AND m.command_id IS NULL
+                        LIMIT 1
+                    ''', (object_name,))
+                row = cursor.fetchone()
+                if row:
+                    project_key = f"{db_info['project_name']}"
+                    if project_key not in results:
+                        results[project_key] = {}
+                    db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                    results[project_key][db_key] = row['code']
         else:
-            # Модуль объекта
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
@@ -526,7 +591,7 @@ class ConfigurationTools:
                     SELECT m.code
                     FROM modules m
                     JOIN metadata_objects o ON m.object_id = o.id
-                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL AND m.command_id IS NULL
                     LIMIT 1
                 ''', (object_name, module_type))
                 
@@ -541,14 +606,16 @@ class ConfigurationTools:
         
         return results
     
-    def get_module_procedures(self, object_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
+    def get_module_procedures(self, object_name, module_type='Module', form_name=None, command_name=None,
+                              project_filter=None, extension_filter=None):
         """
         Получить список процедур и функций модуля (из таблицы module_procedures).
         
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
+            command_name: Имя команды объекта (для CommandModule команды объекта)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
@@ -556,18 +623,18 @@ class ConfigurationTools:
             Dict with procedures from each matching database
         """
         self._require_project_filter(project_filter)
-        if module_type == 'FormModule' and not form_name:
+        _validate_module_form_command_args(module_type, form_name, command_name)
+        if module_type == 'FormModule' and not (form_name or '').strip():
             raise ValueError("form_name is required when module_type is 'FormModule'")
-        if form_name and module_type != 'FormModule':
-            raise ValueError("form_name can only be used with module_type='FormModule'")
-        
+
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
-        
+        cn = (command_name or '').strip() if command_name is not None else ''
+
         if module_type == 'FormModule':
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
@@ -602,6 +669,52 @@ class ConfigurationTools:
                 if project_key not in results:
                     results[project_key] = {}
                 results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedures
+        elif module_type == 'CommandModule':
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                if cn:
+                    cursor.execute('''
+                        SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
+                               p.execution_context, p.extension_call_type
+                        FROM module_procedures p
+                        JOIN modules m ON p.module_id = m.id
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        JOIN object_commands oc ON m.command_id = oc.id
+                        WHERE o.name = ? AND oc.name = ? AND m.module_type = 'CommandModule'
+                        ORDER BY p.start_line
+                    ''', (object_name, cn))
+                else:
+                    cursor.execute('''
+                        SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
+                               p.execution_context, p.extension_call_type
+                        FROM module_procedures p
+                        JOIN modules m ON p.module_id = m.id
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        WHERE o.name = ? AND m.module_type = 'CommandModule'
+                          AND m.form_id IS NULL AND m.command_id IS NULL
+                        ORDER BY p.start_line
+                    ''', (object_name,))
+                rows = cursor.fetchall()
+                if not rows:
+                    continue
+                procedures = []
+                for row in rows:
+                    exp = ' Экспорт' if row['is_export'] else ''
+                    procedures.append({
+                        'type': row['proc_type'],
+                        'name': row['name'],
+                        'params': row['params'] or '(без параметров)',
+                        'export': bool(row['is_export']),
+                        'line': row['start_line'],
+                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
+                        'execution_context': row['execution_context'],
+                        'extension_call_type': row['extension_call_type'],
+                    })
+                project_key = db_info['project_name']
+                if project_key not in results:
+                    results[project_key] = {}
+                results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedures
         else:
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
@@ -612,7 +725,7 @@ class ConfigurationTools:
                     FROM module_procedures p
                     JOIN modules m ON p.module_id = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
-                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL AND m.command_id IS NULL
                     ORDER BY p.start_line
                 ''', (object_name, module_type))
                 rows = cursor.fetchall()
@@ -638,26 +751,27 @@ class ConfigurationTools:
         
         return results
     
-    def get_procedure_code(self, object_name, procedure_name, module_type='Module', form_name=None, project_filter=None, extension_filter=None):
+    def get_procedure_code(self, object_name, procedure_name, module_type='Module', form_name=None, command_name=None,
+                           project_filter=None, extension_filter=None):
         """
         Получить код конкретной процедуры (по start_line/end_line из module_procedures, срез modules.code).
         
         Args:
             object_name: Имя объекта
             procedure_name: Имя процедуры/функции
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
+            command_name: Имя команды объекта (для CommandModule команды объекта)
             project_filter: Фильтр по проекту
             extension_filter: Фильтр по расширению/базе
         
         Returns:
             Dict with procedure code from each matching database
         """
-        if module_type == 'FormModule' and not form_name:
+        _validate_module_form_command_args(module_type, form_name, command_name)
+        if module_type == 'FormModule' and not (form_name or '').strip():
             raise ValueError("form_name is required when module_type is 'FormModule'")
-        if form_name and module_type != 'FormModule':
-            raise ValueError("form_name can only be used with module_type='FormModule'")
-        
+
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -665,7 +779,8 @@ class ConfigurationTools:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
         
         results = {}
-        
+        cn = (command_name or '').strip() if command_name is not None else ''
+
         if module_type == 'FormModule':
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
@@ -693,6 +808,44 @@ class ConfigurationTools:
                     if project_key not in results:
                         results[project_key] = {}
                     results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedure_code
+        elif module_type == 'CommandModule':
+            for db_info in databases:
+                conn = self._get_connection(db_info['db_path'])
+                cursor = conn.cursor()
+                if cn:
+                    cursor.execute('''
+                        SELECT p.start_line, p.end_line, m.code
+                        FROM module_procedures p
+                        JOIN modules m ON p.module_id = m.id
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        JOIN object_commands oc ON m.command_id = oc.id
+                        WHERE o.name = ? AND oc.name = ? AND m.module_type = 'CommandModule' AND p.name = ?
+                        LIMIT 1
+                    ''', (object_name, cn, procedure_name))
+                else:
+                    cursor.execute('''
+                        SELECT p.start_line, p.end_line, m.code
+                        FROM module_procedures p
+                        JOIN modules m ON p.module_id = m.id
+                        JOIN metadata_objects o ON m.object_id = o.id
+                        WHERE o.name = ? AND m.module_type = 'CommandModule'
+                          AND m.form_id IS NULL AND m.command_id IS NULL AND p.name = ?
+                        LIMIT 1
+                    ''', (object_name, procedure_name))
+                row = cursor.fetchone()
+                if not row or not row['code']:
+                    continue
+                lines = row['code'].split('\n')
+                start_line = row['start_line']
+                end_line = row['end_line']
+                if end_line is None:
+                    end_line = len(lines)
+                procedure_code = '\n'.join(lines[start_line - 1:end_line])
+                if procedure_code:
+                    project_key = db_info['project_name']
+                    if project_key not in results:
+                        results[project_key] = {}
+                    results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = procedure_code
         else:
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
@@ -702,7 +855,7 @@ class ConfigurationTools:
                     FROM module_procedures p
                     JOIN modules m ON p.module_id = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
-                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL AND p.name = ?
+                    WHERE o.name = ? AND m.module_type = ? AND m.form_id IS NULL AND m.command_id IS NULL AND p.name = ?
                     LIMIT 1
                 ''', (object_name, module_type, procedure_name))
                 row = cursor.fetchone()
@@ -985,7 +1138,7 @@ class ConfigurationTools:
             
             # Получаем элементы UI (visible, enabled), строим дерево и порядок вывода с глубиной
             cursor.execute('''
-                SELECT id, parent_id, name, item_type, data_path, title, visible, enabled
+                SELECT id, parent_id, name, item_type, data_path, title, visible, enabled, command_name
                 FROM form_items
                 WHERE form_id = ?
                 ORDER BY id
@@ -993,6 +1146,8 @@ class ConfigurationTools:
             rows = cursor.fetchall()
             items_by_id = {}
             for row in rows:
+                raw_cmd = row['command_name']
+                cmd_name = raw_cmd.strip() if raw_cmd and str(raw_cmd).strip() else None
                 item = {
                     'id': row['id'],
                     'parent_id': row['parent_id'],
@@ -1002,6 +1157,7 @@ class ConfigurationTools:
                     'title': row['title'],
                     'visible': row['visible'] if row['visible'] is not None else None,
                     'enabled': row['enabled'] if row['enabled'] is not None else None,
+                    'command_name': cmd_name,
                     'children': [],
                 }
                 items_by_id[row['id']] = item
@@ -1011,6 +1167,7 @@ class ConfigurationTools:
             roots = sorted([i for i in items_by_id.values() if i['parent_id'] is None], key=lambda x: x['id'])
             items_ordered = []
             def walk(n, depth):
+                cn = n.get('command_name')
                 out = {
                     'name': n['name'],
                     'type': n['type'],
@@ -1019,6 +1176,8 @@ class ConfigurationTools:
                     'visible': n['visible'],
                     'enabled': n['enabled'],
                     'depth': depth,
+                    'command_name': cn,
+                    'command_source': _resolve_command_source(cn),
                 }
                 items_ordered.append(out)
                 for ch in sorted(n['children'], key=lambda x: x['id']):
@@ -1256,6 +1415,7 @@ class ConfigurationTools:
                     'privileged_get_mode': privileged_get_mode,
                     'used_in': used_in,
                     'modules': [],
+                    'commands': [],
                     'forms': [],
                 }
             else:
@@ -1325,12 +1485,29 @@ class ConfigurationTools:
                             ev['extended_configuration_object'] = row['extended_configuration_object']
                     enum_values.append(ev)
 
-                # Модули (краткий список)
+                # Модули объекта (без модулей команд — они в commands / object_commands)
                 cursor.execute('''
                     SELECT module_type FROM modules
-                    WHERE object_id = ? AND form_id IS NULL
+                    WHERE object_id = ? AND form_id IS NULL AND command_id IS NULL
                 ''', (object_id,))
                 modules = [row['module_type'] for row in cursor.fetchall()]
+
+                # Команды объекта (не CommonCommand — у общих команд нет строк в object_commands)
+                cursor.execute('''
+                    SELECT oc.name, oc.synonym,
+                           EXISTS(SELECT 1 FROM modules m2 WHERE m2.command_id = oc.id) AS has_module
+                    FROM object_commands oc
+                    WHERE oc.object_id = ?
+                    ORDER BY oc.name
+                ''', (object_id,))
+                object_commands = [
+                    {
+                        'name': row['name'],
+                        'synonym': row['synonym'] or '',
+                        'has_module': bool(row['has_module']),
+                    }
+                    for row in cursor.fetchall()
+                ]
 
                 # Формы (краткий список)
                 cursor.execute('''
@@ -1351,6 +1528,7 @@ class ConfigurationTools:
                     'tabular_sections': list(tabular_sections.values()),
                     'enum_values': enum_values,
                     'modules': modules,
+                    'commands': object_commands,
                     'forms': forms,
                 }
             if db_info.get('db_type') == 'extension' and obj_row['object_belonging']:

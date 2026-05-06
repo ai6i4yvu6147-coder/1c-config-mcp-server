@@ -6,7 +6,7 @@
 flowchart LR
   Export[1C XML+BSL export] --> Parser[shared/xml_parser.py]
   Parser --> DbBuilder[admin_tool/db_manager.py]
-  DbBuilder --> SQLite[(databases/*.db)]
+  DbBuilder --> SQLite[(portable/databases/*.db)]
   MCP[server/server.py] --> Tools[server/tools.py]
   Tools --> SQLite
 ```
@@ -27,6 +27,6 @@ flowchart LR
   - Регистрирует инструменты и отдаёт их MCP-клиенту.
 
 - **Инструменты MCP (запросы к SQLite)**: `server/tools.py`
-  - Читает список активных баз/проектов через `shared/project_manager.py` и `projects.json`.
+  - Читает список активных баз/проектов через `shared/project_manager.py` и runtime-конфиг `projects.json` (лежит рядом с portable-экземпляром, не в исходниках).
   - Использует кэш соединений SQLite, инвалидируя соединение при изменении `mtime` файла базы.
 

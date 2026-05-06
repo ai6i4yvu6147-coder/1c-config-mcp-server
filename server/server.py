@@ -31,6 +31,24 @@ tools = ConfigurationTools(
 )
 
 
+def _form_item_command_suffix(item: dict) -> str:
+    """Суффикс строки элемента формы для CommandName (текстовый вывод MCP)."""
+    cn = item.get('command_name')
+    if not cn or not str(cn).strip():
+        return ''
+    src = item.get('command_source')
+    s = str(cn).strip()
+    if src == 'Form':
+        tail = s[len('Form.Command.'):] if s.startswith('Form.Command.') else s
+        return f' [команда формы: {tail}]'
+    if src == 'Object':
+        return f' [команда объекта: {s}]'
+    if src == 'Common':
+        tail = s[len('CommonCommand.'):] if s.startswith('CommonCommand.') else s
+        return f' [общая команда: {tail}]'
+    return ''
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """Список доступных инструментов"""
@@ -79,7 +97,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule"
+                        "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule, CommandModule"
                     },
                     "max_results": {
                         "type": "number",
@@ -141,7 +159,11 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_module_code",
-            description="Получить код модуля объекта или модуля формы. project_filter обязателен.",
+            description=(
+                "Получить код модуля объекта, модуля формы или CommandModule (команда объекта / общая команда). "
+                "project_filter обязателен. Для module_type='CommandModule': укажите command_name для модуля команды объекта; "
+                "без command_name — модуль общей команды (объект типа CommonCommand)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -151,12 +173,16 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
                         "default": "Module"
                     },
                     "form_name": {
                         "type": "string",
                         "description": "Имя формы (обязательно для module_type='FormModule')"
+                    },
+                    "command_name": {
+                        "type": "string",
+                        "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
                     },
                     "project_filter": {
                         "type": "string",
@@ -172,7 +198,10 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_module_procedures",
-            description="Получить список процедур и функций модуля (сигнатуры и контекст выполнения Клиент/Сервер). project_filter обязателен.",
+            description=(
+                "Получить список процедур и функций модуля (сигнатуры и контекст выполнения Клиент/Сервер). project_filter обязателен. "
+                "Поддержка CommandModule: command_name для команды объекта; без command_name — общая команда (CommonCommand)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -182,12 +211,16 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
                         "default": "Module"
                     },
                     "form_name": {
                         "type": "string",
                         "description": "Имя формы (обязательно для module_type='FormModule')"
+                    },
+                    "command_name": {
+                        "type": "string",
+                        "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
                     },
                     "project_filter": {
                         "type": "string",
@@ -203,7 +236,10 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_procedure_code",
-            description="Получить код конкретной процедуры или функции (включая директиву &НаКлиенте/&НаСервере). project_filter обязателен.",
+            description=(
+                "Получить код конкретной процедуры или функции (включая директиву &НаКлиенте/&НаСервере). project_filter обязателен. "
+                "CommandModule: command_name для команды объекта; без command_name — общая команда."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -217,12 +253,16 @@ async def list_tools() -> list[Tool]:
                     },
                     "module_type": {
                         "type": "string",
-                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule (по умолчанию Module)",
+                        "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
                         "default": "Module"
                     },
                     "form_name": {
                         "type": "string",
                         "description": "Имя формы (обязательно для module_type='FormModule')"
+                    },
+                    "command_name": {
+                        "type": "string",
+                        "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
                     },
                     "project_filter": {
                         "type": "string",
@@ -294,7 +334,11 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_form_structure",
-            description="Полная структура формы: реквизиты, команды, элементы UI (visible, enabled), события. project_filter обязателен. form_kind и object_belonging для расширений.",
+            description=(
+                "Полная структура формы: реквизиты, команды, элементы UI (visible, enabled), события. project_filter обязателен. "
+                "У элементов items: command_name (сырое значение из Form.xml) и command_source (Form | Object | Common — по префиксу command_name). "
+                "form_kind и object_belonging для расширений."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -346,7 +390,11 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_object_structure",
-            description="Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
+            description=(
+                "Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). "
+                "Поле modules — только модули объекта (без CommandModule команд). Команды объекта — в массиве commands: name, synonym, has_module. "
+                "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -473,11 +521,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for db_name, db_results in project_data.items():
                     response += f"  └─ {db_name}: {len(db_results)} результат(ов)\n"
                     for r in db_results:
-                        response += f"     • {r['object_type']}.{r['object_name']}.{r['module_type']}\n"
+                        loc = f"{r['object_type']}.{r['object_name']}.{r['module_type']}"
+                        if r['module_type'] == 'CommandModule' and r.get('command_name'):
+                            loc = f"{r['object_type']}.{r['object_name']}.CommandModule.{r['command_name']}"
+                        response += f"     • {loc}\n"
                         response += f"       {r.get('procedure_display', '')}\n"
                         id_line = f"       object_name={r['object_name']!r}, module_type={r['module_type']!r}"
                         if r.get('form_name'):
                             id_line += f", form_name={r['form_name']!r}"
+                        if r.get('command_name'):
+                            id_line += f", command_name={r['command_name']!r}"
                         response += id_line + "\n"
                         response += f"       {r['snippet']}\n"
                 response += "\n"
@@ -557,20 +610,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             object_name = arguments["object_name"]
             module_type = arguments.get("module_type", "Module")
             form_name = arguments.get("form_name")
+            command_name = arguments.get("command_name")
             project_filter = arguments.get("project_filter")
             extension_filter = arguments.get("extension_filter")
         
-            results = tools.get_module_code(object_name, module_type, form_name, project_filter, extension_filter)
+            results = tools.get_module_code(
+                object_name, module_type, form_name, command_name, project_filter, extension_filter
+            )
         
             if not results:
                 return [TextContent(type="text", text=f"Модуль '{module_type}' объекта '{object_name}' не найден")]
         
             response = ""
+            mod_label = module_type
+            if module_type == 'CommandModule' and (command_name or '').strip():
+                mod_label = f"CommandModule.{command_name.strip()}"
+            elif module_type == 'CommandModule':
+                mod_label = "CommandModule (общая команда)"
         
             for project_name, project_data in results.items():
                 for db_name, code in project_data.items():
                     response += f"📁 {project_name} / {db_name}\n"
-                    response += f"Код модуля {object_name}.{module_type}:\n\n"
+                    response += f"Код модуля {object_name}.{mod_label}:\n\n"
                     response += code + "\n\n"
         
             return [TextContent(type="text", text=response)]
@@ -579,20 +640,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             object_name = arguments["object_name"]
             module_type = arguments.get("module_type", "Module")
             form_name = arguments.get("form_name")
+            command_name = arguments.get("command_name")
             project_filter = arguments.get("project_filter")
             extension_filter = arguments.get("extension_filter")
         
-            results = tools.get_module_procedures(object_name, module_type, form_name, project_filter, extension_filter)
+            results = tools.get_module_procedures(
+                object_name, module_type, form_name, command_name, project_filter, extension_filter
+            )
         
             if not results:
                 return [TextContent(type="text", text=f"Модуль '{module_type}' объекта '{object_name}' не найден")]
         
             response = ""
+            mod_label = module_type
+            if module_type == 'CommandModule' and (command_name or '').strip():
+                mod_label = f"CommandModule.{command_name.strip()}"
+            elif module_type == 'CommandModule':
+                mod_label = "CommandModule (общая команда)"
         
             for project_name, project_data in results.items():
                 for db_name, procedures in project_data.items():
                     response += f"📁 {project_name} / {db_name}\n"
-                    response += f"Процедуры и функции в {object_name}.{module_type}:\n\n"
+                    response += f"Процедуры и функции в {object_name}.{mod_label}:\n\n"
                 
                     for proc in procedures:
                         export_mark = " [Экспорт]" if proc['export'] else ""
@@ -608,20 +677,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             procedure_name = arguments["procedure_name"]
             module_type = arguments.get("module_type", "Module")
             form_name = arguments.get("form_name")
+            command_name = arguments.get("command_name")
             project_filter = arguments.get("project_filter")
             extension_filter = arguments.get("extension_filter")
         
-            results = tools.get_procedure_code(object_name, procedure_name, module_type, form_name, project_filter, extension_filter)
+            results = tools.get_procedure_code(
+                object_name, procedure_name, module_type, form_name, command_name, project_filter, extension_filter
+            )
         
             if not results:
                 return [TextContent(type="text", text=f"Процедура '{procedure_name}' не найдена в модуле {object_name}.{module_type}")]
         
             response = ""
+            mod_label = module_type
+            if module_type == 'CommandModule' and (command_name or '').strip():
+                mod_label = f"CommandModule.{command_name.strip()}"
+            elif module_type == 'CommandModule':
+                mod_label = "CommandModule (общая команда)"
         
             for project_name, project_data in results.items():
                 for db_name, code in project_data.items():
                     response += f"📁 {project_name} / {db_name}\n"
-                    response += f"Код процедуры {procedure_name} из {object_name}.{module_type}:\n\n"
+                    response += f"Код процедуры {procedure_name} из {object_name}.{mod_label}:\n\n"
                     response += code + "\n\n"
         
             return [TextContent(type="text", text=response)]
@@ -762,7 +839,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                                 vis_str += " [скрыт]"
                             if e == 0:
                                 vis_str += " [недоступен]"
-                            response += f"{indent}• {item['name']} ({item['type']}){data_path}{title}{vis_str}\n"
+                            cmd_sfx = _form_item_command_suffix(item)
+                            response += f"{indent}• {item['name']} ({item['type']}){data_path}{title}{vis_str}{cmd_sfx}\n"
                         response += "\n"
         
             return [TextContent(type="text", text=response)]
@@ -880,6 +958,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             response += f"    - {ev['name']}{order}{title}{comment}{belong}\n"
                         response += "\n"
 
+                    if structure.get('commands'):
+                        response += f"  Команды объекта ({len(structure['commands'])}):\n"
+                        for c in structure['commands']:
+                            hm = " [есть модуль]" if c.get('has_module') else ""
+                            syn = f" ({c['synonym']})" if c.get('synonym') else ""
+                            response += f"    - {c['name']}{syn}{hm}\n"
+                        response += "\n"
                     if structure.get('forms'):
                         response += f"  Формы: {', '.join(structure['forms'])}\n"
                     if structure.get('modules'):

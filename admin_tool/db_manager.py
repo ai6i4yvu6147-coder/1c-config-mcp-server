@@ -322,6 +322,7 @@ class DatabaseManager:
                 title TEXT,
                 visible INTEGER,
                 enabled INTEGER,
+                command_name TEXT,
                 FOREIGN KEY (form_id) REFERENCES forms(id),
                 FOREIGN KEY (parent_id) REFERENCES form_items(id)
             )
@@ -348,16 +349,36 @@ class DatabaseManager:
             )
         ''')
         
-        # Таблица модулей (добавляем form_id)
+        # Команды объекта метаданных (ChildObjects/Command в XML объекта)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS object_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                synonym TEXT,
+                uuid TEXT,
+                object_belonging TEXT,
+                extended_configuration_object TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_object_commands_object_name
+            ON object_commands(object_id, name)
+        ''')
+
+        # Таблица модулей (form_id для FormModule; command_id для CommandModule команды объекта)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS modules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 object_id INTEGER NOT NULL,
                 form_id INTEGER,
+                command_id INTEGER,
                 module_type TEXT NOT NULL,
                 code TEXT NOT NULL,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id),
-                FOREIGN KEY (form_id) REFERENCES forms(id)
+                FOREIGN KEY (form_id) REFERENCES forms(id),
+                FOREIGN KEY (command_id) REFERENCES object_commands(id)
             )
         ''')
         
@@ -586,8 +607,8 @@ class DatabaseManager:
 
             for module in obj['modules']:
                 cursor.execute('''
-                    INSERT INTO modules (object_id, form_id, module_type, code)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                    VALUES (?, NULL, NULL, ?, ?)
                 ''', (object_id, module['type'], module['code']))
                 module_id = cursor.lastrowid
                 cursor.execute('''
@@ -601,6 +622,43 @@ class DatabaseManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
                            p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
+
+            # Команды объекта (не CommonCommand) + модули CommandModule
+            if obj['type'] != 'CommonCommand':
+                for cmd in obj.get('commands', []):
+                    cursor.execute('''
+                        INSERT INTO object_commands (
+                            object_id, name, synonym, uuid, object_belonging, extended_configuration_object
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        object_id,
+                        cmd['name'],
+                        cmd.get('synonym') or '',
+                        cmd.get('uuid') or '',
+                        cmd.get('object_belonging'),
+                        cmd.get('extended_configuration_object'),
+                    ))
+                    command_id = cursor.lastrowid
+                    module_code = cmd.get('module_code')
+                    if module_code:
+                        cursor.execute('''
+                            INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                            VALUES (?, NULL, ?, 'CommandModule', ?)
+                        ''', (object_id, command_id, module_code))
+                        module_id = cursor.lastrowid
+                        code_search_name = f"{obj['name']}.{cmd['name']}"
+                        cursor.execute('''
+                            INSERT INTO code_search (rowid, object_name, module_type, code)
+                            VALUES (?, ?, ?, ?)
+                        ''', (module_id, code_search_name, 'CommandModule', module_code))
+                        procs = _parse_module_procedures(module_code)
+                        if procs:
+                            cursor.executemany('''
+                                INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
+                                   p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
 
             for attr in obj['properties'].get('standard_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
@@ -799,9 +857,9 @@ class DatabaseManager:
             cursor.execute('''
                 INSERT INTO form_items (
                     form_id, parent_id, name, item_type,
-                    data_path, title, visible, enabled
+                    data_path, title, visible, enabled, command_name
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 form_id,
                 parent_db_id,
@@ -810,7 +868,8 @@ class DatabaseManager:
                 item['data_path'],
                 item['title'],
                 visible,
-                enabled
+                enabled,
+                item.get('command_name') or None,
             ))
             
             item_db_id = cursor.lastrowid
@@ -847,8 +906,8 @@ class DatabaseManager:
         # Вставляем модуль формы
         if form.get('module'):
             cursor.execute('''
-                INSERT INTO modules (object_id, form_id, module_type, code)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                VALUES (?, ?, NULL, ?, ?)
             ''', (
                 object_id,
                 form_id,

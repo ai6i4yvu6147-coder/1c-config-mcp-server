@@ -28,6 +28,7 @@
 - `BusinessProcess`
 - `Task`
 - `FunctionalOption`
+- `CommonCommand` (общие команды: один `CommandModule.bsl` в `CommonCommands/<Имя>/Ext/`)
 
 ### Как добавить новый тип
 

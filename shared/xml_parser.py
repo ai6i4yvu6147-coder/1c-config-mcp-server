@@ -65,6 +65,7 @@ class ConfigurationParser:
             'BusinessProcess': 'BusinessProcesses',
             'Task': 'Tasks',
             'FunctionalOption': 'FunctionalOptions',
+            'CommonCommand': 'CommonCommands',
         }
         
         for obj_type, folder_name in object_types.items():
@@ -97,6 +98,11 @@ class ConfigurationParser:
 
         # Получаем модули
         modules = self._parse_modules(name, folder_name)
+        if obj_type == 'CommonCommand':
+            cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
+            if cmd_path.exists():
+                with open(cmd_path, 'r', encoding='utf-8-sig') as f:
+                    modules.append({'type': 'CommandModule', 'code': f.read()})
 
         # Имена форм по умолчанию для определения form_kind
         default_forms = {
@@ -126,6 +132,8 @@ class ConfigurationParser:
             resources = []
             enum_values = []
 
+        commands = [] if obj_type == 'CommonCommand' else self._parse_object_commands(root, name, folder_name, obj_type)
+
         result = {
             'name': name,
             'type': obj_type,
@@ -137,6 +145,7 @@ class ConfigurationParser:
             'dimensions': dimensions,
             'resources': resources,
             'enum_values': enum_values,
+            'commands': commands,
         }
         if obj_type in register_types:
             result['attributes'] = attributes
@@ -560,7 +569,58 @@ class ConfigurationParser:
                 result.append(ev)
         return result
 
-    def  _parse_modules(self, obj_name, folder_name):
+    def _parse_object_commands(self, root, obj_name, folder_name, obj_type):
+        """Команды объекта: ChildObjects/Command в XML + модуль Commands/<Name>/Ext/CommandModule.bsl."""
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        obj_elem = self._get_object_element(root, obj_type, md_ns)
+        if obj_elem is None:
+            return []
+        child_objects = obj_elem.find(f'{{{md_ns}}}ChildObjects')
+        if child_objects is None:
+            return []
+        result = []
+        for child in child_objects:
+            local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if local_tag != 'Command':
+                continue
+            cmd_uuid = child.get('uuid', '') or ''
+            props = child.find(f'{{{md_ns}}}Properties')
+            cmd_name = ''
+            synonym = ''
+            ob = None
+            eco = None
+            if props is not None:
+                name_elem = props.find(f'{{{md_ns}}}Name')
+                if name_elem is not None and name_elem.text:
+                    cmd_name = name_elem.text.strip()
+            if not cmd_name:
+                cmd_name = child.get('name', '') or self._get_attribute_name(child, md_ns)
+            if not cmd_name:
+                continue
+            synonym = self._extract_synonym(child)
+            if props is not None:
+                ob_elem = props.find(f'{{{md_ns}}}ObjectBelonging')
+                if ob_elem is not None and ob_elem.text:
+                    ob = ob_elem.text.strip()
+                eco_elem = props.find(f'{{{md_ns}}}ExtendedConfigurationObject')
+                if eco_elem is not None and eco_elem.text:
+                    eco = eco_elem.text.strip()
+            module_path = self.root_dir / folder_name / obj_name / 'Commands' / cmd_name / 'Ext' / 'CommandModule.bsl'
+            module_code = None
+            if module_path.exists():
+                with open(module_path, 'r', encoding='utf-8-sig') as f:
+                    module_code = f.read()
+            result.append({
+                'name': cmd_name,
+                'synonym': synonym,
+                'uuid': cmd_uuid,
+                'object_belonging': ob,
+                'extended_configuration_object': eco,
+                'module_code': module_code,
+            })
+        return result
+
+    def _parse_modules(self, obj_name, folder_name):
         """Извлекает код модулей объекта"""
         modules = []
         obj_dir = self.root_dir / folder_name / obj_name / 'Ext'
@@ -773,7 +833,14 @@ class ConfigurationParser:
         # Обрабатываем AutoCommandBar
         auto_cmd_bar = root.find(f'{{{default_ns}}}AutoCommandBar')
         if auto_cmd_bar is not None:
-            items.extend(self._parse_child_items(auto_cmd_bar, None))
+            # Внутри AutoCommandBar реальные элементы лежат в контейнерах ChildItems/Items,
+            # сам AutoCommandBar — не элемент дерева UI.
+            auto_child = auto_cmd_bar.find(f'{{{default_ns}}}ChildItems')
+            if auto_child is not None:
+                items.extend(self._parse_child_items(auto_child, None))
+            auto_items = auto_cmd_bar.find(f'{{{default_ns}}}Items')
+            if auto_items is not None:
+                items.extend(self._parse_child_items(auto_items, None))
         
         # Обрабатываем ChildItems
         child_items = root.find(f'{{{default_ns}}}ChildItems')
@@ -809,6 +876,7 @@ class ConfigurationParser:
                 visible = True if v == 'true' else False if v == 'false' else None
                 e = props.get('Enabled', '').strip().lower()
                 enabled = True if e == 'true' else False if e == 'false' else None
+            cmd_name_raw = self._get_element_text(elem, 'CommandName')
             item_data = {
                 'name': elem.get('name', ''),
                 'id': elem.get('id', ''),
@@ -820,12 +888,19 @@ class ConfigurationParser:
                 'enabled': enabled,
                 'events': self._extract_item_events(elem),
                 'functional_options': self._extract_form_functional_options(elem, default_ns),
+                'command_name': cmd_name_raw.strip() if cmd_name_raw else '',
             }
             items.append(item_data)
+            # В логформе дочерние элементы могут лежать в разных контейнерах:
+            # - ChildItems (обычное дерево UI)
+            # - Items (часто внутри CommandBar/панелей команд)
+            # Не обрабатывая Items, мы "теряем" кнопки командной панели.
             child_items_elem = elem.find(f'{{{default_ns}}}ChildItems')
             if child_items_elem is not None:
-                nested_items = self._parse_child_items(child_items_elem, item_data['id'])
-                items.extend(nested_items)
+                items.extend(self._parse_child_items(child_items_elem, item_data['id']))
+            items_elem = elem.find(f'{{{default_ns}}}Items')
+            if items_elem is not None:
+                items.extend(self._parse_child_items(items_elem, item_data['id']))
         return items
     
     def _parse_form_conditional_appearance(self, root, ns):

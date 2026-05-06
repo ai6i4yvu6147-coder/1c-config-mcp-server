@@ -21,6 +21,9 @@ Portable/
 databases/
 *.db
 
+# Runtime config (portable instance only)
+projects.json
+
 # Планы / заметки (служебные)
 plans/
 
