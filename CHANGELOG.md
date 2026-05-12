@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-05-12
+
+- **Парсер, составные типы:** `_extract_attribute_type` объединяет все значения из нескольких `v8:Type` внутри контейнера `Properties/Type` (составной тип в выгрузке 2.20), плюс по-прежнему `v8:TypeSet` и `ValueType`/`v8:Ref`. Ранее в индекс и `get_object_structure` попадал только первый тип. `INDEXER_VERSION` увеличен до 5 — существующие SQLite-базы нужно пересоздать из выгрузки.
+- **Документация для агентов:** в `docs/agent-onboarding.md` и `docs/testing-protocol.md` зафиксирован приоритет реальной выгрузки (путь или фрагмент XML) над внешними источниками при разборе структуры метаданных для парсера.
+
 ## 2026-05-06
 
 - **ТЗ MCP: команды объектов метаданных:** добавлено индексирование команд объектов и их `CommandModule.bsl`: таблица `object_commands`, ссылка `modules.command_id`, в `form_items` сохраняется `command_name` (сырое `CommandName` из Form.xml). `CommonCommand` добавлен в whitelist и индексируется как объект с `CommandModule`. MCP tools расширены: `get_object_structure.commands`, `get_module_*`/`get_procedure_code` поддерживают `CommandModule` + `command_name`, `get_form_structure` возвращает `command_name` и резолвит `command_source`, `search_code` показывает `command_name` для модулей команд.

@@ -341,23 +341,53 @@ class ConfigurationParser:
                     })
         return attributes
     
+    def _dedupe_type_strings_preserve_order(self, items):
+        seen = set()
+        out = []
+        for x in items:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
+
+    def _find_metadata_type_container(self, elem, md_ns):
+        """Контейнер типа в метаданных: обычно Properties/Type (MDClasses)."""
+        props = elem.find(f'{{{md_ns}}}Properties')
+        if props is not None:
+            t = props.find(f'{{{md_ns}}}Type')
+            if t is not None:
+                return t
+        return elem.find(f'.//{{{md_ns}}}Type')
+
     def _extract_attribute_type(self, elem):
-        """Извлекает тип атрибута. Поддерживает простой тип (v8:Type), составной (v8:TypeSet) и ValueType/Ref."""
-        # Namespace для MDClasses и data/core
+        """Извлекает тип атрибута.
+
+        Составной тип в выгрузке 1С: несколько v8:Type — прямые дочерние элементы контейнера Type;
+        либо v8:TypeSet (текст и/или вложенные v8:Type); либо ValueType/v8:Ref.
+        """
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         v8_ns = 'http://v8.1c.ru/8.1/data/core'
-        
-        # Ищем в v8:Type с учетом namespace (простой тип)
-        v8_type = elem.find(f'.//{{{v8_ns}}}Type')
-        if v8_type is not None and v8_type.text and v8_type.text.strip():
-            return v8_type.text.strip()
-        
-        # Составной тип (множество типов) — в формате 2.20 задаётся v8:TypeSet
-        v8_type_set = elem.find(f'.//{{{v8_ns}}}TypeSet')
-        if v8_type_set is not None and v8_type_set.text and v8_type_set.text.strip():
-            return v8_type_set.text.strip()
-        
-        # Ищем в ValueType с учетом namespace
+
+        type_elem = self._find_metadata_type_container(elem, md_ns)
+
+        if type_elem is not None:
+            direct = []
+            for child in list(type_elem):
+                if child.tag == f'{{{v8_ns}}}Type' and child.text and child.text.strip():
+                    direct.append(child.text.strip())
+            if direct:
+                return ', '.join(self._dedupe_type_strings_preserve_order(direct))
+
+            from_set = []
+            for ts in type_elem.findall(f'.//{{{v8_ns}}}TypeSet'):
+                if ts.text and ts.text.strip():
+                    from_set.append(ts.text.strip())
+                for t in ts.findall(f'.//{{{v8_ns}}}Type'):
+                    if t.text and t.text.strip():
+                        from_set.append(t.text.strip())
+            if from_set:
+                return ', '.join(self._dedupe_type_strings_preserve_order(from_set))
+
         value_type = elem.find(f'.//{{{md_ns}}}ValueType')
         if value_type is not None:
             types = []
@@ -365,8 +395,12 @@ class ConfigurationParser:
                 if ref.text:
                     types.append(ref.text)
             if types:
-                return ', '.join(types)
-        
+                return ', '.join(self._dedupe_type_strings_preserve_order(types))
+
+        v8_type = elem.find(f'.//{{{v8_ns}}}Type')
+        if v8_type is not None and v8_type.text and v8_type.text.strip():
+            return v8_type.text.strip()
+
         return ''
     
     def _extract_synonym(self, elem):
