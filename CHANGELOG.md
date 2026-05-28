@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-05-28
+
+- **Парсер + MCP: CommonForm (общие формы):** `CommonForm` добавлен в whitelist и индексируется как объект с единственной формой `Form.xml` из `CommonForms/<Имя>/Ext/` и модулем `Ext/Form/Module.bsl`. Это делает общие формы доступными в MCP через `list_objects(object_type="CommonForm")`, `find_form`, `get_form_structure`, `get_module_code` после пересоздания БД.
+- **Документация (протокол тестирования):** в `docs/testing-protocol.md` и `docs/agent-onboarding.md` уточнено, что проверка должна начинаться с `active_databases` и выполняться через MCP tools, без попыток подменить тест поиском runtime-файлов или локальным запуском кода.
+
 ## 2026-05-12
 
 - **Парсер, составные типы:** `_extract_attribute_type` объединяет все значения из нескольких `v8:Type` внутри контейнера `Properties/Type` (составной тип в выгрузке 2.20), плюс по-прежнему `v8:TypeSet` и `ValueType`/`v8:Ref`. Ранее в индекс и `get_object_structure` попадал только первый тип. `INDEXER_VERSION` увеличен до 5 — существующие SQLite-базы нужно пересоздать из выгрузки.

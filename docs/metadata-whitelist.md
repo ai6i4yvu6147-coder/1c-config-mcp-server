@@ -29,6 +29,7 @@
 - `Task`
 - `FunctionalOption`
 - `CommonCommand` (общие команды: один `CommandModule.bsl` в `CommonCommands/<Имя>/Ext/`)
+- `CommonForm` (общие формы: `CommonForms/<Имя>.xml`, структура в `CommonForms/<Имя>/Ext/Form.xml`, модуль в `Ext/Form/Module.bsl`)
 
 ### Как добавить новый тип
 
@@ -49,7 +50,6 @@
 - `Role`
 - `HTTPService`
 - `EventSubscription`
-- `CommonForm`
 - `CommonPicture`
 - `DefinedType`
 - `XDTOPackage`

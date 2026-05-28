@@ -66,6 +66,7 @@ class ConfigurationParser:
             'Task': 'Tasks',
             'FunctionalOption': 'FunctionalOptions',
             'CommonCommand': 'CommonCommands',
+            'CommonForm': 'CommonForms',
         }
         
         for obj_type, folder_name in object_types.items():
@@ -96,26 +97,34 @@ class ConfigurationParser:
         # Получаем свойства
         properties = self._parse_properties(root, obj_type)
 
-        # Получаем модули
-        modules = self._parse_modules(name, folder_name)
-        if obj_type == 'CommonCommand':
-            cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
-            if cmd_path.exists():
-                with open(cmd_path, 'r', encoding='utf-8-sig') as f:
-                    modules.append({'type': 'CommandModule', 'code': f.read()})
+        # Получаем модули и формы
+        if obj_type == 'CommonForm':
+            modules = []
+            forms = self._parse_common_form(name, folder_name, uuid)
+        else:
+            modules = self._parse_modules(name, folder_name)
+            if obj_type == 'CommonCommand':
+                cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
+                if cmd_path.exists():
+                    with open(cmd_path, 'r', encoding='utf-8-sig') as f:
+                        modules.append({'type': 'CommandModule', 'code': f.read()})
 
-        # Имена форм по умолчанию для определения form_kind
-        default_forms = {
-            'Element': properties.get('default_object_form') or properties.get('auxiliary_object_form'),
-            'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
-            'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
-        }
-        # Получаем формы
-        forms = self._parse_forms(name, folder_name, default_forms)
+            # Имена форм по умолчанию для определения form_kind
+            default_forms = {
+                'Element': properties.get('default_object_form') or properties.get('auxiliary_object_form'),
+                'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
+                'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
+            }
+            forms = self._parse_forms(name, folder_name, default_forms)
 
         # Парсим дополнительные структуры по типу объекта
         register_types = ('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')
-        if obj_type in register_types:
+        if obj_type == 'CommonForm':
+            tabular_sections = []
+            dimensions = []
+            resources = []
+            enum_values = []
+        elif obj_type in register_types:
             tabular_sections = []
             dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
             resources = self._parse_register_section(root, 'Resources', obj_type)
@@ -132,7 +141,7 @@ class ConfigurationParser:
             resources = []
             enum_values = []
 
-        commands = [] if obj_type == 'CommonCommand' else self._parse_object_commands(root, name, folder_name, obj_type)
+        commands = [] if obj_type in ('CommonCommand', 'CommonForm') else self._parse_object_commands(root, name, folder_name, obj_type)
 
         result = {
             'name': name,
@@ -706,30 +715,37 @@ class ConfigurationParser:
                     forms.append(form_data)
 
         return forms
+
+    def _parse_common_form(self, name, folder_name, uuid):
+        """Парсит общую форму: CommonForms/<Имя>/Ext/Form.xml, модуль — Ext/Form/Module.bsl."""
+        form_dir = self.root_dir / folder_name / name
+        form_data = self._parse_form(form_dir, uuid=uuid, form_name=name)
+        if form_data:
+            return [form_data]
+        return []
     
-    def _parse_form(self, form_dir):
-        """Парсит одну форму"""
+    def _parse_form(self, form_dir, uuid=None, form_name=None):
+        """Парсит одну форму. uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml)."""
         form_xml = form_dir / 'Ext' / 'Form.xml'
         
         if not form_xml.exists():
             return None
         
         try:
-            # Получаем UUID из файла метаданных формы (ИмяФормы.xml)
-            form_name = form_dir.name
-            form_meta_xml = form_dir / f'{form_name}.xml'
-            uuid = ''
-            
-            if form_meta_xml.exists():
-                try:
-                    meta_tree = ET.parse(form_meta_xml)
-                    meta_root = meta_tree.getroot()
-                    # UUID в атрибуте элемента Form
-                    form_elem = meta_root.find('.//{http://v8.1c.ru/8.3/MDClasses}Form')
-                    if form_elem is not None:
-                        uuid = form_elem.get('uuid', '')
-                except:
-                    pass
+            form_name = form_name or form_dir.name
+            if uuid is None:
+                # UUID из файла метаданных формы (ИмяФормы.xml в каталоге формы объекта)
+                form_meta_xml = form_dir / f'{form_name}.xml'
+                uuid = ''
+                if form_meta_xml.exists():
+                    try:
+                        meta_tree = ET.parse(form_meta_xml)
+                        meta_root = meta_tree.getroot()
+                        form_elem = meta_root.find('.//{http://v8.1c.ru/8.3/MDClasses}Form')
+                        if form_elem is not None:
+                            uuid = form_elem.get('uuid', '')
+                    except Exception:
+                        pass
             
             # Парсим структуру формы из Form.xml
             tree = ET.parse(form_xml)
