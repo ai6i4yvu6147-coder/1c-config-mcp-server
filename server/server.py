@@ -667,6 +667,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         export_mark = " [Экспорт]" if proc['export'] else ""
                         ctx = f" [{proc['execution_context']}]" if proc.get('execution_context') else ""
                         response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}\n"
+                        if proc.get('comment'):
+                            for comment_line in proc['comment'].split('\n'):
+                                response += f"      {comment_line}\n"
                 
                     response += "\n"
         

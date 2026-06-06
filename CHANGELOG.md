@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-06-06
+
+- **Индексация //-аннотаций методов BSL:** парсер `_parse_module_procedures` собирает многострочные документирующие `//`-комментарии перед процедурами/функциями; в таблицу `module_procedures` добавлена колонка `comment`, `start_line` включает блок комментариев (и `&`-директивы). `get_module_procedures` возвращает `comment`; `get_procedure_code` отдаёт код с комментариями. `INDEXER_VERSION` увеличен до 6 — базы пересоздать из выгрузки.
+
 ## 2026-05-28
 
 - **Парсер + MCP: CommonForm (общие формы):** `CommonForm` добавлен в whitelist и индексируется как объект с единственной формой `Form.xml` из `CommonForms/<Имя>/Ext/` и модулем `Ext/Form/Module.bsl`. Это делает общие формы доступными в MCP через `list_objects(object_type="CommonForm")`, `find_form`, `get_form_structure`, `get_module_code` после пересоздания БД.

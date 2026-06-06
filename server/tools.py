@@ -635,13 +635,31 @@ class ConfigurationTools:
         results = {}
         cn = (command_name or '').strip() if command_name is not None else ''
 
+        def row_to_procedure(row):
+            exp = ' Экспорт' if row['is_export'] else ''
+            return {
+                'type': row['proc_type'],
+                'name': row['name'],
+                'params': row['params'] or '(без параметров)',
+                'export': bool(row['is_export']),
+                'line': row['start_line'],
+                'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
+                'comment': row['comment'] or '',
+                'execution_context': row['execution_context'],
+                'extension_call_type': row['extension_call_type'],
+            }
+
+        proc_columns = '''
+                    SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
+                           p.execution_context, p.extension_call_type, p.comment
+        '''
+
         if module_type == 'FormModule':
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
-                           p.execution_context, p.extension_call_type
+                cursor.execute(f'''
+                    {proc_columns}
                     FROM module_procedures p
                     JOIN modules m ON p.module_id = m.id
                     JOIN forms f ON m.form_id = f.id
@@ -652,19 +670,7 @@ class ConfigurationTools:
                 rows = cursor.fetchall()
                 if not rows:
                     continue
-                procedures = []
-                for row in rows:
-                    exp = ' Экспорт' if row['is_export'] else ''
-                    procedures.append({
-                        'type': row['proc_type'],
-                        'name': row['name'],
-                        'params': row['params'] or '(без параметров)',
-                        'export': bool(row['is_export']),
-                        'line': row['start_line'],
-                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
-                        'execution_context': row['execution_context'],
-                        'extension_call_type': row['extension_call_type'],
-                    })
+                procedures = [row_to_procedure(row) for row in rows]
                 project_key = db_info['project_name']
                 if project_key not in results:
                     results[project_key] = {}
@@ -674,9 +680,8 @@ class ConfigurationTools:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
                 if cn:
-                    cursor.execute('''
-                        SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
-                               p.execution_context, p.extension_call_type
+                    cursor.execute(f'''
+                        {proc_columns}
                         FROM module_procedures p
                         JOIN modules m ON p.module_id = m.id
                         JOIN metadata_objects o ON m.object_id = o.id
@@ -685,9 +690,8 @@ class ConfigurationTools:
                         ORDER BY p.start_line
                     ''', (object_name, cn))
                 else:
-                    cursor.execute('''
-                        SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
-                               p.execution_context, p.extension_call_type
+                    cursor.execute(f'''
+                        {proc_columns}
                         FROM module_procedures p
                         JOIN modules m ON p.module_id = m.id
                         JOIN metadata_objects o ON m.object_id = o.id
@@ -698,19 +702,7 @@ class ConfigurationTools:
                 rows = cursor.fetchall()
                 if not rows:
                     continue
-                procedures = []
-                for row in rows:
-                    exp = ' Экспорт' if row['is_export'] else ''
-                    procedures.append({
-                        'type': row['proc_type'],
-                        'name': row['name'],
-                        'params': row['params'] or '(без параметров)',
-                        'export': bool(row['is_export']),
-                        'line': row['start_line'],
-                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
-                        'execution_context': row['execution_context'],
-                        'extension_call_type': row['extension_call_type'],
-                    })
+                procedures = [row_to_procedure(row) for row in rows]
                 project_key = db_info['project_name']
                 if project_key not in results:
                     results[project_key] = {}
@@ -719,9 +711,8 @@ class ConfigurationTools:
             for db_info in databases:
                 conn = self._get_connection(db_info['db_path'])
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
-                           p.execution_context, p.extension_call_type
+                cursor.execute(f'''
+                    {proc_columns}
                     FROM module_procedures p
                     JOIN modules m ON p.module_id = m.id
                     JOIN metadata_objects o ON m.object_id = o.id
@@ -731,19 +722,7 @@ class ConfigurationTools:
                 rows = cursor.fetchall()
                 if not rows:
                     continue
-                procedures = []
-                for row in rows:
-                    exp = ' Экспорт' if row['is_export'] else ''
-                    procedures.append({
-                        'type': row['proc_type'],
-                        'name': row['name'],
-                        'params': row['params'] or '(без параметров)',
-                        'export': bool(row['is_export']),
-                        'line': row['start_line'],
-                        'signature': f"{row['proc_type']} {row['name']}({row['params']}){exp}",
-                        'execution_context': row['execution_context'],
-                        'extension_call_type': row['extension_call_type'],
-                    })
+                procedures = [row_to_procedure(row) for row in rows]
                 project_key = db_info['project_name']
                 if project_key not in results:
                     results[project_key] = {}

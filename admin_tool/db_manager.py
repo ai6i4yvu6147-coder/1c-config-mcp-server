@@ -11,12 +11,25 @@ from shared.xml_parser import ConfigurationParser
 from shared.indexer_version import INDEXER_VERSION
 
 
+def _strip_bsl_comment_line(line):
+    """Снимает префикс // с строки документирующего комментария BSL."""
+    stripped = line.strip()
+    if stripped.startswith('//'):
+        text = stripped[2:]
+        if text.startswith(' '):
+            text = text[1:]
+        return text
+    return stripped
+
+
 def _parse_module_procedures(code):
     """
     Парсит код модуля 1С, возвращает список процедур/функций для таблицы module_procedures.
-    Каждый элемент: name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type.
-    start_line — первая строка для среза (включая все &-директивы над процедурой); 1-based.
-    execution_context и extension_call_type определяются по всем подряд идущим &-строкам над процедурой.
+    Каждый элемент: name, proc_type, start_line, end_line, params, is_export, comment,
+    execution_context, extension_call_type.
+    start_line — первая строка для среза (включая //-комментарии и &-директивы над процедурой); 1-based.
+    comment — многострочный текст документирующих //-строк над процедурой (без префикса //).
+    execution_context и extension_call_type определяются по &-строкам в префиксе.
     Поддерживаются многострочные объявления (закрывающая скобка ) и Экспорт на следующих строках).
     """
     lines = code.split('\n')
@@ -59,19 +72,43 @@ def _parse_module_procedures(code):
                 return value
         return None
 
-    def collect_annotation_lines_above(lines, proc_line_index):
-        """Собирает индексы всех подряд идущих &-строк непосредственно над процедурой (снизу вверх)."""
+    def collect_procedure_prefix_above(proc_line_index):
+        """Собирает //-комментарии и &-директивы непосредственно над объявлением процедуры."""
         indices = []
         j = proc_line_index - 1
         while j >= 0:
             stripped = lines[j].strip()
-            if stripped.startswith('&') and len(stripped) > 1:
+            if stripped.startswith('//'):
                 indices.append(j)
                 j -= 1
+            elif stripped.startswith('&') and len(stripped) > 1:
+                indices.append(j)
+                j -= 1
+            elif stripped == '':
+                break
             else:
                 break
         indices.reverse()
-        return indices
+        comment_indices = [idx for idx in indices if lines[idx].strip().startswith('//')]
+        directive_indices = [idx for idx in indices if lines[idx].strip().startswith('&')]
+        return comment_indices, directive_indices, indices
+
+    def prefix_info(proc_line_index, default_start_line):
+        comment_indices, directive_indices, all_indices = collect_procedure_prefix_above(proc_line_index)
+        execution_context = None
+        extension_call_type = None
+        for idx in reversed(directive_indices):
+            stripped = lines[idx].strip()
+            if execution_context is None:
+                execution_context = directive_to_context(stripped)
+            if extension_call_type is None:
+                extension_call_type = line_to_extension_call_type(stripped)
+        start_line = (all_indices[0] + 1) if all_indices else default_start_line
+        comment = (
+            '\n'.join(_strip_bsl_comment_line(lines[idx]) for idx in comment_indices)
+            if comment_indices else ''
+        )
+        return start_line, comment, execution_context, extension_call_type
 
     result = []
     i = 0
@@ -83,16 +120,7 @@ def _parse_module_procedures(code):
             name = match.group(2)
             params = (match.group(3) or '').strip() or '(без параметров)'
             is_export = bool(match.group(4))
-            ann_indices = collect_annotation_lines_above(lines, i)
-            execution_context = None
-            extension_call_type = None
-            for idx in reversed(ann_indices):
-                stripped = lines[idx].strip()
-                if execution_context is None:
-                    execution_context = directive_to_context(stripped)
-                if extension_call_type is None:
-                    extension_call_type = line_to_extension_call_type(stripped)
-            start_line = (ann_indices[0] + 1) if ann_indices else line_num
+            start_line, comment, execution_context, extension_call_type = prefix_info(i, line_num)
             end_line = None
             for j in range(i + 1, len(lines)):
                 if end_pattern.match(lines[j]):
@@ -105,6 +133,7 @@ def _parse_module_procedures(code):
                 'end_line': end_line,
                 'params': params,
                 'is_export': 1 if is_export else 0,
+                'comment': comment,
                 'execution_context': execution_context,
                 'extension_call_type': extension_call_type,
             })
@@ -127,16 +156,7 @@ def _parse_module_procedures(code):
                 closing_line = lines[j]
                 is_export = bool(re.search(r'\bЭкспорт\b', closing_line, re.IGNORECASE))
                 params = '(многострочные)'
-                ann_indices = collect_annotation_lines_above(lines, i)
-                execution_context = None
-                extension_call_type = None
-                for idx in reversed(ann_indices):
-                    stripped = lines[idx].strip()
-                    if execution_context is None:
-                        execution_context = directive_to_context(stripped)
-                    if extension_call_type is None:
-                        extension_call_type = line_to_extension_call_type(stripped)
-                start_line = (ann_indices[0] + 1) if ann_indices else (i + 1)
+                start_line, comment, execution_context, extension_call_type = prefix_info(i, i + 1)
                 end_line = None
                 for k in range(j + 1, len(lines)):
                     if end_pattern.match(lines[k]):
@@ -149,6 +169,7 @@ def _parse_module_procedures(code):
                     'end_line': end_line,
                     'params': params,
                     'is_export': 1 if is_export else 0,
+                    'comment': comment,
                     'execution_context': execution_context,
                     'extension_call_type': extension_call_type,
                 })
@@ -395,6 +416,7 @@ class DatabaseManager:
                 is_export INTEGER DEFAULT 0,
                 execution_context TEXT,
                 extension_call_type TEXT,
+                comment TEXT,
                 FOREIGN KEY (module_id) REFERENCES modules(id)
             )
         ''')
@@ -618,10 +640,10 @@ class DatabaseManager:
                 procs = _parse_module_procedures(module['code'])
                 if procs:
                     cursor.executemany('''
-                        INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
-                           p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
+                           p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
 
             # Команды объекта (не CommonCommand) + модули CommandModule
             if obj['type'] != 'CommonCommand':
@@ -655,10 +677,10 @@ class DatabaseManager:
                         procs = _parse_module_procedures(module_code)
                         if procs:
                             cursor.executemany('''
-                                INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
-                                   p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
+                                   p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
 
             for attr in obj['properties'].get('standard_attributes', []):
                 self._insert_attribute(cursor, object_id, attr)
@@ -929,10 +951,10 @@ class DatabaseManager:
             procs = _parse_module_procedures(form['module'])
             if procs:
                 cursor.executemany('''
-                    INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
-                       p['params'], p['is_export'], p['execution_context'], p['extension_call_type']) for p in procs])
+                       p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
     
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute'):
         """Вставляет атрибут объекта в БД"""
