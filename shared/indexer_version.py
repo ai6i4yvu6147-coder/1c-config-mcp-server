@@ -13,4 +13,4 @@
 через admin_tool (см. DatabaseManager.create_database).
 """
 
-INDEXER_VERSION = 6
+INDEXER_VERSION = 7

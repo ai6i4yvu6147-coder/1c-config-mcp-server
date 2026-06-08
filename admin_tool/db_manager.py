@@ -477,6 +477,34 @@ class DatabaseManager:
             )
         ''')
 
+        # Точки маршрута бизнес-процессов (Flowchart.xml)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bp_route_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                point_type TEXT NOT NULL,
+                title TEXT,
+                uuid TEXT,
+                tab_order INTEGER,
+                true_port INTEGER,
+                false_port INTEGER,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bp_route_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                from_point TEXT NOT NULL,
+                to_point TEXT NOT NULL,
+                from_port INTEGER,
+                title TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
         # Таблица функциональных опций (свойства ФО; Content хранится в fo_content_ref)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS functional_options (
@@ -555,6 +583,15 @@ class DatabaseManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_enum_values_object
             ON enum_values(object_id)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_bp_route_points_object
+            ON bp_route_points(object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_bp_route_transitions_object
+            ON bp_route_transitions(object_id)
         ''')
 
         cursor.execute('''
@@ -697,6 +734,12 @@ class DatabaseManager:
             enum_values = obj.get('enum_values', [])
             if enum_values:
                 self._insert_enum_values(cursor, object_id, enum_values)
+            if obj['type'] == 'BusinessProcess':
+                self._insert_bp_route_data(
+                    cursor, object_id,
+                    obj.get('route_points', []),
+                    obj.get('route_transitions', []),
+                )
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 20 + int((idx / total_objects) * 40)
@@ -999,6 +1042,38 @@ class DatabaseManager:
                 ev.get('comment', ''),
                 ev.get('object_belonging'),
                 ev.get('extended_configuration_object'),
+            ))
+
+    def _insert_bp_route_data(self, cursor, object_id, route_points, route_transitions):
+        """Вставляет точки маршрута и переходы бизнес-процесса."""
+        for point in route_points:
+            cursor.execute('''
+                INSERT INTO bp_route_points (
+                    object_id, name, point_type, title, uuid, tab_order, true_port, false_port
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                object_id,
+                point['name'],
+                point['type'],
+                point.get('title', ''),
+                point.get('uuid', ''),
+                point.get('tab_order'),
+                point.get('true_port'),
+                point.get('false_port'),
+            ))
+        for transition in route_transitions:
+            cursor.execute('''
+                INSERT INTO bp_route_transitions (
+                    object_id, from_point, to_point, from_port, title
+                )
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                object_id,
+                transition['from'],
+                transition['to'],
+                transition.get('from_port'),
+                transition.get('title', ''),
             ))
     
     def get_statistics(self):

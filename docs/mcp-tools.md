@@ -25,3 +25,12 @@
 - **Кнопка и привязка к команде на форме**: `get_form_structure` → у элементов `items` поля `command_name` (как в XML) и `command_source` (`Form` / `Object` / `Common`, по префиксу строки). В текстовом ответе MCP к строке элемента добавляются пометки вида `[команда объекта: …]`.
 - **Поиск по коду модуля команды**: `search_code`; для `CommandModule` команды объекта в результатах есть `command_name`, в текстовой строке локации показывается `…CommandModule.<имя_команды>`; для `CommonCommand` — `CommonCommand.<Имя>.CommandModule`.
 
+### BusinessProcess: точки маршрута
+
+- Источник: `BusinessProcesses/<Имя>/Ext/Flowchart.xml` (не основной `.xml` объекта).
+- **`get_object_structure`** для `BusinessProcess` добавляет:
+  - `route_points` — `{name, type, synonym, uuid, true_port?, false_port?}` (type: Start, Activity, Condition, Completion, Split, Join, …);
+  - `route_transitions` — `{from, to, from_port?, title?}`.
+- В **текстовом ответе MCP**: компактный индекс точек по типам и **adjacency list** переходов (полный граф, включая Split/Join). Подписи веток условий — из `title` линии или «Да»/«Нет» по портам Condition.
+- После изменений схемы — пересоздать БД через `admin_tool` (`INDEXER_VERSION` 7+).
+

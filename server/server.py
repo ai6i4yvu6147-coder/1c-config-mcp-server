@@ -9,7 +9,7 @@ import mcp.server.stdio
 # Добавляем корневую папку проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from server.tools import ConfigurationTools
+from server.tools import ConfigurationTools, format_business_process_route_text
 
 # Определяем корневую папку проекта
 if getattr(sys, 'frozen', False):
@@ -393,7 +393,8 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). "
                 "Поле modules — только модули объекта (без CommandModule команд). Команды объекта — в массиве commands: name, synonym, has_module. "
-                "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст."
+                "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст. "
+                "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов."
             ),
             inputSchema={
                 "type": "object",
@@ -960,6 +961,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             belong = f" [{ev['object_belonging']}]" if ev.get('object_belonging') else ""
                             response += f"    - {ev['name']}{order}{title}{comment}{belong}\n"
                         response += "\n"
+
+                    if structure.get('route_points') is not None:
+                        route_text = format_business_process_route_text(
+                            structure.get('route_points', []),
+                            structure.get('route_transitions', []),
+                        )
+                        if route_text:
+                            response += route_text
 
                     if structure.get('commands'):
                         response += f"  Команды объекта ({len(structure['commands'])}):\n"
