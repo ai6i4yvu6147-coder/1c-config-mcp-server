@@ -30,3 +30,7 @@ flowchart LR
   - Читает список активных баз/проектов через `shared/project_manager.py` и runtime-конфиг `projects.json` (лежит рядом с portable-экземпляром, не в исходниках).
   - Использует кэш соединений SQLite, инвалидируя соединение при изменении `mtime` файла базы.
 
+### Планируемое расширение: dependency layer
+
+Следующий крупный шаг — **индекс межобъектных зависимостей метаданных** (ссылки реквизитов, подсистемы, роли, материализация `fo_*`). Дизайн, схема, tools и roadmap: `dependency-layer.md`. Не graph DB: adjacency-list в SQLite поверх `metadata_objects`.
+

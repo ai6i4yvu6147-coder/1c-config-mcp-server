@@ -32,6 +32,10 @@
 - `CommonForm` (общие формы: `CommonForms/<Имя>.xml`, структура в `CommonForms/<Имя>/Ext/Form.xml`, модуль в `Ext/Form/Module.bsl`)
 - `ScheduledJob` (регламентные задания: один `ScheduledJobs/<Имя>.xml`, без модулей; свойства `MethodName`, `Use`, `Predefined`, …)
 
+### Связь с dependency layer
+
+Типы `Subsystem`, `Role`, `EventSubscription` планируются в рамках [dependency layer](dependency-layer.md) (фазы 3–5): после добавления в whitelist их связи материализуются в `metadata_dependencies`.
+
 ### Как добавить новый тип
 
 1. Добавить тип в `object_types` в `shared/xml_parser.py` (и указать папку выгрузки).

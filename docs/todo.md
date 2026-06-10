@@ -96,7 +96,9 @@
 
 | Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
 
-| Расширение whitelist (Subsystem, Role, …) | **не начато** |
+| Расширение whitelist (Subsystem, Role, …) | **не начато** — см. `dependency-layer.md` |
+
+| Metadata dependency layer (`metadata_dependencies`, tools) | **не начато** — см. `dependency-layer.md` |
 
 
 
@@ -164,7 +166,41 @@
 
   - **Материалы:** таблица `scheduled_jobs`; при доработке схемы — `bump-indexer-version.md`
 
+  - **Не путать с** dependency layer (`dependency-layer.md`) — это отдельная ось (handler, не metadata ref)
+
   - **Критерий заключения:** запрос «найди РЗ для процедуры Y» даёт релевантный результат
+
+
+
+- **dependency-layer-phase-0** · `ready` · `find_object` по синониму (без схемы)
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 0
+
+  - **Сторона:** `server/tools.py` (`find_object`, при неоднозначности — `get_object_structure`)
+
+  - **Критерий закрытия:** поиск по фрагменту русского `synonym` находит объект
+
+
+
+- **dependency-layer-phase-1** · `ready` · Таблица `metadata_dependencies` + ссылки реквизитов + tools
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фазы 1, схема, SQL, критерии готовности
+
+  - **Сторона:** resolver типов (`shared/`), `db_manager.py`, `tools.py`, `server.py`, bump `INDEXER_VERSION`
+
+  - **Tools:** `find_metadata_dependencies`, `find_metadata_dependents`
+
+  - **Критерий закрытия:** см. «Критерии готовности фазы 1» в `dependency-layer.md`
+
+
+
+- **dependency-layer-phase-2** · `ready` · Материализация `fo_*` в dependencies
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 2
+
+  - **Сторона:** `db_manager.py` (единая материализация в конце сборки)
+
+  - **Критерий закрытия:** ФО из `fo_content_ref` / `fo_form_usage` видны через `find_metadata_*`
 
 
 
@@ -235,31 +271,31 @@
 
 - **whitelist-subsystem** · `idea` · Индексация подсистем (`Subsystem`)
 
-  - **Зачем:** навигация по структуре конфигурации, привязка объектов к подсистемам
+  - **Зачем:** навигация по структуре конфигурации, `subsystem_contains` в dependency layer
 
-  - **Материалы:** [`metadata-whitelist.md`](metadata-whitelist.md); нужна выгрузка с `Subsystems/`
+  - **Материалы:** [`metadata-whitelist.md`](metadata-whitelist.md), [`dependency-layer.md`](dependency-layer.md) фаза 3; нужна выгрузка с `Subsystems/`
 
-  - **Открыто:** нужны ли MCP tools кроме `list_objects` / `find_object`
+  - **Tools:** `find_metadata_dependencies` / `find_metadata_dependents` (после фазы 1)
 
 
 
 - **whitelist-role** · `idea` · Индексация ролей (`Role`)
 
-  - **Зачем:** анализ прав, поиск ролей по имени
+  - **Зачем:** `role_grants` в dependency layer, анализ прав
 
-  - **Материалы:** whitelist; тип без модулей BSL — в основном метаданные
+  - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 4; **blocked** без реальной выгрузки ролей
 
-  - **Открыто:** объём свойств для парсинга (права, RLS)
+  - **Открыто:** MVP без полной модели RLS (права в `source_path`)
 
 
 
 - **whitelist-event-subscription** · `idea` · Индексация подписок на события (`EventSubscription`)
 
-  - **Зачем:** «кто подписан на событие X», обработчики в общих модулях
+  - **Зачем:** `event_subscription_source` / `event_subscription_handler` в dependency layer
 
-  - **Материалы:** whitelist; связь `Handler` → `CommonModule` процедура
+  - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 5; **blocked** без реальной выгрузки
 
-  - **Открыто:** нужен ли обратный индекс handler → подписки
+  - **Открыто:** обратный индекс handler → подписки
 
 
 

@@ -43,6 +43,8 @@
 - `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода; колонка `used_in_scheduled_job` — процедура указана в `MethodName` хотя бы одного регл. задания.
 - `scheduled_jobs`: свойства регламентных заданий (`method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, …); связь с объектом через `object_id` → `metadata_objects`.
 - `code_search` (FTS5): полнотекстовый поиск по коду модулей.
+- `fo_content_ref`, `fo_form_usage`: привязки функциональных опций (уже есть).
+- **`metadata_dependencies` (план):** унифицированный индекс рёбер между `metadata_objects` — см. `dependency-layer.md`.
 
 ### Где к БД обращаются
 

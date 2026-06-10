@@ -27,5 +27,6 @@
 - MCP tools: `mcp-tools.md`
 - SQLite (таблицы/связи, FTS5, правило NO_DB_MIGRATIONS): `database.md`
 - Whitelist метаданных и как расширять: `metadata-whitelist.md`
+- План dependency layer (межобъектные связи, будущие tools): `dependency-layer.md`
 - Протокол тестирования: `testing-protocol.md`
 
