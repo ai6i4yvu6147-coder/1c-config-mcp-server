@@ -18,10 +18,17 @@
 - **Когда увеличивать `INDEXER_VERSION`** (вручную, в том же коммите, что и изменение): см. `.cursor/rules/bump-indexer-version.md` и docstring в `shared/indexer_version.py`.
 - В GUI админки и в ответе MCP `active_databases` показывается, что база устарела (сравнение с текущим `INDEXER_VERSION`).
 
+### Сборка и блокировка MCP
+
+Пересоздание базы в `admin_tool` (GUI) идёт **во временный файл** `foo.db.tmp` с sidecar-маркером `foo.db.building` (см. `shared/db_build_state.py`). После успешной сборки — атомарная подмена `os.replace(tmp, db)`; при ошибке старая `foo.db` сохраняется.
+
+Пока активен маркер `.building`, MCP **не использует** эту базу в query-tools и помечает её `is_updating` в `active_databases`. Это не меняет `INDEXER_VERSION` и не требует пересборки portable-сервера.
+
 ### Как БД создаётся
 
 Файл: `admin_tool/db_manager.py`
 
+- `build_from_xml_atomic` — маркер → сборка в `.db.tmp` → подмена целевого `.db`;
 - создаётся схема таблиц;
 - загружаются метаданные, формы, модули;
 - код модулей индексируется через FTS5 (`code_search`).

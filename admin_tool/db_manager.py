@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import json
 import re
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.xml_parser import ConfigurationParser
 from shared.indexer_version import INDEXER_VERSION
+from shared.db_build_state import mark_building, clear_building, tmp_db_path
 
 
 def _strip_bsl_comment_line(line):
@@ -222,6 +224,35 @@ class DatabaseManager:
             return int(row[0]) if row is not None else 0
         finally:
             conn.close()
+
+    @staticmethod
+    def build_from_xml_atomic(db_path, config_xml_path, progress_callback=None):
+        """
+        Сборка в .db.tmp с маркером .building и атомарной подменой foo.db.
+        При ошибке старая база (если была) не трогается.
+        """
+        db_path = Path(db_path)
+        tmp_path = tmp_db_path(db_path)
+        mark_building(db_path)
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            db_manager = DatabaseManager(tmp_path)
+            db_manager.connect()
+            success = db_manager.create_database(config_xml_path, progress_callback)
+            db_manager.close()
+            if success:
+                os.replace(tmp_path, db_path)
+                return True
+            if tmp_path.exists():
+                tmp_path.unlink()
+            return False
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+            raise
+        finally:
+            clear_building(db_path)
     
     def create_database(self, config_xml_path, progress_callback=None):
         """

@@ -11,6 +11,14 @@ from admin_tool.db_manager import DatabaseManager
 from shared.project_manager import ProjectManager
 from shared.xml_parser import get_configuration_name, get_configuration_type
 from shared.indexer_version import INDEXER_VERSION
+from shared.db_build_state import (
+    is_building,
+    is_stale_building,
+    reconcile_building_markers,
+    mark_building,
+    clear_building,
+    tmp_db_path,
+)
 
 
 class AdminAppV2:
@@ -23,6 +31,7 @@ class AdminAppV2:
         self.db_dir.mkdir(exist_ok=True)
         
         self.pm = ProjectManager()
+        reconcile_building_markers(self.db_dir)
         
         self._create_widgets()
         self._load_projects()
@@ -54,6 +63,8 @@ class AdminAppV2:
         scrollbar.config(command=self.tree.yview)
         self.tree.tag_configure("outdated", foreground="#b00000")
         self.tree.tag_configure("newer_than_app", foreground="#a06000")
+        self.tree.tag_configure("building", foreground="#1565c0")
+        self.tree.tag_configure("building_stale", foreground="#e65100")
         
         # Колонки
         self.tree["columns"] = ("type", "file", "status")
@@ -149,8 +160,14 @@ class AdminAppV2:
                 db_icon = "📁" if db["type"] == "base" else "📦"
                 db_text = f"{db_icon} {db['name']}"
                 db_path = self.db_dir / db["db_file"]
-                ver = DatabaseManager.read_db_version(db_path)
-                if ver is None:
+                if is_building(db_path):
+                    if is_stale_building(db_path):
+                        status = "Сборка прервана — пересоберите"
+                        db_tags = ("database", project["id"], db["id"], "building_stale")
+                    else:
+                        status = "Обновляется…"
+                        db_tags = ("database", project["id"], db["id"], "building")
+                elif (ver := DatabaseManager.read_db_version(db_path)) is None:
                     status = "Нет файла"
                     db_tags = ("database", project["id"], db["id"], "outdated")
                 elif ver == 0:
@@ -323,6 +340,8 @@ class AdminAppV2:
             # Удаляем файлы баз
             for db in project["databases"]:
                 db_path = self.db_dir / db["db_file"]
+                clear_building(db_path)
+                tmp_db_path(db_path).unlink(missing_ok=True)
                 if db_path.exists():
                     db_path.unlink()
             
@@ -344,8 +363,9 @@ class AdminAppV2:
                 f"Удалить базу '{db['name']}'?"):
                 return
             
-            # Удаляем файл
             db_path = self.db_dir / db["db_file"]
+            clear_building(db_path)
+            tmp_db_path(db_path).unlink(missing_ok=True)
             if db_path.exists():
                 db_path.unlink()
             
@@ -474,20 +494,17 @@ class AddDatabaseWindow:
         if db_path.exists():
             if not messagebox.askyesno("Подтверждение", f"База '{db_filename}' уже существует. Перезаписать?"):
                 return
-            db_path.unlink()
         
         self.create_button.config(state=tk.DISABLED)
+        mark_building(db_path)
+        self.main_app._load_projects()
         
         thread = threading.Thread(target=self._create_database_thread, args=(name, db_type, db_filename, db_path))
         thread.start()
     
     def _create_database_thread(self, name, db_type, db_filename, db_path):
         try:
-            db_manager = DatabaseManager(db_path)
-            db_manager.connect()
-            
-            success = db_manager.create_database(str(self.xml_path))
-            db_manager.close()
+            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
             
             if success:
                 db_id = self.main_app.pm.add_database(self.project["id"], name, db_type, db_filename)
@@ -497,6 +514,7 @@ class AddDatabaseWindow:
                 messagebox.showinfo("Успех", "База данных создана успешно!")
                 self.window.destroy()
         except Exception as e:
+            self.main_app._load_projects()
             messagebox.showerror("Ошибка", f"Не удалось создать БД:\n{str(e)}")
             self.create_button.config(state=tk.NORMAL)
 
@@ -593,15 +611,15 @@ class QuickUpdateDialog:
     def quick_update(self):
         """Быстрое обновление из сохранённого файла"""
         if not messagebox.askyesno("Подтверждение",
-            f"Перезаписать базу данных '{self.database['name']}'?\nСтарые данные будут удалены."):
+            f"Обновить базу данных '{self.database['name']}'?\n"
+            "На время сборки MCP не будет иметь к ней доступа."):
             return
         
         self.quick_button.config(state=tk.DISABLED)
         
         db_path = self.main_app.db_dir / self.database["db_file"]
-        
-        if db_path.exists():
-            db_path.unlink()
+        mark_building(db_path)
+        self.main_app._load_projects()
         
         thread = threading.Thread(
             target=self._update_database_thread,
@@ -616,16 +634,14 @@ class QuickUpdateDialog:
     
     def _update_database_thread(self, db_path, xml_path):
         try:
-            db_manager = DatabaseManager(db_path)
-            db_manager.connect()
-            
-            success = db_manager.create_database(xml_path)
-            db_manager.close()
+            success = DatabaseManager.build_from_xml_atomic(db_path, xml_path)
             
             if success:
+                self.main_app._load_projects()
                 messagebox.showinfo("Успех", "База данных обновлена успешно!")
                 self.window.destroy()
         except Exception as e:
+            self.main_app._load_projects()
             messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{str(e)}")
             self.quick_button.config(state=tk.NORMAL)
 
@@ -683,26 +699,22 @@ class UpdateDatabaseWindow:
             return
         
         if not messagebox.askyesno("Подтверждение", 
-            f"Перезаписать базу данных '{self.database['name']}'?\nСтарые данные будут удалены."):
+            f"Обновить базу данных '{self.database['name']}'?\n"
+            "На время сборки MCP не будет иметь к ней доступа."):
             return
         
         db_path = self.main_app.db_dir / self.database["db_file"]
         
-        if db_path.exists():
-            db_path.unlink()
-        
         self.update_button.config(state=tk.DISABLED)
+        mark_building(db_path)
+        self.main_app._load_projects()
         
         thread = threading.Thread(target=self._update_database_thread, args=(db_path,))
         thread.start()
     
     def _update_database_thread(self, db_path):
         try:
-            db_manager = DatabaseManager(db_path)
-            db_manager.connect()
-            
-            success = db_manager.create_database(str(self.xml_path))
-            db_manager.close()
+            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
             
             if success:
                 self.main_app.pm.update_source_xml(
@@ -710,9 +722,11 @@ class UpdateDatabaseWindow:
                     self.database["id"],
                     str(self.xml_path)
                 )
+                self.main_app._load_projects()
                 messagebox.showinfo("Успех", "База данных обновлена успешно!")
                 self.window.destroy()
         except Exception as e:
+            self.main_app._load_projects()
             messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{str(e)}")
             self.update_button.config(state=tk.NORMAL)
 

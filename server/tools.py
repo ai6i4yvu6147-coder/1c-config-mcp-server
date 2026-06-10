@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.project_manager import ProjectManager
 from shared.indexer_version import INDEXER_VERSION
+from shared.db_build_state import is_building as _is_db_updating
 
 # Максимум модулей для поиска в одной базе (лимит по модулям; внутри каждого — до max_results вхождений)
 MAX_MODULES_SEARCH_CODE = 100
@@ -199,17 +200,22 @@ class ConfigurationTools:
         if project_filter:
             all_dbs = [db for db in all_dbs if db['project_name'].lower() == project_filter.lower()]
 
-        # По умолчанию НЕ используем устаревшие базы, чтобы не ловить ошибки схемы
-        # (no such table/column) после бампа INDEXER_VERSION.
+        # По умолчанию НЕ используем устаревшие и обновляющиеся базы.
         if not include_outdated:
-            all_dbs = [db for db in all_dbs if not _is_db_outdated(db['db_path'])]
+            all_dbs = [
+                db for db in all_dbs
+                if not _is_db_outdated(db['db_path']) and not _is_db_updating(db['db_path'])
+            ]
         
         return all_dbs
     
     def _get_connection(self, db_path):
-        """Получить подключение к БД (с кэшированием). При изменении mtime файла БД соединение пересоздаётся."""
+        """Получить подключение к БД (только чтение, с кэшированием). При изменении mtime — пересоздание."""
+        p = Path(db_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Database file not found: {db_path}")
         try:
-            current_mtime = os.path.getmtime(db_path) if os.path.exists(db_path) else 0
+            current_mtime = os.path.getmtime(db_path)
         except OSError:
             current_mtime = 0
         if db_path in self.connections:
@@ -218,7 +224,8 @@ class ConfigurationTools:
                 del self.connections[db_path]
                 del self._connection_mtime[db_path]
         if db_path not in self.connections:
-            conn = sqlite3.connect(db_path)
+            uri = p.resolve().as_uri() + '?mode=ro'
+            conn = sqlite3.connect(uri, uri=True)
             conn.row_factory = sqlite3.Row
             self.connections[db_path] = conn
             self._connection_mtime[db_path] = current_mtime
@@ -266,6 +273,7 @@ class ConfigurationTools:
                 'name': db['db_name'],
                 'type': db['db_type'],
                 'is_outdated': _is_db_outdated(db['db_path']),
+                'is_updating': _is_db_updating(db['db_path']),
             })
         return {'projects': list(by_project.values())}
 
