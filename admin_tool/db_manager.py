@@ -417,6 +417,7 @@ class DatabaseManager:
                 execution_context TEXT,
                 extension_call_type TEXT,
                 comment TEXT,
+                used_in_scheduled_job INTEGER DEFAULT 0,
                 FOREIGN KEY (module_id) REFERENCES modules(id)
             )
         ''')
@@ -511,6 +512,21 @@ class DatabaseManager:
                 object_id INTEGER NOT NULL PRIMARY KEY,
                 location_constant TEXT,
                 privileged_get_mode INTEGER,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        # Регламентные задания (свойства из ScheduledJob.xml)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                object_id INTEGER NOT NULL PRIMARY KEY,
+                method_name TEXT,
+                description TEXT,
+                key TEXT,
+                use INTEGER,
+                predefined INTEGER,
+                restart_count_on_failure INTEGER,
+                restart_interval_on_failure INTEGER,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
         ''')
@@ -617,6 +633,10 @@ class DatabaseManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_item_events_item ON form_item_events(item_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_module_procedures_module ON module_procedures(module_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_module_procedures_name ON module_procedures(name)')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_method_name
+            ON scheduled_jobs(method_name)
+        ''')
 
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
@@ -663,6 +683,27 @@ class DatabaseManager:
                     INSERT INTO functional_options (object_id, location_constant, privileged_get_mode)
                     VALUES (?, ?, ?)
                 ''', (object_id, loc, 1 if priv else 0))
+
+            if obj['type'] == 'ScheduledJob':
+                p = obj['properties']
+                use_val = p.get('use')
+                predefined_val = p.get('predefined')
+                cursor.execute('''
+                    INSERT INTO scheduled_jobs (
+                        object_id, method_name, description, key, use, predefined,
+                        restart_count_on_failure, restart_interval_on_failure
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    object_id,
+                    p.get('method_name'),
+                    p.get('description'),
+                    p.get('key'),
+                    1 if use_val else 0 if use_val is not None else None,
+                    1 if predefined_val else 0 if predefined_val is not None else None,
+                    p.get('restart_count_on_failure'),
+                    p.get('restart_interval_on_failure'),
+                ))
 
             for module in obj['modules']:
                 cursor.execute('''
@@ -783,6 +824,8 @@ class DatabaseManager:
                     VALUES (?, ?, ?, ?, ?)
                 ''', (fo_id, meta_id, ref_type, ts_name, elem_name))
 
+        self._link_scheduled_job_procedures(cursor)
+
         # Проход 2: формы и fo_form_usage
         for idx, obj in enumerate(data['objects']):
             cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
@@ -800,6 +843,34 @@ class DatabaseManager:
         self.conn.commit()
         cursor.execute('PRAGMA synchronous=NORMAL')
     
+    def _link_scheduled_job_procedures(self, cursor):
+        """Проставляет used_in_scheduled_job для процедур общих модулей из MethodName регл. заданий."""
+        cursor.execute('SELECT method_name FROM scheduled_jobs WHERE method_name IS NOT NULL')
+        for row in cursor.fetchall():
+            method_name = (row['method_name'] or '').strip()
+            if not method_name:
+                continue
+            parts = method_name.split('.')
+            if len(parts) != 3 or parts[0] != 'CommonModule':
+                continue
+            module_name, procedure_name = parts[1], parts[2]
+            cursor.execute('''
+                SELECT p.id
+                FROM module_procedures p
+                JOIN modules m ON p.module_id = m.id
+                JOIN metadata_objects o ON m.object_id = o.id
+                WHERE o.object_type = 'CommonModule' AND o.name = ?
+                  AND m.module_type = 'Module'
+                  AND m.form_id IS NULL AND m.command_id IS NULL
+                  AND p.name = ?
+            ''', (module_name, procedure_name))
+            proc_row = cursor.fetchone()
+            if proc_row:
+                cursor.execute(
+                    'UPDATE module_procedures SET used_in_scheduled_job = 1 WHERE id = ?',
+                    (proc_row['id'],),
+                )
+
     def _parse_content_ref(self, ref_str):
         """Парсит строку Content ФО (например Document.Имя, Document.Имя.Attribute.Рекв,
         Document.Имя.TabularSection.ТЧ.Attribute.Кол, InformationRegister.Имя.Resource.Ресурс).
@@ -1135,6 +1206,9 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM fo_content_ref')
         stats['total_fo_content_ref'] = cursor.fetchone()[0]
 
+        cursor.execute('SELECT COUNT(*) FROM scheduled_jobs')
+        stats['total_scheduled_jobs'] = cursor.fetchone()[0]
+
         return stats
 
 
@@ -1162,6 +1236,8 @@ def test_database_creation(config_xml_path, db_path):
         print(f"  {obj_type}: {count}")
     if stats.get('total_functional_options', 0) or stats.get('total_fo_content_ref', 0) or stats.get('total_fo_form_usage', 0):
         print(f"\n  ФО: {stats.get('total_functional_options', 0)}, content_ref: {stats.get('total_fo_content_ref', 0)}, form_usage: {stats.get('total_fo_form_usage', 0)}")
+    if stats.get('total_scheduled_jobs', 0):
+        print(f"\n  Регл. задания: {stats.get('total_scheduled_jobs', 0)}")
 
     db.close()
     print(f"\nБаза создана: {db_path}")

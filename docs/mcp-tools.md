@@ -25,6 +25,14 @@
 - **Кнопка и привязка к команде на форме**: `get_form_structure` → у элементов `items` поля `command_name` (как в XML) и `command_source` (`Form` / `Object` / `Common`, по префиксу строки). В текстовом ответе MCP к строке элемента добавляются пометки вида `[команда объекта: …]`.
 - **Поиск по коду модуля команды**: `search_code`; для `CommandModule` команды объекта в результатах есть `command_name`, в текстовой строке локации показывается `…CommandModule.<имя_команды>`; для `CommonCommand` — `CommonCommand.<Имя>.CommandModule`.
 
+### Регламентные задания (`ScheduledJob`)
+
+- **Список:** `list_objects(object_type="ScheduledJob")`.
+- **Поиск по имени:** `find_object(name="...")` (частичное совпадение по `metadata_objects.name`).
+- **Детали:** `get_object_structure` → `method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, `key`, `description`.
+- **Процедуры общих модулей:** `get_module_procedures` для `CommonModule` — у процедур, на которые ссылается `MethodName` регл. задания, поле `used_in_scheduled_job: true` (в тексте — пометка `[регл. задание]`).
+- После изменений — пересоздать БД через `admin_tool`.
+
 ### BusinessProcess: точки маршрута
 
 - Источник: `BusinessProcesses/<Имя>/Ext/Flowchart.xml` (не основной `.xml` объекта).

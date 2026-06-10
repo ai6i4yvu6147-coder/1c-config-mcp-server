@@ -737,11 +737,13 @@ class ConfigurationTools:
                 'comment': row['comment'] or '',
                 'execution_context': row['execution_context'],
                 'extension_call_type': row['extension_call_type'],
+                'used_in_scheduled_job': bool(row['used_in_scheduled_job']),
             }
 
         proc_columns = '''
                     SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
-                           p.execution_context, p.extension_call_type, p.comment
+                           p.execution_context, p.extension_call_type, p.comment,
+                           p.used_in_scheduled_job
         '''
 
         if module_type == 'FormModule':
@@ -1483,6 +1485,30 @@ class ConfigurationTools:
                     'content_refs': content_refs,
                     'privileged_get_mode': privileged_get_mode,
                     'used_in': used_in,
+                    'modules': [],
+                    'commands': [],
+                    'forms': [],
+                }
+            elif obj_type == 'ScheduledJob':
+                cursor.execute('''
+                    SELECT method_name, description, key, use, predefined,
+                           restart_count_on_failure, restart_interval_on_failure
+                    FROM scheduled_jobs WHERE object_id = ?
+                ''', (object_id,))
+                sj_row = cursor.fetchone()
+                structure = {
+                    'name': obj_row['name'],
+                    'type': obj_type,
+                    'uuid': obj_row['uuid'],
+                    'synonym': obj_row['synonym'],
+                    'comment': obj_row['comment'],
+                    'method_name': sj_row['method_name'] if sj_row else None,
+                    'description': sj_row['description'] if sj_row else None,
+                    'key': sj_row['key'] if sj_row else None,
+                    'use': bool(sj_row['use']) if sj_row and sj_row['use'] is not None else None,
+                    'predefined': bool(sj_row['predefined']) if sj_row and sj_row['predefined'] is not None else None,
+                    'restart_count_on_failure': sj_row['restart_count_on_failure'] if sj_row else None,
+                    'restart_interval_on_failure': sj_row['restart_interval_on_failure'] if sj_row else None,
                     'modules': [],
                     'commands': [],
                     'forms': [],

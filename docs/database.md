@@ -33,7 +33,8 @@
 - `forms` + таблицы форм: свойства/реквизиты/команды/события/элементы UI.
 - `modules`: код модулей объектов, модулей форм и **модулей команд** (`module_type = 'CommandModule'`). Для модуля команды объекта задаётся `command_id` → `object_commands`; для модуля общей команды (`CommonCommand`) — `command_id IS NULL` (модуль «самого» объекта).
 - `form_items`: у элемента формы может быть сырое поле `command_name` (значение `CommandName` из Form.xml); источник команды в MCP выводится логикой tools, отдельной колонки в БД нет.
-- `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода.
+- `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода; колонка `used_in_scheduled_job` — процедура указана в `MethodName` хотя бы одного регл. задания.
+- `scheduled_jobs`: свойства регламентных заданий (`method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, …); связь с объектом через `object_id` → `metadata_objects`.
 - `code_search` (FTS5): полнотекстовый поиск по коду модулей.
 
 ### Где к БД обращаются

@@ -30,6 +30,7 @@
 - `FunctionalOption`
 - `CommonCommand` (общие команды: один `CommandModule.bsl` в `CommonCommands/<Имя>/Ext/`)
 - `CommonForm` (общие формы: `CommonForms/<Имя>.xml`, структура в `CommonForms/<Имя>/Ext/Form.xml`, модуль в `Ext/Form/Module.bsl`)
+- `ScheduledJob` (регламентные задания: один `ScheduledJobs/<Имя>.xml`, без модулей; свойства `MethodName`, `Use`, `Predefined`, …)
 
 ### Как добавить новый тип
 

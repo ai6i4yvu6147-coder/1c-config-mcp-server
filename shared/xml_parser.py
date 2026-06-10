@@ -67,6 +67,7 @@ class ConfigurationParser:
             'FunctionalOption': 'FunctionalOptions',
             'CommonCommand': 'CommonCommands',
             'CommonForm': 'CommonForms',
+            'ScheduledJob': 'ScheduledJobs',
         }
         
         for obj_type, folder_name in object_types.items():
@@ -101,6 +102,9 @@ class ConfigurationParser:
         if obj_type == 'CommonForm':
             modules = []
             forms = self._parse_common_form(name, folder_name, uuid)
+        elif obj_type == 'ScheduledJob':
+            modules = []
+            forms = []
         else:
             modules = self._parse_modules(name, folder_name)
             if obj_type == 'CommonCommand':
@@ -148,7 +152,7 @@ class ConfigurationParser:
             route_points = flowchart['route_points']
             route_transitions = flowchart['route_transitions']
 
-        commands = [] if obj_type in ('CommonCommand', 'CommonForm') else self._parse_object_commands(root, name, folder_name, obj_type)
+        commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob') else self._parse_object_commands(root, name, folder_name, obj_type)
 
         result = {
             'name': name,
@@ -211,6 +215,35 @@ class ConfigurationParser:
                 if elem is not None and elem.text and elem.text.strip():
                     path = elem.text.strip()
                     props[key] = path.split('.')[-1] if '.' in path else path
+
+        # Регламентные задания: MethodName, Use, расписание перезапуска и т.д.
+        if obj_type == 'ScheduledJob':
+            props['standard_attributes'] = []
+            props['custom_attributes'] = []
+            if properties is not None:
+                for tag, key in (
+                    ('MethodName', 'method_name'),
+                    ('Description', 'description'),
+                    ('Key', 'key'),
+                ):
+                    elem = properties.find(f'{{{md_ns}}}{tag}')
+                    if elem is not None and elem.text and elem.text.strip():
+                        props[key] = elem.text.strip()
+                for tag, key in (('Use', 'use'), ('Predefined', 'predefined')):
+                    elem = properties.find(f'{{{md_ns}}}{tag}')
+                    if elem is not None and elem.text:
+                        props[key] = elem.text.strip().lower() == 'true'
+                for tag, key in (
+                    ('RestartCountOnFailure', 'restart_count_on_failure'),
+                    ('RestartIntervalOnFailure', 'restart_interval_on_failure'),
+                ):
+                    elem = properties.find(f'{{{md_ns}}}{tag}')
+                    if elem is not None and elem.text and elem.text.strip():
+                        try:
+                            props[key] = int(elem.text.strip())
+                        except ValueError:
+                            pass
+            return props
 
         # Функциональные опции: свои свойства (Location, PrivilegedGetMode, Content)
         if obj_type == 'FunctionalOption':

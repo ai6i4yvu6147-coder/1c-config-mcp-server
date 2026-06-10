@@ -394,7 +394,8 @@ async def list_tools() -> list[Tool]:
                 "Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). "
                 "Поле modules — только модули объекта (без CommandModule команд). Команды объекта — в массиве commands: name, synonym, has_module. "
                 "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст. "
-                "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов."
+                "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов. "
+                "ScheduledJob: method_name, use, predefined, restart_count_on_failure, restart_interval_on_failure."
             ),
             inputSchema={
                 "type": "object",
@@ -667,7 +668,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     for proc in procedures:
                         export_mark = " [Экспорт]" if proc['export'] else ""
                         ctx = f" [{proc['execution_context']}]" if proc.get('execution_context') else ""
-                        response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}\n"
+                        sj_mark = " [регл. задание]" if proc.get('used_in_scheduled_job') else ""
+                        response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}{sj_mark}\n"
                         if proc.get('comment'):
                             for comment_line in proc['comment'].split('\n'):
                                 response += f"      {comment_line}\n"
@@ -914,6 +916,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             response += f"  Используется в ({len(structure['used_in'])}):\n"
                             for u in structure['used_in']:
                                 response += f"    - {u['owner_object']}.{u['form_name']} / {u['element_type']} {u['element_name'] or '(уровень формы)'}\n"
+                        response += "\n"
+                    if structure['type'] == 'ScheduledJob':
+                        if structure.get('method_name'):
+                            response += f"  Метод: {structure['method_name']}\n"
+                        if structure.get('use') is not None:
+                            response += f"  Использование: {'включено' if structure['use'] else 'выключено'}\n"
+                        if structure.get('predefined') is not None:
+                            response += f"  Предопределённое: {structure['predefined']}\n"
+                        if structure.get('description'):
+                            response += f"  Описание: {structure['description']}\n"
+                        if structure.get('key'):
+                            response += f"  Ключ: {structure['key']}\n"
+                        if structure.get('restart_count_on_failure') is not None:
+                            response += f"  Перезапусков при сбое: {structure['restart_count_on_failure']}\n"
+                        if structure.get('restart_interval_on_failure') is not None:
+                            response += f"  Интервал перезапуска (с): {structure['restart_interval_on_failure']}\n"
                         response += "\n"
                     if structure.get('attributes'):
                         response += f"  Реквизиты ({len(structure['attributes'])}):\n"

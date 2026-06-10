@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-06-10
+
+- **Регламентные задания (ScheduledJob):** тип добавлен в whitelist парсера; таблица `scheduled_jobs`; поиск через `list_objects` / `find_object` / `get_object_structure` (method_name, use, predefined, перезапуск при сбое). В `module_procedures` — колонка `used_in_scheduled_job` (линковка по `MethodName` → `CommonModule.<модуль>.<процедура>`); в `get_module_procedures` — поле `used_in_scheduled_job`. `INDEXER_VERSION` не менялся — базы пересоздать вручную через `admin_tool`.
+
 ## 2026-06-08
 
 - **BusinessProcess: точки маршрута в get_object_structure:** парсинг `Ext/Flowchart.xml` — таблицы `bp_route_points`, `bp_route_transitions`; в MCP — `route_points`, `route_transitions` и текстовый adjacency list (индекс точек по типам + переходы с подписями веток Condition). `INDEXER_VERSION` увеличен до 7 — базы пересоздать из выгрузки.

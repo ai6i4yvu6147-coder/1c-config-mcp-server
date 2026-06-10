@@ -27,6 +27,9 @@ projects.json
 # Планы / заметки (служебные)
 plans/
 
+# Claude Code (локальные worktrees, не в репозиторий)
+.claude/
+
 # Исходники справки 1С (если подключаются отдельно)
 # help_sources/
 
