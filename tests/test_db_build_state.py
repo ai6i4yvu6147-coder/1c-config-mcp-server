@@ -38,3 +38,13 @@ def test_is_stale_when_pid_dead_and_no_tmp(tmp_path):
     marker = building_marker_path(db_path)
     marker.write_text('{"pid": 999999999}', encoding='utf-8')
     assert is_stale_building(db_path)
+
+
+def test_reconcile_keeps_tmp_for_alive_build(tmp_path):
+    db_path = tmp_path / 'foo.db'
+    tmp = tmp_db_path(db_path)
+    tmp.write_bytes(b'sqlite')
+    mark_building(db_path)
+    reconcile_building_markers(tmp_path)
+    assert tmp.exists()
+    clear_building(db_path)

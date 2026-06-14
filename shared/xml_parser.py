@@ -3,6 +3,8 @@ import os
 import json
 from pathlib import Path
 
+from .metadata_type_resolver import parse_cfg_type_string
+
 class ConfigurationParser:
     """Парсер XML-выгрузки конфигурации 1С"""
     
@@ -309,7 +311,7 @@ class ConfigurationParser:
             if attr_elem is not None:
                 attr_data = {
                     'name': attr_name,
-                    'type': self._extract_attribute_type(attr_elem),
+                    'type_slots': self._extract_type_slots(attr_elem),
                     'title': self._extract_synonym(attr_elem),
                     'comment': self._extract_comment(attr_elem),
                     'is_standard': True,
@@ -366,7 +368,7 @@ class ConfigurationParser:
                 if attr_name:
                     attributes.append({
                         'name': attr_name,
-                        'type': self._extract_attribute_type(attr),
+                        'type_slots': self._extract_type_slots(attr),
                         'title': self._extract_synonym(attr),
                         'comment': self._extract_comment(attr),
                         'is_standard': False,
@@ -385,7 +387,7 @@ class ConfigurationParser:
                 if attr_name:
                     attributes.append({
                         'name': attr_name,
-                        'type': self._extract_attribute_type(child),
+                        'type_slots': self._extract_type_slots(child),
                         'title': self._extract_synonym(child),
                         'comment': self._extract_comment(child),
                         'is_standard': False,
@@ -411,24 +413,65 @@ class ConfigurationParser:
                 return t
         return elem.find(f'.//{{{md_ns}}}Type')
 
-    def _extract_attribute_type(self, elem):
-        """Извлекает тип атрибута.
+    def _v8_child_text(self, parent, v8_ns, local_name):
+        elem = parent.find(f'{{{v8_ns}}}{local_name}')
+        if elem is not None and elem.text is not None:
+            return elem.text.strip()
+        return None
 
-        Составной тип в выгрузке 1С: несколько v8:Type — прямые дочерние элементы контейнера Type;
-        либо v8:TypeSet (текст и/или вложенные v8:Type); либо ValueType/v8:Ref.
-        """
+    def _extract_qualifiers_from_type_container(self, type_elem, v8_ns):
+        """Извлекает квалификаторы примитива из контейнера Type."""
+        num_q = type_elem.find(f'{{{v8_ns}}}NumberQualifiers')
+        if num_q is not None:
+            digits = self._v8_child_text(num_q, v8_ns, 'Digits')
+            fraction = self._v8_child_text(num_q, v8_ns, 'FractionDigits')
+            return {
+                'digits': int(digits) if digits is not None else None,
+                'fraction': int(fraction) if fraction is not None else None,
+                'allowed_sign': self._v8_child_text(num_q, v8_ns, 'AllowedSign'),
+            }
+        str_q = type_elem.find(f'{{{v8_ns}}}StringQualifiers')
+        if str_q is not None:
+            length = self._v8_child_text(str_q, v8_ns, 'Length')
+            return {
+                'length': int(length) if length is not None else None,
+                'allowed_length': self._v8_child_text(str_q, v8_ns, 'AllowedLength'),
+            }
+        date_q = type_elem.find(f'{{{v8_ns}}}DateQualifiers')
+        if date_q is not None:
+            return {
+                'date_fractions': self._v8_child_text(date_q, v8_ns, 'DateFractions'),
+            }
+        return None
+
+    def _slot_from_type_string(self, type_str, qualifiers=None):
+        slot = parse_cfg_type_string(type_str)
+        if slot.get('kind') == 'primitive' and qualifiers:
+            slot = dict(slot)
+            slot['qualifiers'] = qualifiers
+        return slot
+
+    def _extract_type_slots(self, elem):
+        """Извлекает структурированные слоты типа атрибута/колонки."""
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         v8_ns = 'http://v8.1c.ru/8.1/data/core'
 
         type_elem = self._find_metadata_type_container(elem, md_ns)
-
         if type_elem is not None:
             direct = []
             for child in list(type_elem):
                 if child.tag == f'{{{v8_ns}}}Type' and child.text and child.text.strip():
                     direct.append(child.text.strip())
             if direct:
-                return ', '.join(self._dedupe_type_strings_preserve_order(direct))
+                qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
+                slots = []
+                for type_str in self._dedupe_type_strings_preserve_order(direct):
+                    slot = self._slot_from_type_string(
+                        type_str,
+                        qualifiers if len(direct) == 1 else None,
+                    )
+                    slots.append(slot)
+                return slots
 
             from_set = []
             for ts in type_elem.findall(f'.//{{{v8_ns}}}TypeSet'):
@@ -438,21 +481,40 @@ class ConfigurationParser:
                     if t.text and t.text.strip():
                         from_set.append(t.text.strip())
             if from_set:
-                return ', '.join(self._dedupe_type_strings_preserve_order(from_set))
+                qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
+                slots = []
+                for type_str in self._dedupe_type_strings_preserve_order(from_set):
+                    slot = parse_cfg_type_string(type_str)
+                    if qualifiers and slot.get('kind') == 'primitive':
+                        slot = dict(slot)
+                        slot['qualifiers'] = qualifiers
+                    slots.append(slot)
+                return slots
 
         value_type = elem.find(f'.//{{{md_ns}}}ValueType')
         if value_type is not None:
-            types = []
+            refs = []
             for ref in value_type.findall(f'.//{{{v8_ns}}}Ref'):
-                if ref.text:
-                    types.append(ref.text)
-            if types:
-                return ', '.join(self._dedupe_type_strings_preserve_order(types))
+                if ref.text and ref.text.strip():
+                    refs.append(ref.text.strip())
+            if refs:
+                return [
+                    self._slot_from_type_string(type_str)
+                    for type_str in self._dedupe_type_strings_preserve_order(refs)
+                ]
 
         v8_type = elem.find(f'.//{{{v8_ns}}}Type')
         if v8_type is not None and v8_type.text and v8_type.text.strip():
-            return v8_type.text.strip()
+            return [self._slot_from_type_string(v8_type.text.strip())]
 
+        return []
+
+    def _extract_attribute_type(self, elem):
+        """Извлекает тип атрибута как строку (legacy helper для тестов)."""
+        slots = self._extract_type_slots(elem)
+        raws = [s.get('raw') for s in slots if s.get('raw')]
+        if raws:
+            return ', '.join(self._dedupe_type_strings_preserve_order(raws))
         return ''
     
     def _extract_synonym(self, elem):
@@ -512,7 +574,7 @@ class ConfigurationParser:
                         if col_name:
                             columns.append({
                                 'name': col_name,
-                                'type': self._extract_attribute_type(attr),
+                                'type_slots': self._extract_type_slots(attr),
                                 'title': self._extract_synonym(attr),
                                 'comment': self._extract_comment(attr),
                             })
@@ -542,7 +604,7 @@ class ConfigurationParser:
                     if col_name:
                         columns.append({
                             'name': col_name,
-                            'type': self._extract_attribute_type(col_elem),
+                            'type_slots': self._extract_type_slots(col_elem),
                             'title': self._extract_synonym(col_elem),
                             'comment': self._extract_comment(col_elem),
                         })
@@ -573,7 +635,7 @@ class ConfigurationParser:
                 if elem_name:
                     result.append({
                         'name': elem_name,
-                        'type': self._extract_attribute_type(elem),
+                        'type_slots': self._extract_type_slots(elem),
                         'title': self._extract_synonym(elem),
                         'comment': self._extract_comment(elem),
                     })
@@ -589,7 +651,7 @@ class ConfigurationParser:
             if elem_name:
                 result.append({
                     'name': elem_name,
-                    'type': self._extract_attribute_type(elem),
+                    'type_slots': self._extract_type_slots(elem),
                     'title': self._extract_synonym(elem),
                     'comment': self._extract_comment(elem),
                 })
@@ -979,7 +1041,7 @@ class ConfigurationParser:
         for attr in attrs_elem.findall(f'{{{default_ns}}}Attribute'):
             attr_data = {
                 'name': attr.get('name', ''),
-                'type': self._extract_type_from_element(attr),
+                'type_slots': self._extract_logform_type_slots(attr),
                 'title': self._extract_localized_string(attr, 'Title'),
                 'is_main': attr.find(f'{{{default_ns}}}MainAttribute') is not None,
                 'columns': self._extract_columns(attr),
@@ -1117,20 +1179,66 @@ class ConfigurationParser:
     
     # Вспомогательные методы
     
-    def _extract_type_from_element(self, elem):
-        """Извлекает тип из элемента Type"""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        type_elem = elem.find(f'.//{{{default_ns}}}Type')
-        if type_elem is None:
-            return ''
-        
-        # Ищем v8:Type
-        v8_type = type_elem.find('.//{http://v8.1c.ru/8.1/data/core}Type')
-        if v8_type is not None and v8_type.text:
-            return v8_type.text
-        
-        return ''
-    
+    def _find_logform_type_container(self, elem, logform_ns):
+        """Контейнер Type в logform (прямой потомок или вложенный)."""
+        t = elem.find(f'{{{logform_ns}}}Type')
+        if t is not None:
+            return t
+        return elem.find(f'.//{{{logform_ns}}}Type')
+
+    def _extract_slots_from_v8_type_container(self, type_elem, v8_ns):
+        """Слоты из контейнера с v8:Type / v8:TypeSet (logform или Settings)."""
+        direct = []
+        for child in list(type_elem):
+            local_tag = child.tag.split('}')[-1] if child.tag else ''
+            if local_tag == 'Type' and child.text and child.text.strip():
+                direct.append(child.text.strip())
+        if direct:
+            qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
+            slots = []
+            for type_str in self._dedupe_type_strings_preserve_order(direct):
+                slot = self._slot_from_type_string(
+                    type_str,
+                    qualifiers if len(direct) == 1 else None,
+                )
+                slots.append(slot)
+            return slots
+
+        from_set = []
+        for ts in type_elem.findall(f'.//{{{v8_ns}}}TypeSet'):
+            if ts.text and ts.text.strip():
+                from_set.append(ts.text.strip())
+            for t in ts.findall(f'.//{{{v8_ns}}}Type'):
+                if t.text and t.text.strip():
+                    from_set.append(t.text.strip())
+        if from_set:
+            qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
+            slots = []
+            for type_str in self._dedupe_type_strings_preserve_order(from_set):
+                slot = parse_cfg_type_string(type_str)
+                if qualifiers and slot.get('kind') == 'primitive':
+                    slot = dict(slot)
+                    slot['qualifiers'] = qualifiers
+                slots.append(slot)
+            return slots
+        return []
+
+    def _extract_logform_type_slots(self, elem):
+        """Структурированные слоты типа реквизита/колонки формы (logform NS)."""
+        logform_ns = 'http://v8.1c.ru/8.3/xcf/logform'
+        v8_ns = 'http://v8.1c.ru/8.1/data/core'
+
+        slots = []
+        type_elem = self._find_logform_type_container(elem, logform_ns)
+        if type_elem is not None:
+            slots.extend(self._extract_slots_from_v8_type_container(type_elem, v8_ns))
+
+        settings_elem = elem.find(f'{{{logform_ns}}}Settings')
+        if settings_elem is not None:
+            slots.extend(self._extract_slots_from_v8_type_container(settings_elem, v8_ns))
+
+        return slots
+
     def _extract_localized_string(self, elem, tag_name):
         """Извлекает локализованную строку"""
         default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
@@ -1164,24 +1272,30 @@ class ConfigurationParser:
         return result
     
     def _extract_columns(self, attr_elem):
-        """Извлекает колонки табличной части"""
+        """Извлекает колонки ValueTable (Column) и AdditionalColumns (DocumentObject)."""
         default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
         columns_elem = attr_elem.find(f'{{{default_ns}}}Columns')
         if columns_elem is None:
             return None
-        
+
         columns = []
-        for add_col in columns_elem.findall(f'.//{{{default_ns}}}AdditionalColumns'):
-            table_name = add_col.get('table', '')
+        for col in columns_elem.findall(f'{{{default_ns}}}Column'):
+            columns.append({
+                'table': None,
+                'name': col.get('name', ''),
+                'title': self._extract_localized_string(col, 'Title'),
+                'type_slots': self._extract_logform_type_slots(col),
+            })
+        for add_col in columns_elem.findall(f'{{{default_ns}}}AdditionalColumns'):
+            table_name = add_col.get('table', '') or None
             for col in add_col.findall(f'{{{default_ns}}}Column'):
-                col_data = {
+                columns.append({
                     'table': table_name,
                     'name': col.get('name', ''),
                     'title': self._extract_localized_string(col, 'Title'),
-                    'type': self._extract_type_from_element(col)
-                }
-                columns.append(col_data)
-        
+                    'type_slots': self._extract_logform_type_slots(col),
+                })
+
         return columns if columns else None
     
     def _extract_query_text(self, attr_elem):

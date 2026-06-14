@@ -1,41 +1,54 @@
-## Metadata dependency layer (план реализации)
+## Type system и structural relations (план)
 
-Документ фиксирует проектный дизайн **слоя межобъектных зависимостей метаданных** — следующего крупного шага развития индексатора. Статус: **не реализовано**, готово к работе.
+Документ фиксирует **целевую архитектуру** нормализации типов и структурных связей метаданных. **Type system (metadata + формы, v9)** реализован; фазы 2–5 — в backlog ([`todo.md`](todo.md)).
 
-Связанные документы: `architecture.md`, `database.md`, `mcp-tools.md`, `metadata-whitelist.md`, `todo.md`.
+Связанные документы: [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`metadata-whitelist.md`](metadata-whitelist.md), [`form-type-system.md`](form-type-system.md), [`todo.md`](todo.md).
 
 ---
 
 ### Зачем
 
-Текущая схема хорошо закрывает:
+Текущая схема хорошо закрывает поиск объектов, формы, код (FTS5), ФО, регламентные задания.
 
-- поиск и структуру объектов;
-- формы и UI;
-- код модулей (FTS5, процедуры);
-- функциональные опции (`fo_content_ref`, `fo_form_usage`);
-- регламентные задания (`scheduled_jobs`).
+Слабо закрыто:
 
-Слабо закрыты вопросы **графа метаданных**:
-
-- на какие объекты ссылается документ/справочник (типы реквизитов);
-- кто ссылается на этот регистр/справочник;
-- в каких подсистемах состоит объект;
-- какие роли дают доступ к объекту;
-- кто подписан на событие (после добавления `EventSubscription`).
-
-Сейчас ссылочные типы живут текстом в `attributes.attribute_type` и `tabular_section_columns.column_type` без нормализованного индекса для обратных запросов.
+- **обратный поиск** — «кто ссылается на этот справочник» (фаза 2, `find_referencing_objects`);
+- **структурные связи** — подсистемы, роли, подписки (фазы 3–5, `metadata_relations`);
+- **DynamicList Settings** на формах (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
 
 ---
 
-### Принципы (что не делать)
+### Архитектурные принципы
 
-- **Не** graph DB и **не** vector-first — SQLite adjacency-list достаточен.
-- **Не** closure table и транзитивные зависимости на старте — только прямые рёбра; обход `depth > 1` позже через recursive CTE.
-- **Не** смешивать с кодовым графом (BSL, СКД, «документ двигает регистр») на первом этапе.
-- **Не** отдельные `nodes/edges` — `metadata_objects` уже каталог узлов.
-- **Не** колонки `project_name` / `extension_name` в таблице зависимостей: один файл `.db` = одна база (основная или расширение); граница проекта/расширения — на уровне выбора файла в MCP (`project_filter`, `extension_filter`), как у всех остальных таблиц.
-- **Не** миграции — новая схема → bump `INDEXER_VERSION` → пересборка через `admin_tool` (см. `database.md`).
+1. **Единый каталог** — `metadata_objects`: реальные объекты конфигурации и синтетические дескрипторы примитивов (`TypeDescriptor`). Ссылочный тип `CatalogRef.X` — это **сам объект** `Catalog.X`, без отдельной обёртки.
+2. **Три слоя** — не смешивать:
+   - **каталог** — `metadata_objects`;
+   - **типовая система** — `metadata_type_slots` (какие типы у реквизита/колонки/поля формы);
+   - **структурные связи** — `metadata_relations` (подсистема, роль, подписка — то, что **не** выражается типом поля).
+3. **Строки типов не источник правды** — после импорта типы только через FK; сырая строка из XML не хранится (допустим `type_display` только для отладки).
+4. **Domain-таблицы не дублировать** — `fo_content_ref`, `fo_form_usage`, `scheduled_jobs` остаются; в общий граф **не** материализовать.
+5. **Сложность выборки — в tools**; индексы и FK — в БД там, где иначе full scan (обратный поиск по типам).
+6. **Не** graph DB, **не** closure table на старте, **не** миграции — bump `INDEXER_VERSION` + пересборка (`database.md`).
+
+#### Правила включения в `metadata_objects`
+
+В каталог попадает только то, **на что есть ссылочные отношения**:
+
+- объекты конфигурации из whitelist;
+- синтетические `TypeDescriptor` (примитивы с квалификаторами);
+- позже — `DefinedType` как обычный объект whitelist.
+
+**Не класть по умолчанию:** XDTO-схемы целиком, служебные артефакты, blob без FK, всё подряд из XML.
+
+#### Критерий materialize vs query-time
+
+| Ситуация | Где |
+|----------|-----|
+| Типы реквизитов, составные типы | `metadata_type_slots` при импорте |
+| Обратный поиск по ссылочным типам | Индекс `metadata_type_slots.object_id` |
+| Подсистема / роль / подписка | `metadata_relations` |
+| Производные для UI (`command_source`) | Tool |
+| Полнотекстовый поиск кода | FTS5 (`code_search`) |
 
 ---
 
@@ -44,266 +57,231 @@
 ```mermaid
 flowchart TB
   Parser[xml_parser.py] --> DM[db_manager.py]
-  DM --> MO[metadata_objects + domain tables]
-  DM --> MD[metadata_dependencies]
-  DM --> FO[fo_content_ref / fo_form_usage]
-  FO -.материализация.-> MD
-  Tools[tools.py] --> MD
-  Tools --> MO
+  DM --> MO[metadata_objects]
+  DM --> Slots[metadata_type_slots]
+  DM --> Rel[metadata_relations]
+  DM --> Domain[fo_content_ref / scheduled_jobs / …]
+  Tools[tools.py] --> MO
+  Tools --> Slots
+  Tools --> Rel
+  Tools --> Domain
 ```
-
-**Гибридная модель:** domain-таблицы (`fo_*`, позже `subsystem_content`, `role_permissions`) остаются источником при импорте; `metadata_dependencies` — **унифицированный query-индекс** для MCP tools. Заполняется в конце `_insert_configuration` одним проходом из нескольких источников.
 
 ---
 
-### Схема БД (план)
+### Слой 1: расширение `metadata_objects`
 
-#### Таблица `metadata_dependencies`
+Новые поля (имена уточняются при реализации):
+
+| Поле | Назначение |
+|------|------------|
+| `object_kind` | `ConfigObject` \| `TypeDescriptor` |
+| `is_primitive` | `1` для синтетических примитивов |
+| `base_type` | `Number`, `String`, `Date`, … — только у `TypeDescriptor` |
+| `qualifier_1..3` | Квалификаторы примитива (длина, точность, …) |
+
+**`ConfigObject`** — объекты из whitelist (`Catalog`, `Document`, …), с uuid из XML.
+
+**`TypeDescriptor`** — синтетика, напр. `Число(10,2)`; `uuid` пустой; UNIQUE по `(base_type, qualifier_1, qualifier_2, qualifier_3)`.
+
+**Ссылочный тип** в слоте указывает **напрямую** на `metadata_objects.id` объекта `ConfigObject`, не на отдельную запись «типа».
+
+Tools `list_objects`, `find_object` фильтруют `object_kind = 'ConfigObject'` (примитивы не показываются как объекты конфигурации).
+
+---
+
+### Слой 2: `metadata_type_slots`
+
+Одна **позиция типа** у реквизита, колонки ТЧ или поля формы. Составной тип (`CatalogRef.X, Number`) — несколько слотов с `ordinal`.
 
 ```sql
-CREATE TABLE metadata_dependencies (
+CREATE TABLE metadata_type_slots (
+    id INTEGER PRIMARY KEY,
+
+    source_table TEXT NOT NULL,
+    source_row_id INTEGER NOT NULL,
+    src_object_id INTEGER NOT NULL,
+
+    object_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+
+    FOREIGN KEY (object_id) REFERENCES metadata_objects(id),
+    FOREIGN KEY (src_object_id) REFERENCES metadata_objects(id)
+);
+
+CREATE INDEX ix_mts_object ON metadata_type_slots(object_id);
+CREATE INDEX ix_mts_src_object ON metadata_type_slots(src_object_id);
+CREATE INDEX ix_mts_source ON metadata_type_slots(source_table, source_row_id);
+```
+
+| Поле | Назначение |
+|------|------------|
+| `source_table` | `attributes`, `tabular_section_columns`, `form_attributes`, … |
+| `source_row_id` | id строки источника |
+| `src_object_id` | object-владелец (денормализация для object-level запросов) |
+| `object_id` | FK на `metadata_objects` — объект **или** `TypeDescriptor` |
+| `ordinal` | Порядок в составном типе |
+
+#### Наполнение
+
+1. Парсер извлекает из XML **структуру слотов** (тип + квалификаторы), не только строку.
+2. `shared/metadata_type_resolver.py` (`MetadataTypeResolver`):
+   - ссылочный тип → lookup `metadata_objects` по `(object_type, name)`;
+   - примитив → `get_or_create` `TypeDescriptor` (кэш в памяти при сборке);
+   - составной → несколько слотов.
+3. Колонки `attribute_type` / `column_type` / `form_attributes.type` **убраны**; источник правды — слоты.
+
+**MVP типов:** примитивы с базовыми квалификаторами + ссылочные типы + составные слоты. `DefinedType`, `AnyRef`, `TypeSet` — итеративно.
+
+---
+
+### Слой 3: `metadata_relations`
+
+Только связи, которые **не** выражаются типом поля:
+
+```sql
+CREATE TABLE metadata_relations (
     id INTEGER PRIMARY KEY,
 
     src_object_id INTEGER NOT NULL,
     dst_object_id INTEGER NOT NULL,
 
-    dependency_type TEXT NOT NULL,
-    source_kind TEXT NOT NULL,
+    relation_kind TEXT NOT NULL,
     source_name TEXT,
-    source_path TEXT,
-
-    confidence REAL NOT NULL DEFAULT 1.0,
-    is_direct INTEGER NOT NULL DEFAULT 1,
+    source_detail TEXT,
 
     FOREIGN KEY (src_object_id) REFERENCES metadata_objects(id),
     FOREIGN KEY (dst_object_id) REFERENCES metadata_objects(id)
 );
 
-CREATE INDEX ix_md_dep_src ON metadata_dependencies(src_object_id);
-CREATE INDEX ix_md_dep_dst ON metadata_dependencies(dst_object_id);
-CREATE INDEX ix_md_dep_type ON metadata_dependencies(dependency_type);
-
-CREATE UNIQUE INDEX ux_md_dep_unique ON metadata_dependencies(
-    src_object_id,
-    dst_object_id,
-    dependency_type,
-    COALESCE(source_kind, ''),
-    COALESCE(source_name, ''),
-    COALESCE(source_path, '')
-);
+CREATE INDEX ix_mrel_src ON metadata_relations(src_object_id);
+CREATE INDEX ix_mrel_dst ON metadata_relations(dst_object_id);
+CREATE INDEX ix_mrel_kind ON metadata_relations(relation_kind);
 ```
 
-| Поле | Назначение |
-|------|------------|
-| `src_object_id` / `dst_object_id` | `metadata_objects.id` |
-| `dependency_type` | Тип ребра (см. ниже) |
-| `source_kind` | Откуда взята связь: `attribute`, `tabular_section_column`, `subsystem`, `role`, `functional_option`, `event_subscription`, … |
-| `source_name` | Имя реквизита, колонки ТЧ, элемента |
-| `source_path` | Доп. путь (например права роли: `Read, Insert`) |
-| `confidence` | 1.0 для точных связей; < 1 при нерезолвимых/эвристических |
-| `is_direct` | Пока всегда 1; задел на транзитивные записи в будущем |
+| `relation_kind` | Направление | Когда |
+|-----------------|-------------|-------|
+| `subsystem_member` | подсистема → объект | whitelist `Subsystem` |
+| `role_grant` | роль → объект | whitelist `Role` (MVP) |
+| `event_source` | подписка → объект-источник | `EventSubscription` |
+| `event_handler` | подписка → CommonModule | `EventSubscription` |
 
-Отдельные `metadata_dependency_points` для форм/команд — **не на старте**; реквизиты и элементы указываются через `source_kind` / `source_name`.
+**Не класть сюда:** ссылки реквизитов (это слоты), ФО (`fo_content_ref`), кодовый граф, СКД.
 
 ---
 
-### Типы зависимостей
+### MCP tools (план для агента)
 
-#### Фаза 1 — точные, делать сразу
+Приоритет для агента (зафиксировать в `mcp-tools.md`):
 
-| `dependency_type` | Направление | Источник при сборке |
-|-------------------|-------------|---------------------|
-| `attribute_ref` | объект → объект | `attributes` (section Attribute/Dimension/Resource) |
-| `tabular_section_column_ref` | объект → объект | `tabular_section_columns` |
-| `fo_content` | ФО → объект | `fo_content_ref` |
-| `fo_form_usage` | ФО → объект-владелец формы | `fo_form_usage` |
+1. Структура и **исходящие** типы → `get_object_structure`
+2. **Входящие** ссылки и связи → `find_referencing_objects`
+3. ФО → `get_functional_options`
+4. Код → `search_code` (если метаданные не помогли)
 
-#### Фаза 2 — после расширения whitelist
+#### Обогащение `get_object_structure`
 
-| `dependency_type` | Направление | Источник |
-|-------------------|-------------|----------|
-| `subsystem_contains` | подсистема → объект | парсинг `Subsystem` |
-| `role_grants` | роль → объект | парсинг `Role` (MVP: факт доступа; детали прав в `source_path`) |
-| `event_subscription_source` | подписка → объект-источник | `EventSubscription` |
-| `event_subscription_handler` | подписка → CommonModule (объект) | `EventSubscription.Handler` |
+У реквизитов/колонок — resolved types вместо строк:
 
-#### Пока не делать
-
-- `document_posts_to_register` — кодовая/эвристическая связь;
-- `form_uses_object` — из `data_path` формы, отдельная эвристика;
-- `module_uses_object` — анализ BSL.
-
----
-
-### Наполнение при сборке
-
-#### 1. Ссылки из реквизитов и колонок ТЧ
-
-Парсер уже сохраняет типы строкой (`_extract_attribute_type` в `xml_parser.py`), например `CatalogRef.Номенклатура` или составной через запятую.
-
-При импорте — resolver (новый модуль или функция в `shared/`):
-
-```
-CatalogRef.X        → Catalog / X
-DocumentRef.X       → Document / X
-EnumRef.X           → Enum / X
-…
-составной тип       → несколько строк metadata_dependencies
-нерезолвимый тип    → пропуск или confidence < 1.0
+```json
+{
+  "name": "Владелец",
+  "types": [
+    { "kind": "object", "object_type": "Catalog", "name": "Контрагенты", "synonym": "…" }
+  ]
+}
 ```
 
-Переиспользовать идеи `_parse_content_ref` в `db_manager.py` (уже разбирает `Document.Имя.Attribute.Рек` для ФО).
+Составной тип — массив `types` из нескольких элементов.
 
-Вставка:
+#### `find_referencing_objects` (один tool, не пара)
 
-```sql
-INSERT OR IGNORE INTO metadata_dependencies (
-    src_object_id, dst_object_id,
-    dependency_type, source_kind, source_name, confidence
-) VALUES (?, ?, 'attribute_ref', 'attribute', ?, 1.0);
-```
+Обратный поиск: «кто ссылается / связан с объектом X».
 
-Для колонок ТЧ: `source_kind = 'tabular_section_column'`, `dependency_type = 'tabular_section_column_ref'`.
+Параметры: `object_name`, `project_filter`, `extension_filter`, опционально `relation_kinds`, `max_results`.
 
-#### 2. Функциональные опции
+SQL — **UNION** двух источников:
 
-Таблицы `fo_content_ref` и `fo_form_usage` **не удалять**. После их заполнения — материализовать в `metadata_dependencies` (`dependency_type`: `fo_content`, `fo_form_usage`).
+- **типовые ссылки:** `metadata_type_slots` WHERE `object_id = :target` (только `ConfigObject` targets);
+- **структурные:** `metadata_relations` WHERE `dst_object_id = :target`.
 
-#### 3. Подсистемы (фаза 2)
+В ответе — метка источника: `via: attribute` / `via: subsystem_member` / …
 
-- Добавить `Subsystem` в whitelist (`metadata-whitelist.md`).
-- Парсить состав подсистемы из XML.
-- `src = subsystem`, `dst = object`, `dependency_type = subsystem_contains`.
+**Отдельный tool для исходящих зависимостей не планируется** — это покрывает `get_object_structure`.
 
-#### 4. Роли (фаза 2)
+#### Позже
 
-- Добавить `Role` в whitelist.
-- MVP: `role_grants` без полной модели RLS; права — в `source_path` или отдельная таблица `role_permissions` при необходимости.
-- **Требуется реальная выгрузка** для разбора XML.
+- `find_relation_path` — transitive CTE, `depth > 1`;
+- top-N `referenced_by` summary в `get_object_structure` (опциональный параметр).
 
-#### 5. Подписки на события (фаза 2)
+#### ФО
 
-- Добавить `EventSubscription` в whitelist.
-- Связи handler → `CommonModule` + процедура (пересекается с кодовым слоем, но metadata-level достаточно для «кто подписан»).
-
----
-
-### Новые MCP tools (план)
-
-Регистрация: `server/server.py`. Реализация: `server/tools.py`.
-
-#### `find_metadata_dependencies`
-
-Исходящие зависимости: «от чего зависит объект X».
-
-Параметры:
-
-| Параметр | Обязательный | Описание |
-|----------|--------------|----------|
-| `object_name` | да | Имя объекта |
-| `project_filter` | да | |
-| `extension_filter` | нет | |
-| `dependency_types` | нет | Фильтр типов, напр. `["attribute_ref", "fo_content"]` |
-| `max_results` | нет | По умолчанию 100 |
-
-Ответ: объект + зависимости, сгруппированные по `dependency_type`.
-
-#### `find_metadata_dependents`
-
-Обратный поиск: «кто зависит от объекта X» (ссылки на справочник, роли, подсистемы).
-
-Те же параметры; SQL по `dst_object_id`.
-
-#### `find_dependency_path` (позже)
-
-Рекурсивный обход `depth` 2+; не в MVP. SQLite recursive CTE с лимитом `max_depth` и `max_results`.
-
-#### Обогащение `get_object_structure` (опционально, фаза 2)
-
-Краткий блок `references_to` / `referenced_by` (top-N), не полная замена отдельных tools.
-
----
-
-### SQL-шаблоны для tools
-
-**Исходящие:**
-
-```sql
-SELECT
-    d.dependency_type,
-    d.source_kind,
-    d.source_name,
-    dst.object_type AS dst_object_type,
-    dst.name AS dst_name,
-    dst.synonym AS dst_synonym,
-    d.confidence
-FROM metadata_dependencies d
-JOIN metadata_objects src ON src.id = d.src_object_id
-JOIN metadata_objects dst ON dst.id = d.dst_object_id
-WHERE src.name = :object_name
-ORDER BY d.dependency_type, dst.object_type, dst.name
-LIMIT :max_results;
-```
-
-**Входящие:** тот же запрос с `WHERE dst.name = :object_name` и полями `src_*`.
-
-**Двухшаговый обход (позже):** recursive CTE по `metadata_dependencies` с `depth < :max_depth` и защитой от циклов (`instr(path, ...)`).
-
----
-
-### Точки изменения в коде
-
-| Файл | Изменения |
-|------|-----------|
-| `shared/xml_parser.py` | Resolver ссылочных типов; парсинг Subsystem, Role, EventSubscription (фазы 2–3) |
-| `shared/` (новый модуль?) | `resolve_metadata_ref(type_string) → [(object_type, object_name), …]` |
-| `admin_tool/db_manager.py` | `_create_schema`: `metadata_dependencies`; наполнение в конце `_insert_configuration` |
-| `shared/indexer_version.py` | Bump при каждой несовместимой схеме |
-| `server/tools.py` | `find_metadata_dependencies`, `find_metadata_dependents` |
-| `server/server.py` | Регистрация tools |
-| `docs/mcp-tools.md` | Описание новых tools после реализации |
+`get_functional_options` без изменений концепции; **не** дублировать в `metadata_relations`.
 
 ---
 
 ### Roadmap реализации
 
-| Фаза | INDEXER_VERSION | Содержание | Зависимости |
-|------|-----------------|------------|-------------|
-| **0** | — | `find_object`: поиск по `name OR synonym` | Нет схемы; см. `find-object-synonym` в `todo.md` |
-| **1** | +1 | Таблица `metadata_dependencies`; `attribute_ref`, `tabular_section_column_ref`; tools `find_metadata_*` | Resolver типов реквизитов |
-| **2** | +1 | Материализация `fo_content_ref`, `fo_form_usage`; опционально summary в `get_object_structure` | Фаза 1 |
-| **3** | +1 | Whitelist `Subsystem`; `subsystem_contains` | XML выгрузки с `Subsystems/` |
-| **4** | +1 | Whitelist `Role`; `role_grants` | Реальная выгрузка ролей |
-| **5** | +1 | `EventSubscription`; `event_*` типы | Реальная выгрузка |
-| **отдельно** | — | Поиск РЗ по `MethodName` | JOIN с `scheduled_jobs`, не dependency layer |
+| Фаза | INDEXER_VERSION | Содержание | Статус |
+|------|-----------------|------------|--------|
+| **0** | — | `find_object` по `synonym` | backlog |
+| **1** | 8 | metadata: `TypeDescriptor`, `metadata_type_slots`, `get_object_structure.types` | **готово** |
+| **1b** | 9 | формы: `form_attribute_columns`, `get_form_structure.types` — [`form-type-system.md`](form-type-system.md) | **готово** |
+| **2** | +1 | `find_referencing_objects` (слоты metadata; формы — уточнить scope) | backlog |
+| **3** | +1 | `metadata_relations`; whitelist `Subsystem` | backlog |
+| **4** | +1 | whitelist `Role` (MVP grants) | blocked (выгрузка) |
+| **5** | +1 | `EventSubscription` | blocked (выгрузка) |
+| **отдельно** | — | Поиск РЗ по `MethodName` | backlog |
+| **Tier 3** | — | СКД, RLS, code graph | отложено |
+
+Фазы 3–5 — **relations** + расширение whitelist.
 
 ---
 
-### Риски и ограничения
+### Точки изменения в коде
+
+| Файл | Фаза 1 (готово) | Фаза 2+ (backlog) |
+|------|-----------------|-------------------|
+| `shared/xml_parser.py` | слоты metadata + logform | relations XML |
+| `shared/metadata_type_resolver.py` | resolver, TypeDescriptor | — |
+| `admin_tool/db_manager.py` | схема слотов, form columns | `metadata_relations` |
+| `server/tools.py` | `types[]` в structure tools | `find_referencing_objects` |
+| `server/server.py` | — | регистрация tool |
+| `shared/indexer_version.py` | bump при схеме | bump при relations |
+
+---
+
+### Риски
 
 | Риск | Митигация |
 |------|-----------|
-| Дублирование `fo_*` и `metadata_dependencies` | Единая функция материализации в конце сборки |
-| Большой объём `attribute_ref` на крупных конфигурациях | Нормально для SQLite; индексы по `src`/`dst`; лимиты в tools |
-| Сложный XML ролей | MVP без полных прав; итеративное расширение |
-| Нерезолвимые типы (`DefinedType`, составные cfg) | Пропуск или `confidence < 1.0`; расширять resolver по мере необходимости |
-| Раздувание `get_object_structure` | Summary top-N или только отдельные tools |
+| «Свалка» в `metadata_objects` | `object_kind`, правила включения |
+| Преждевременная детализация типов | MVP примитивов; расширять по XML |
+| Смешение слотов и relations | Ссылки реквизитов только в слотах |
+| Раздувание `get_object_structure` | Полный обратный поиск только в `find_referencing_objects` |
+| Замедление парсинга | Кэш TypeDescriptor; не трогать hot path форм/BSL |
 
 ---
 
-### Что сознательно отложено
+### Критерии готовности фазы 1 (выполнены)
 
-- Материализация `command_source` в БД (сейчас вычисляется в `tools.py`) — низкий приоритет.
-- Структурный разбор `form_conditional_appearance` (сырой XML) — отдельная задача.
-- Cached snapshot / materialized summary для `get_object_structure` — только при подтверждённой нагрузке.
-- Closure table, vector search, code dependency graph.
+1. Нет `attribute_type` TEXT как источника правды; слоты заполнены для ссылочных реквизитов известных типов.
+2. `get_object_structure` возвращает resolved `types` у реквизитов.
+3. `TypeDescriptor` дедуплицируется (один `Число(10,2)` на базу).
+4. `list_objects` не показывает примитивы.
+5. Тесты resolver/slots; MCP-проверка по `testing-protocol.md`.
+6. `INDEXER_VERSION` увеличен.
+
+### Критерии готовности фазы 2
+
+1. `find_referencing_objects` для справочника возвращает документы с реквизитами-ссылками через слоты.
+2. Ответ различает типовые и структурные источники (после фазы 3 — включая relations).
 
 ---
 
-### Критерии готовности фазы 1
+### Что отложено
 
-1. После пересборки БД в `metadata_dependencies` есть строки для ссылочных реквизитов известных типов.
-2. `find_metadata_dependencies` для документа возвращает ссылочные объекты из реквизитов.
-3. `find_metadata_dependents` для справочника возвращает объекты, у которых есть `CatalogRef.ЭтотСправочник`.
-4. Тесты на resolver и вставку (unit); функциональная проверка через MCP (см. `testing-protocol.md`).
-5. `INDEXER_VERSION` увеличен; `mcp-tools.md` обновлён.
+- Материализация `fo_*` в relations/graph.
+- `document_posts_to_register`, `module_uses_object`, `form_uses_object`.
+- Closure table, vector search.
+- Полный RLS, глубокий разбор СКД (Tier 3).

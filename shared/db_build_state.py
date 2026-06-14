@@ -83,15 +83,13 @@ def is_stale_building(db_path: PathLike) -> bool:
 def reconcile_building_markers(databases_dir: PathLike) -> None:
     """
     При старте admin tool: убрать зависшие маркеры (процесс мёртв, .tmp нет)
-    и удалить осиротевшие .db.tmp.
+    и удалить осиротевшие .db.tmp (не трогать .tmp активной сборки).
     """
     root = Path(databases_dir)
     if not root.is_dir():
         return
 
-    for tmp in root.glob('*.db' + TMP_SUFFIX):
-        tmp.unlink(missing_ok=True)
-
+    protected_tmp = set()
     for marker in root.glob('*.db' + MARKER_SUFFIX):
         db_name = marker.name[: -len(MARKER_SUFFIX)]
         db_path = root / db_name
@@ -100,7 +98,18 @@ def reconcile_building_markers(databases_dir: PathLike) -> None:
             info = json.loads(marker.read_text(encoding='utf-8'))
         except (OSError, json.JSONDecodeError):
             pass
+        tmp = tmp_db_path(db_path)
         pid_alive = info and _pid_alive(info.get('pid'))
-        tmp_exists = tmp_db_path(db_path).exists()
+        if pid_alive and tmp.exists():
+            protected_tmp.add(tmp.resolve())
+        tmp_exists = tmp.exists()
         if not pid_alive and not tmp_exists:
             marker.unlink(missing_ok=True)
+
+    for tmp in root.glob('*.db' + TMP_SUFFIX):
+        if tmp.resolve() in protected_tmp:
+            continue
+        tmp.unlink(missing_ok=True)
+        for suffix in ('-wal', '-shm'):
+            sidecar = tmp.parent / (tmp.name + suffix)
+            sidecar.unlink(missing_ok=True)

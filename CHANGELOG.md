@@ -6,6 +6,13 @@
 
 ---
 
+## 2026-06-14
+
+- **admin_tool: TypeDescriptor UNIQUE constraint:** нормализация квалификаторов (`None`→`''`, `Number` без fraction→`0`, int→str) и один `MetadataTypeResolver` на сборку; исправлены дубликаты `metadata_objects` при индексации типов.
+- **admin_tool: сборка БД на Windows:** WinError 32 при обновлении часто маскировал реальную ошибку сборки (соединение SQLite к `.db.tmp` не закрывалось до удаления файла). `build_from_xml_atomic` — `finally` с гарантированным `close`, безопасная очистка `.tmp`, `journal_mode=DELETE` для временного файла, повторы `os.replace` при WinError 32/5. `reconcile_building_markers` не удаляет `.tmp` активной сборки. GUI показывает исходную ошибку через `format_build_error`.
+- **Type system форм (form-type-system):** нормализация типов реквизитов и колонок Form.xml — `_extract_logform_type_slots` (составные типы, TypeSet, Settings/TypeDescription, wrappers ValueListType/ValueTable/DynamicList); таблица `form_attribute_columns`; слоты в `metadata_type_slots` (`form_attributes`, `form_attribute_columns`). Удалены `form_attributes.type` и `columns_json`. `get_form_structure` возвращает `types[]` у реквизитов и колонок (breaking change). `INDEXER_VERSION` увеличен до 9 — базы пересоздать из выгрузки.
+- **Type system, фаза 1:** нормализация типов реквизитов и колонок ТЧ — таблица `metadata_type_slots`, синтетические `TypeDescriptor` в `metadata_objects` (`object_kind`, `base_type`, квалификаторы); парсер извлекает структурированные `type_slots` (ссылочные типы, примитивы с квалификаторами, составные); resolver при сборке БД. Колонки `attributes.attribute_type` и `tabular_section_columns.column_type` удалены. `get_object_structure` и `find_attribute` возвращают массив `types` (resolved object/primitive). `list_objects` / `find_object` не показывают `TypeDescriptor`. `DefinedType`, `AnyRef`, безымянный `TypeSet` — пока не материализуются. `INDEXER_VERSION` увеличен до 8 — базы пересоздать из выгрузки.
+
 ## 2026-06-10
 
 - **Регламентные задания (ScheduledJob):** тип добавлен в whitelist парсера; таблица `scheduled_jobs`; поиск через `list_objects` / `find_object` / `get_object_structure` (method_name, use, predefined, перезапуск при сбое). В `module_procedures` — колонка `used_in_scheduled_job` (линковка по `MethodName` → `CommonModule.<модуль>.<процедура>`); в `get_module_procedures` — поле `used_in_scheduled_job`. `INDEXER_VERSION` не менялся — базы пересоздать вручную через `admin_tool`.

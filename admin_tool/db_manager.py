@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 import re
+import time
 from pathlib import Path
 import sys
 
@@ -11,6 +12,84 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.xml_parser import ConfigurationParser
 from shared.indexer_version import INDEXER_VERSION
 from shared.db_build_state import mark_building, clear_building, tmp_db_path
+from shared.metadata_type_resolver import MetadataTypeResolver
+
+_SQLITE_SIDECAR_SUFFIXES = ('-wal', '-shm')
+
+
+def _sqlite_sidecar_paths(db_path):
+    p = Path(db_path)
+    return [p.parent / (p.name + suffix) for suffix in _SQLITE_SIDECAR_SUFFIXES]
+
+
+def _remove_sqlite_sidecars(db_path):
+    for sidecar in _sqlite_sidecar_paths(db_path):
+        sidecar.unlink(missing_ok=True)
+
+
+def _unlink_with_retry(path, retries=10, delay=0.05):
+    """Удаление файла с повторами (Windows может держать handle после close SQLite)."""
+    p = Path(path)
+    if not p.exists():
+        return
+    last_err = None
+    for attempt in range(retries):
+        try:
+            p.unlink()
+            return
+        except OSError as exc:
+            last_err = exc
+            retryable = (
+                getattr(exc, 'winerror', None) in (32, 5)
+                or exc.errno in (16, 26)
+            )
+            if not retryable:
+                raise
+            if attempt + 1 < retries:
+                time.sleep(delay)
+    raise last_err
+
+
+def _remove_db_file(db_path):
+    """Удалить .db и sidecar-файлы SQLite (-wal, -shm)."""
+    _remove_sqlite_sidecars(db_path)
+    _unlink_with_retry(db_path)
+
+
+def _replace_file_with_retry(src, dst, retries=10, delay=0.05):
+    """os.replace с повторами: на Windows файл может освобождаться с задержкой."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            last_err = exc
+            retryable = (
+                getattr(exc, 'winerror', None) in (32, 5)
+                or exc.errno in (16, 26)
+            )
+            if not retryable:
+                raise
+            if attempt + 1 < retries:
+                time.sleep(delay)
+    raise last_err
+
+
+def format_build_error(exc):
+    """Вернуть исходную ошибку сборки, если WinError 32 при очистке .tmp маскирует её."""
+    root = exc.__cause__
+    if root is None and exc.__context__ is not None and exc.__context__ is not exc:
+        root = exc.__context__
+    if root is not None and root is not exc:
+        cleanup_hint = str(exc)
+        if 'WinError 32' in cleanup_hint or 'WinError 5' in cleanup_hint:
+            return (
+                f'{root}\n\n'
+                f'Дополнительно при освобождении временного файла: {cleanup_hint}'
+            )
+        return f'{root}\n\nПри очистке: {cleanup_hint}'
+    return str(exc)
 
 
 def _strip_bsl_comment_line(line):
@@ -195,17 +274,24 @@ class DatabaseManager:
         self.db_path = Path(db_path)
         self.conn = None
     
-    def connect(self):
+    def connect(self, journal_mode='WAL'):
         """Подключение к базе данных"""
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute('PRAGMA journal_mode=WAL')
+        if journal_mode:
+            self.conn.execute(f'PRAGMA journal_mode={journal_mode}')
         return self.conn
     
     def close(self):
         """Закрытие подключения"""
         if self.conn:
+            try:
+                self.conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            except sqlite3.Error:
+                pass
             self.conn.close()
+            self.conn = None
+            _remove_sqlite_sidecars(self.db_path)
 
     @staticmethod
     def read_db_version(db_path):
@@ -234,25 +320,31 @@ class DatabaseManager:
         db_path = Path(db_path)
         tmp_path = tmp_db_path(db_path)
         mark_building(db_path)
+        db_manager = None
+        succeeded = False
         try:
-            if tmp_path.exists():
-                tmp_path.unlink()
+            _remove_db_file(tmp_path)
             db_manager = DatabaseManager(tmp_path)
-            db_manager.connect()
-            success = db_manager.create_database(config_xml_path, progress_callback)
+            # DELETE вместо WAL: один файл, надёжнее os.replace на Windows.
+            db_manager.connect(journal_mode='DELETE')
+            db_manager.create_database(config_xml_path, progress_callback)
             db_manager.close()
-            if success:
-                os.replace(tmp_path, db_path)
-                return True
-            if tmp_path.exists():
-                tmp_path.unlink()
-            return False
-        except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
-            raise
+            db_manager = None
+            _replace_file_with_retry(tmp_path, db_path)
+            succeeded = True
+            return True
         finally:
+            if db_manager is not None:
+                try:
+                    db_manager.close()
+                except sqlite3.Error:
+                    pass
             clear_building(db_path)
+            if not succeeded:
+                try:
+                    _remove_db_file(tmp_path)
+                except OSError:
+                    pass
     
     def create_database(self, config_xml_path, progress_callback=None):
         """
@@ -304,8 +396,19 @@ class DatabaseManager:
                 synonym TEXT,
                 comment TEXT,
                 object_belonging TEXT,
-                extended_configuration_object TEXT
+                extended_configuration_object TEXT,
+                object_kind TEXT NOT NULL DEFAULT 'ConfigObject',
+                is_primitive INTEGER NOT NULL DEFAULT 0,
+                base_type TEXT,
+                qualifier_1 TEXT,
+                qualifier_2 TEXT,
+                qualifier_3 TEXT
             )
+        ''')
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_metadata_objects_type_descriptor
+            ON metadata_objects(object_kind, base_type, qualifier_1, qualifier_2, qualifier_3)
+            WHERE object_kind = 'TypeDescriptor'
         ''')
         
         # Таблица форм
@@ -327,13 +430,27 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 form_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
-                type TEXT,
                 title TEXT,
                 is_main INTEGER DEFAULT 0,
-                columns_json TEXT,
                 query_text TEXT,
                 FOREIGN KEY (form_id) REFERENCES forms(id)
             )
+        ''')
+
+        # Колонки реквизитов форм (ValueTable / AdditionalColumns)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_attribute_columns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_attribute_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT,
+                table_context TEXT,
+                FOREIGN KEY (form_attribute_id) REFERENCES form_attributes(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_fac_form_attribute
+            ON form_attribute_columns(form_attribute_id)
         ''')
         
         # Таблица команд форм
@@ -459,7 +576,6 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 object_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
-                attribute_type TEXT,
                 title TEXT,
                 comment TEXT,
                 is_standard INTEGER DEFAULT 0,
@@ -487,11 +603,33 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tabular_section_id INTEGER NOT NULL,
                 column_name TEXT NOT NULL,
-                column_type TEXT,
                 title TEXT,
                 comment TEXT,
                 FOREIGN KEY (tabular_section_id) REFERENCES tabular_sections(id)
             )
+        ''')
+
+        # Нормализованные типы реквизитов и колонок ТЧ
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata_type_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_table TEXT NOT NULL,
+                source_row_id INTEGER NOT NULL,
+                src_object_id INTEGER NOT NULL,
+                object_id INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (src_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mts_object ON metadata_type_slots(object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mts_src_object ON metadata_type_slots(src_object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mts_source ON metadata_type_slots(source_table, source_row_id)
         ''')
 
         # Таблица значений перечислений
@@ -690,12 +828,16 @@ class DatabaseManager:
         cursor.execute('PRAGMA cache_size=-256000')
         cursor.execute('PRAGMA temp_store=MEMORY')
         total_objects = len(data['objects'])
+        pending_type_slots = []
 
         # Проход 1: объекты без форм (чтобы ФО были в БД до вставки fo_form_usage и fo_content_ref)
         for idx, obj in enumerate(data['objects']):
             cursor.execute('''
-                INSERT INTO metadata_objects (uuid, object_type, name, synonym, comment, object_belonging, extended_configuration_object)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO metadata_objects (
+                    uuid, object_type, name, synonym, comment,
+                    object_belonging, extended_configuration_object, object_kind
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'ConfigObject')
             ''', (
                 obj['uuid'],
                 obj['type'],
@@ -792,17 +934,17 @@ class DatabaseManager:
                                    p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
 
             for attr in obj['properties'].get('standard_attributes', []):
-                self._insert_attribute(cursor, object_id, attr)
+                self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
             for attr in obj['properties'].get('custom_attributes', []):
-                self._insert_attribute(cursor, object_id, attr)
+                self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
             for dim in obj.get('dimensions', []):
-                self._insert_attribute(cursor, object_id, dim, section='Dimension')
+                self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
             for res in obj.get('resources', []):
-                self._insert_attribute(cursor, object_id, res, section='Resource')
+                self._insert_attribute(cursor, object_id, res, section='Resource', pending_type_slots=pending_type_slots)
             for attr in obj.get('attributes', []):
-                self._insert_attribute(cursor, object_id, attr, section='Attribute')
+                self._insert_attribute(cursor, object_id, attr, section='Attribute', pending_type_slots=pending_type_slots)
             for ts in obj.get('tabular_sections', []):
-                self._insert_tabular_section(cursor, object_id, ts)
+                self._insert_tabular_section(cursor, object_id, ts, pending_type_slots=pending_type_slots)
             enum_values = obj.get('enum_values', [])
             if enum_values:
                 self._insert_enum_values(cursor, object_id, enum_values)
@@ -826,11 +968,18 @@ class DatabaseManager:
             fo_resolver[name] = fid
             fo_resolver['FunctionalOption.' + name] = fid
 
-        # Справочник (object_type, name) -> id для разрешения Content
-        cursor.execute('SELECT id, object_type, name FROM metadata_objects')
+        # Справочник (object_type, name) -> id для разрешения Content и типов
+        cursor.execute('''
+            SELECT id, object_type, name FROM metadata_objects
+            WHERE object_kind = 'ConfigObject'
+        ''')
         type_name_to_id = {}
         for row in cursor.fetchall():
             type_name_to_id[(row['object_type'], row['name'])] = row['id']
+
+        type_resolver = MetadataTypeResolver()
+        if pending_type_slots:
+            type_resolver.insert_slots(cursor, pending_type_slots, type_name_to_id)
 
         # Заполняем fo_content_ref из Content каждой ФО
         for obj in data['objects']:
@@ -858,6 +1007,7 @@ class DatabaseManager:
         self._link_scheduled_job_procedures(cursor)
 
         # Проход 2: формы и fo_form_usage
+        pending_form_type_slots = []
         for idx, obj in enumerate(data['objects']):
             cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
             row = cursor.fetchone()
@@ -865,11 +1015,17 @@ class DatabaseManager:
                 continue
             object_id = row[0]
             for form in obj.get('forms', []):
-                self._insert_form(cursor, object_id, obj['name'], form, fo_resolver)
+                self._insert_form(
+                    cursor, object_id, obj['name'], form, fo_resolver,
+                    pending_type_slots=pending_form_type_slots,
+                )
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 60 + int((idx / total_objects) * 40)
                 progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}")
+
+        if pending_form_type_slots:
+            type_resolver.insert_slots(cursor, pending_form_type_slots, type_name_to_id)
 
         self.conn.commit()
         cursor.execute('PRAGMA synchronous=NORMAL')
@@ -934,7 +1090,7 @@ class DatabaseManager:
         s = fo_ref.strip()
         return fo_resolver.get(s)
 
-    def _insert_form(self, cursor, object_id, object_name, form, fo_resolver=None):
+    def _insert_form(self, cursor, object_id, object_name, form, fo_resolver=None, pending_type_slots=None):
         """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id) для fo_form_usage."""
         fo_resolver = fo_resolver or {}
         cursor.execute('''
@@ -952,18 +1108,48 @@ class DatabaseManager:
         for attr in form.get('attributes', []):
             cursor.execute('''
                 INSERT INTO form_attributes (
-                    form_id, name, type, title, is_main, columns_json, query_text
+                    form_id, name, title, is_main, query_text
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
             ''', (
                 form_id,
                 attr['name'],
-                attr['type'],
                 attr['title'],
                 1 if attr['is_main'] else 0,
-                json.dumps(attr['columns'], ensure_ascii=False) if attr['columns'] else None,
                 attr.get('query_text')
             ))
+            attr_id = cursor.lastrowid
+            if pending_type_slots is not None:
+                type_slots = attr.get('type_slots')
+                if type_slots:
+                    pending_type_slots.append({
+                        'source_table': 'form_attributes',
+                        'source_row_id': attr_id,
+                        'src_object_id': object_id,
+                        'type_slots': type_slots,
+                    })
+            for col in attr.get('columns') or []:
+                cursor.execute('''
+                    INSERT INTO form_attribute_columns (
+                        form_attribute_id, name, title, table_context
+                    )
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    attr_id,
+                    col['name'],
+                    col.get('title', ''),
+                    col.get('table'),
+                ))
+                col_id = cursor.lastrowid
+                if pending_type_slots is not None:
+                    col_slots = col.get('type_slots')
+                    if col_slots:
+                        pending_type_slots.append({
+                            'source_table': 'form_attribute_columns',
+                            'source_row_id': col_id,
+                            'src_object_id': object_id,
+                            'type_slots': col_slots,
+                        })
             for fo_ref in attr.get('functional_options', []):
                 fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
                 if fo_id is not None:
@@ -1101,23 +1287,31 @@ class DatabaseManager:
                 ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
                        p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
     
-    def _insert_attribute(self, cursor, object_id, attr, section='Attribute'):
+    def _insert_attribute(self, cursor, object_id, attr, section='Attribute', pending_type_slots=None):
         """Вставляет атрибут объекта в БД"""
         cursor.execute('''
-            INSERT INTO attributes (object_id, name, attribute_type, title, comment, is_standard, standard_type, section)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO attributes (object_id, name, title, comment, is_standard, standard_type, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             object_id,
             attr['name'],
-            attr.get('type', ''),
             attr.get('title', ''),
             attr.get('comment', ''),
             1 if attr.get('is_standard') else 0,
             attr.get('standard_type'),
             section,
         ))
+        if pending_type_slots is not None:
+            type_slots = attr.get('type_slots')
+            if type_slots:
+                pending_type_slots.append({
+                    'source_table': 'attributes',
+                    'source_row_id': cursor.lastrowid,
+                    'src_object_id': object_id,
+                    'type_slots': type_slots,
+                })
 
-    def _insert_tabular_section(self, cursor, object_id, ts):
+    def _insert_tabular_section(self, cursor, object_id, ts, pending_type_slots=None):
         """Вставляет табличную часть с колонками в БД (tabular_sections + tabular_section_columns)."""
         cursor.execute('''
             INSERT INTO tabular_sections (object_id, name, title, comment)
@@ -1126,9 +1320,18 @@ class DatabaseManager:
         ts_id = cursor.lastrowid
         for column in ts['columns']:
             cursor.execute('''
-                INSERT INTO tabular_section_columns (tabular_section_id, column_name, column_type, title, comment)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (ts_id, column['name'], column.get('type', ''), column.get('title', ''), column.get('comment', '')))
+                INSERT INTO tabular_section_columns (tabular_section_id, column_name, title, comment)
+                VALUES (?, ?, ?, ?)
+            ''', (ts_id, column['name'], column.get('title', ''), column.get('comment', '')))
+            if pending_type_slots is not None:
+                type_slots = column.get('type_slots')
+                if type_slots:
+                    pending_type_slots.append({
+                        'source_table': 'tabular_section_columns',
+                        'source_row_id': cursor.lastrowid,
+                        'src_object_id': object_id,
+                        'type_slots': type_slots,
+                    })
 
     def _insert_enum_values(self, cursor, object_id, enum_values):
         """Вставляет значения перечисления в БД"""

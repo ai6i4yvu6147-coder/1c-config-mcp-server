@@ -11,9 +11,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.project_manager import ProjectManager
 from shared.indexer_version import INDEXER_VERSION
 from shared.db_build_state import is_building as _is_db_updating
+from shared.metadata_type_resolver import slot_to_mcp_type
 
 # Максимум модулей для поиска в одной базе (лимит по модулям; внутри каждого — до max_results вхождений)
 MAX_MODULES_SEARCH_CODE = 100
+
+def _load_resolved_types_map(cursor, source_table, source_row_ids):
+    """Batch-load resolved types for attribute/column rows."""
+    if not source_row_ids:
+        return {}
+    placeholders = ','.join('?' * len(source_row_ids))
+    cursor.execute(f'''
+        SELECT mts.source_row_id, mts.ordinal,
+               mo.object_kind, mo.object_type, mo.name, mo.synonym,
+               mo.base_type, mo.qualifier_1, mo.qualifier_2, mo.qualifier_3
+        FROM metadata_type_slots mts
+        JOIN metadata_objects mo ON mts.object_id = mo.id
+        WHERE mts.source_table = ? AND mts.source_row_id IN ({placeholders})
+        ORDER BY mts.source_row_id, mts.ordinal
+    ''', [source_table, *source_row_ids])
+    result = {}
+    for row in cursor.fetchall():
+        rid = row['source_row_id']
+        result.setdefault(rid, []).append(slot_to_mcp_type(row))
+    return result
 
 
 def _resolve_command_source(command_name: Optional[str]) -> Optional[str]:
@@ -475,7 +496,7 @@ class ConfigurationTools:
                     GROUP_CONCAT(DISTINCT m.module_type) as modules
                 FROM metadata_objects o
                 LEFT JOIN modules m ON o.id = m.object_id AND m.form_id IS NULL AND m.command_id IS NULL
-                WHERE o.name LIKE ?
+                WHERE o.name LIKE ? AND o.object_kind = 'ConfigObject'
                 GROUP BY o.id
             ''', (f'%{name}%',))
 
@@ -544,15 +565,22 @@ class ConfigurationTools:
                 cursor.execute('''
                     SELECT name, object_type, object_belonging, extended_configuration_object
                     FROM metadata_objects
-                    WHERE object_type = ?
+                    WHERE object_type = ? AND object_kind = 'ConfigObject'
                     ORDER BY name
                     LIMIT ?
                 ''', (object_type, limit))
                 rows = cursor.fetchall()
-                cursor.execute('SELECT COUNT(*) FROM metadata_objects WHERE object_type = ?', (object_type,))
+                cursor.execute(
+                    "SELECT COUNT(*) FROM metadata_objects WHERE object_type = ? AND object_kind = 'ConfigObject'",
+                    (object_type,),
+                )
                 total_count = cursor.fetchone()[0]
             else:
-                cursor.execute('SELECT DISTINCT object_type FROM metadata_objects ORDER BY object_type')
+                cursor.execute('''
+                    SELECT DISTINCT object_type FROM metadata_objects
+                    WHERE object_kind = 'ConfigObject'
+                    ORDER BY object_type
+                ''')
                 types_rows = cursor.fetchall()
                 rows = []
                 total_count = 0
@@ -561,12 +589,15 @@ class ConfigurationTools:
                     cursor.execute('''
                         SELECT name, object_type, object_belonging, extended_configuration_object
                         FROM metadata_objects
-                        WHERE object_type = ?
+                        WHERE object_type = ? AND object_kind = 'ConfigObject'
                         ORDER BY name
                         LIMIT ?
                     ''', (ot, limit))
                     chunk = cursor.fetchall()
-                    cursor.execute('SELECT COUNT(*) FROM metadata_objects WHERE object_type = ?', (ot,))
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM metadata_objects WHERE object_type = ? AND object_kind = 'ConfigObject'",
+                        (ot,),
+                    )
                     cnt = cursor.fetchone()[0]
                     total_count += cnt
                     rows.extend(chunk)
@@ -1178,21 +1209,49 @@ class ConfigurationTools:
             
             # Получаем реквизиты
             cursor.execute('''
-                SELECT name, type, title, is_main, columns_json, query_text
+                SELECT id, name, title, is_main, query_text
                 FROM form_attributes
                 WHERE form_id = ?
+                ORDER BY id
             ''', (form_id,))
-            
+
+            attr_rows = cursor.fetchall()
+            attr_ids = [row['id'] for row in attr_rows]
+            attr_types_map = _load_resolved_types_map(cursor, 'form_attributes', attr_ids)
+
+            columns_by_attr = {}
+            if attr_ids:
+                placeholders = ','.join('?' * len(attr_ids))
+                cursor.execute(f'''
+                    SELECT id, form_attribute_id, name, title, table_context
+                    FROM form_attribute_columns
+                    WHERE form_attribute_id IN ({placeholders})
+                    ORDER BY id
+                ''', attr_ids)
+                col_rows = cursor.fetchall()
+                col_ids = [r['id'] for r in col_rows]
+                col_types_map = _load_resolved_types_map(cursor, 'form_attribute_columns', col_ids)
+                for col_row in col_rows:
+                    col = {
+                        'name': col_row['name'],
+                        'title': col_row['title'],
+                        'types': col_types_map.get(col_row['id'], []),
+                    }
+                    if col_row['table_context']:
+                        col['table'] = col_row['table_context']
+                    columns_by_attr.setdefault(col_row['form_attribute_id'], []).append(col)
+
             attributes = []
-            for row in cursor.fetchall():
+            for row in attr_rows:
                 attr = {
                     'name': row['name'],
-                    'type': row['type'],
                     'title': row['title'],
-                    'is_main': bool(row['is_main'])
+                    'is_main': bool(row['is_main']),
+                    'types': attr_types_map.get(row['id'], []),
                 }
-                if row['columns_json']:
-                    attr['columns'] = json.loads(row['columns_json'])
+                cols = columns_by_attr.get(row['id'])
+                if cols:
+                    attr['columns'] = cols
                 if row['query_text']:
                     attr['query_text'] = row['query_text']
                 attributes.append(attr)
@@ -1401,7 +1460,7 @@ class ConfigurationTools:
             cursor.execute('''
                 SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
                 FROM metadata_objects
-                WHERE name = ?
+                WHERE name = ? AND object_kind = 'ConfigObject'
                 LIMIT 1
             ''', (object_name,))
             obj_row = cursor.fetchone()
@@ -1411,7 +1470,7 @@ class ConfigurationTools:
                 cursor.execute('''
                     SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
                     FROM metadata_objects
-                    WHERE name LIKE ?
+                    WHERE name LIKE ? AND object_kind = 'ConfigObject'
                     ORDER BY name
                 ''', (f'%{object_name}%',))
                 candidates = cursor.fetchall()
@@ -1524,20 +1583,24 @@ class ConfigurationTools:
             else:
                 # Реквизиты, измерения, ресурсы
                 cursor.execute('''
-                    SELECT name, attribute_type, title, comment, is_standard, standard_type, section
+                    SELECT id, name, title, comment, is_standard, standard_type, section
                     FROM attributes
                     WHERE object_id = ?
                     ORDER BY section, is_standard DESC, name
                 ''', (object_id,))
 
+                attr_rows = cursor.fetchall()
+                attr_ids = [r['id'] for r in attr_rows]
+                attr_types_map = _load_resolved_types_map(cursor, 'attributes', attr_ids)
+
                 attributes_by_section = {}
-                for row in cursor.fetchall():
+                for row in attr_rows:
                     section = row['section'] or 'Attribute'
                     if section not in attributes_by_section:
                         attributes_by_section[section] = []
                     attributes_by_section[section].append({
                         'name': row['name'],
-                        'type': row['attribute_type'],
+                        'types': attr_types_map.get(row['id'], []),
                         'title': row['title'],
                         'comment': row['comment'] or '',
                         'is_standard': bool(row['is_standard']),
@@ -1546,16 +1609,21 @@ class ConfigurationTools:
 
                 # Табличные части с колонками (JOIN с tabular_sections)
                 cursor.execute('''
-                    SELECT ts.name AS tabular_section_name, ts.title AS tabular_section_title, ts.comment AS tabular_section_comment,
-                           tsc.column_name, tsc.column_type, tsc.title, tsc.comment
+                    SELECT ts.name AS tabular_section_name, ts.title AS tabular_section_title,
+                           ts.comment AS tabular_section_comment,
+                           tsc.id AS column_id, tsc.column_name, tsc.title, tsc.comment
                     FROM tabular_section_columns tsc
                     JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
                     WHERE ts.object_id = ?
                     ORDER BY ts.name, tsc.column_name
                 ''', (object_id,))
 
+                col_rows = cursor.fetchall()
+                col_ids = [r['column_id'] for r in col_rows]
+                col_types_map = _load_resolved_types_map(cursor, 'tabular_section_columns', col_ids)
+
                 tabular_sections = {}
-                for row in cursor.fetchall():
+                for row in col_rows:
                     ts_name = row['tabular_section_name']
                     if ts_name not in tabular_sections:
                         tabular_sections[ts_name] = {
@@ -1566,7 +1634,7 @@ class ConfigurationTools:
                         }
                     tabular_sections[ts_name]['columns'].append({
                         'name': row['column_name'],
-                        'type': row['column_type'],
+                        'types': col_types_map.get(row['column_id'], []),
                         'title': row['title'],
                         'comment': row['comment'] or '',
                     })
@@ -1800,25 +1868,29 @@ class ConfigurationTools:
                     o.object_type,
                     o.object_belonging,
                     o.extended_configuration_object,
+                    a.id as attr_id,
                     a.name as attr_name,
-                    a.attribute_type,
                     a.title,
                     a.is_standard,
                     a.section
                 FROM attributes a
                 JOIN metadata_objects o ON a.object_id = o.id
-                WHERE a.name LIKE ?
+                WHERE a.name LIKE ? AND o.object_kind = 'ConfigObject'
                 ORDER BY o.object_type, o.name, a.section, a.name
                 LIMIT ?
             ''', (f'%{attribute_name}%', max_results))
 
+            attr_rows = cursor.fetchall()
+            attr_ids = [r['attr_id'] for r in attr_rows]
+            attr_types_map = _load_resolved_types_map(cursor, 'attributes', attr_ids)
+
             db_results = []
-            for row in cursor.fetchall():
+            for row in attr_rows:
                 item = {
                     'object_name': row['object_name'],
                     'object_type': row['object_type'],
                     'attribute_name': row['attr_name'],
-                    'attribute_type': row['attribute_type'],
+                    'types': attr_types_map.get(row['attr_id'], []),
                     'title': row['title'],
                     'is_standard': bool(row['is_standard']),
                     'section': row['section'],
@@ -1838,22 +1910,25 @@ class ConfigurationTools:
                         o.object_belonging,
                         o.extended_configuration_object,
                         ts.name as tabular_section_name,
+                        tsc.id as column_id,
                         tsc.column_name as attr_name,
-                        tsc.column_type as attribute_type,
                         tsc.title
                     FROM tabular_section_columns tsc
                     JOIN tabular_sections ts ON tsc.tabular_section_id = ts.id
                     JOIN metadata_objects o ON ts.object_id = o.id
-                    WHERE tsc.column_name LIKE ?
+                    WHERE tsc.column_name LIKE ? AND o.object_kind = 'ConfigObject'
                     ORDER BY o.object_type, o.name, ts.name, tsc.column_name
                     LIMIT ?
                 ''', (f'%{attribute_name}%', remaining))
-                for row in cursor.fetchall():
+                col_rows = cursor.fetchall()
+                col_ids = [r['column_id'] for r in col_rows]
+                col_types_map = _load_resolved_types_map(cursor, 'tabular_section_columns', col_ids)
+                for row in col_rows:
                     item = {
                         'object_name': row['object_name'],
                         'object_type': row['object_type'],
                         'attribute_name': row['attr_name'],
-                        'attribute_type': row['attribute_type'],
+                        'types': col_types_map.get(row['column_id'], []),
                         'title': row['title'],
                         'is_standard': False,
                         'section': 'TabularSectionColumn',

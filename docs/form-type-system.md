@@ -1,0 +1,126 @@
+## Type system для реквизитов форм
+
+**Статус:** **реализовано** (`INDEXER_VERSION` 9). DynamicList Settings (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
+
+Связанные документы: [`dependency-layer.md`](dependency-layer.md), [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`testing-protocol.md`](testing-protocol.md).
+
+---
+
+### Контекст
+
+Фаза 1 type system закрыла только реквизиты **метаданных** (`attributes`, `tabular_section_columns`). Формы — отдельный XML (`logform`), другие паттерны типов (`ValueListType`, `ValueTable`, `DynamicList`, Settings/TypeDescription). До v9 типы форм хранились строкой в `form_attributes.type` и теряли составные типы и колонки ValueTable — см. CHANGELOG 2026-06-14.
+
+**Цель (достигнута):** те же слоты `metadata_type_slots`, resolved `types[]` в `get_form_structure`, как у metadata.
+
+---
+
+### Реализация
+
+```mermaid
+flowchart LR
+  LogformParser[_extract_logform_type_slots] --> Resolver[MetadataTypeResolver]
+  Resolver --> MTS[metadata_type_slots]
+  MTS --> FA[form_attributes]
+  MTS --> FAC[form_attribute_columns]
+  MTS --> Tools[get_form_structure]
+```
+
+| Компонент | Файл | Поведение |
+|-----------|------|-----------|
+| Парсер | `shared/xml_parser.py` — `_extract_logform_type_slots`, `_extract_columns` | `type_slots` у реквизитов и колонок; Column + AdditionalColumns |
+| Resolver | `shared/metadata_type_resolver.py` | wrappers (`ValueListType`, `ValueTable`, `DynamicList`) + inner из Settings |
+| БД | `admin_tool/db_manager.py` | `form_attribute_columns`; слоты после insert форм |
+| MCP | `server/tools.py` — `get_form_structure` | `types[]` у attributes и columns; `table` для AdditionalColumns |
+
+`metadata_type_slots.source_table`: `'form_attributes'` | `'form_attribute_columns'`. Колонок `form_attributes.type` и `columns_json` **нет**.
+
+---
+
+### Решения (2026-06-14)
+
+1. **Wrappers:** wrapper + inner (`TypeDescriptor` для `ValueListType`, `ValueTable`, `DynamicList` + inner slots из Settings).
+2. **Колонки:** таблица `form_attribute_columns` + слоты.
+3. **DynamicList Settings:** вне v1 — `form-dynamiclist-settings` в todo.
+4. **`find_referencing_objects` по формам:** после `type-system-phase-2`.
+5. **DefinedType / AnyRef / безымянный TypeSet:** slot не материализуется (как metadata фаза 1).
+
+---
+
+### Form-specific типы
+
+| XML / cfg | Смысл в 1С | Примечание |
+|-----------|------------|------------|
+| `v8:ValueListType` + Settings | СписокЗначений | wrapper + inner |
+| `v8:ValueTable` | ТаблицаЗначений | wrapper + колонки в `form_attribute_columns` |
+| `cfg:DynamicList` | ДинамическийСписок | wrapper + `query_text`; MainTable — backlog |
+| `cfg:DocumentObject.X` | Объект документа на форме | resolve через `object_type_hint` → Document |
+| `pl:Planner` и др. | Спец. UI-тип | `kind: unknown`, slot не материализуется |
+
+---
+
+### Эталонные выгрузки (вне репозитория)
+
+Источник истины — реальные `Form.xml` ([`testing-protocol.md`](testing-protocol.md)).
+
+| Выгрузка | Путь |
+|----------|------|
+| Опер учет | `C:\Users\Alex\Documents\Работа\Общая\Опер учет` |
+| Расш бюдж | `C:\Users\Alex\Documents\Работа\Общая\Выгрузка конф\Расш бюдж` |
+
+| Form.xml | Проверка |
+|----------|----------|
+| `DataProcessors/ФТ_АРМДиспетчера/Forms/Форма/Ext/Form.xml` | ValueTable + Column; составной DocumentRef; ValueListType; DynamicList |
+| `InformationRegisters/ТД_ГрафикиДоставок/Forms/Планировщик/Ext/Form.xml` | ValueListType + Settings; `pl:Planner`; DynamicList |
+| АРМ, реквизиты DocumentObject | AdditionalColumns с `table` |
+
+MCP-проверка: проект **Трансгаз**, база **ТД_ОперативныйУчет** (v9).
+
+---
+
+### MCP: `get_form_structure`
+
+```json
+{
+  "name": "СписокТС",
+  "types": [
+    { "kind": "primitive", "base_type": "ValueListType" },
+    { "kind": "object", "object_type": "Catalog", "name": "ТранспортныеСредства", "synonym": "…" }
+  ],
+  "columns": [
+    {
+      "name": "Заявка",
+      "types": [{ "kind": "object", "object_type": "Document", "name": "ТД_ЗаявкаНаПродажу" }]
+    }
+  ]
+}
+```
+
+Текстовый ответ — `format_types_for_text` в [`shared/metadata_type_resolver.py`](../shared/metadata_type_resolver.py).
+
+---
+
+### Вне scope (backlog)
+
+- `form_items.item_type` (UI, не data type).
+- Settings DynamicList (MainTable, СКД) — `form-dynamiclist-settings`.
+- `find_referencing_objects` по слотам форм — с фазой 2.
+- Условное оформление форм.
+
+---
+
+### Критерии готовности (выполнены)
+
+1. `get_form_structure` → **`types[]`**, без `form_attributes.type`.
+2. **Планировщик / `СписокТС`:** `Catalog.ТранспортныеСредства` из Settings.
+3. **АРМ / `График`:** колонки не пустые; `ДокументОтгрузки` — оба DocumentRef.
+4. AdditionalColumns с `table` в ответе.
+5. `list_objects` / `find_object` не показывают `TypeDescriptor`.
+6. Unit-тесты: `tests/test_xml_parser_logform_type.py`, `tests/test_metadata_type_resolver.py`.
+
+---
+
+### История
+
+| Дата | Событие |
+|------|---------|
+| 2026-06-14 | ТЗ; реализация; `INDEXER_VERSION` 9 |

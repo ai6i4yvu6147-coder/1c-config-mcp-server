@@ -101,5 +101,61 @@ class TestExtractAttributeType(unittest.TestCase):
         )
 
 
+class TestExtractTypeSlots(unittest.TestCase):
+    def test_catalog_ref_slot(self):
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Attribute xmlns="{MD}" xmlns:v8="{V8}">
+  <Properties>
+    <Name>Источник</Name>
+    <Type>
+      <v8:Type>cfg:CatalogRef.ФТ_Источники</v8:Type>
+    </Type>
+  </Properties>
+</Attribute>"""
+        root = ET.fromstring(xml)
+        slots = _parser()._extract_type_slots(root)
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]['kind'], 'object_ref')
+        self.assertEqual(slots[0]['ref_name'], 'ФТ_Источники')
+
+    def test_number_with_qualifiers(self):
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Attribute xmlns="{MD}" xmlns:v8="{V8}">
+  <Properties>
+    <Name>Количество</Name>
+    <Type>
+      <v8:Type>xs:decimal</v8:Type>
+      <v8:NumberQualifiers>
+        <v8:Digits>10</v8:Digits>
+        <v8:FractionDigits>2</v8:FractionDigits>
+        <v8:AllowedSign>Any</v8:AllowedSign>
+      </v8:NumberQualifiers>
+    </Type>
+  </Properties>
+</Attribute>"""
+        root = ET.fromstring(xml)
+        slots = _parser()._extract_type_slots(root)
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]['kind'], 'primitive')
+        self.assertEqual(slots[0]['base_type'], 'Number')
+        self.assertEqual(slots[0]['qualifiers']['digits'], 10)
+        self.assertEqual(slots[0]['qualifiers']['fraction'], 2)
+
+    def test_typeset_unknown(self):
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Attribute xmlns="{MD}" xmlns:v8="{V8}">
+  <Properties>
+    <Name>Y</Name>
+    <Type>
+      <v8:TypeSet>cfg:DefinedType.МойТип</v8:TypeSet>
+    </Type>
+  </Properties>
+</Attribute>"""
+        root = ET.fromstring(xml)
+        slots = _parser()._extract_type_slots(root)
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]['kind'], 'unknown')
+
+
 if __name__ == '__main__':
     unittest.main()

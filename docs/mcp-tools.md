@@ -23,6 +23,7 @@
 - **Код модуля команды объекта**: `get_module_code` с `module_type="CommandModule"` и **`command_name`** = имя команды из `commands`.
 - **Общая команда** (`CommonCommand` в whitelist): в `get_object_structure` у объекта в `modules` будет `CommandModule`; `get_module_code` / `get_module_procedures` / `get_procedure_code` с `module_type="CommandModule"` **без** `command_name`.
 - **Кнопка и привязка к команде на форме**: `get_form_structure` → у элементов `items` поля `command_name` (как в XML) и `command_source` (`Form` / `Object` / `Common`, по префиксу строки). В текстовом ответе MCP к строке элемента добавляются пометки вида `[команда объекта: …]`.
+- **Типы реквизитов формы:** `get_form_structure` → массив `types[]` у реквизитов и колонок (как у metadata); колонки ValueTable/AdditionalColumns — `columns[].types[]`, `columns[].table` для AdditionalColumns. См. [`form-type-system.md`](form-type-system.md).
 - **Поиск по коду модуля команды**: `search_code`; для `CommandModule` команды объекта в результатах есть `command_name`, в текстовой строке локации показывается `…CommandModule.<имя_команды>`; для `CommonCommand` — `CommonCommand.<Имя>.CommandModule`.
 
 ### Регламентные задания (`ScheduledJob`)
@@ -40,15 +41,32 @@
   - `route_points` — `{name, type, synonym, uuid, true_port?, false_port?}` (type: Start, Activity, Condition, Completion, Split, Join, …);
   - `route_transitions` — `{from, to, from_port?, title?}`.
 - В **текстовом ответе MCP**: компактный индекс точек по типам и **adjacency list** переходов (полный граф, включая Split/Join). Подписи веток условий — из `title` линии или «Да»/«Нет» по портам Condition.
-- После изменений схемы — пересоздать БД через `admin_tool` (`INDEXER_VERSION` 7+).
+- После изменений схемы — пересоздать БД через `admin_tool` (`INDEXER_VERSION` 8+).
 
-### Планируемые tools (dependency layer)
+### Type system (фаза 1 — реализовано)
 
-Не реализовано. Спека: `dependency-layer.md`.
+Спека: [`dependency-layer.md`](dependency-layer.md).
 
-- **`find_metadata_dependencies`** — исходящие зависимости объекта (ссылки реквизитов, ФО, подсистемы, роли, …).
-- **`find_metadata_dependents`** — обратный поиск: кто ссылается на объект.
-- **`find_dependency_path`** — позже, обход с `depth > 1`.
+**Приоритет для агента:** для ссылочных типов использовать `get_object_structure` (исходящие типы), не `search_code`.
+
+- **`get_object_structure`** — у реквизитов, измерений, ресурсов и колонок ТЧ массив **`types`**:
+  - `{ "kind": "object", "object_type": "Catalog", "name": "…", "synonym": "…" }`
+  - `{ "kind": "primitive", "base_type": "Number", "qualifiers": { "digits": 10, "fraction": 2 } }`
+  - составной тип — несколько элементов в `types`.
+- **`find_attribute`** — поле **`types`** вместо строки `attribute_type`.
+- **`list_objects` / `find_object`** — только `ConfigObject`; `TypeDescriptor` (примитивы) не показываются.
+
+**Не материализуются (MVP):** `DefinedType`, `AnyRef`, безымянный `TypeSet`.
+
+### Планируемые tools (relations, фаза 2+)
+
+Не реализовано. Спека: [`dependency-layer.md`](dependency-layer.md).
+
+- **`find_referencing_objects`** — обратный поиск: кто ссылается на объект (слоты + `metadata_relations`); один tool, не пара incoming/outgoing.
+- Исходящие ссылки отдельным tool **не** планируются — покрываются `get_object_structure`.
+- **`find_relation_path`** — позже, обход с `depth > 1`.
+
+ФО — по-прежнему **`get_functional_options`**; в общий graph **не** дублировать.
 
 Также планируется расширение **`find_object`** поиском по `synonym` (фаза 0, без новой схемы).
 

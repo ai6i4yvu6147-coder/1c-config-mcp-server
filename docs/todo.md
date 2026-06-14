@@ -74,7 +74,7 @@
 
 
 
-## Срез состояния (2026-06-10)
+## Срез состояния (2026-06-14)
 
 
 
@@ -96,9 +96,11 @@
 
 | Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
 
-| Расширение whitelist (Subsystem, Role, …) | **не начато** — см. `dependency-layer.md` |
+| Расширение whitelist (Subsystem, Role, …) | **не начато** — см. `dependency-layer.md` фазы 3–5 |
 
-| Metadata dependency layer (`metadata_dependencies`, tools) | **не начато** — см. `dependency-layer.md` |
+| Type system (metadata + формы, `metadata_type_slots`) | **готово** — `INDEXER_VERSION` 9; см. CHANGELOG, [`form-type-system.md`](form-type-system.md) |
+
+| `find_referencing_objects`, `metadata_relations` | **не начато** — фазы 2–5 ниже |
 
 
 
@@ -111,6 +113,18 @@
 
 
 <!-- id | статус | кратко | контекст / ссылки -->
+
+
+
+- **form-dynamiclist-settings** · `idea` · Парсинг Settings динамического списка на форме (MainTable, СКД)
+
+  - **Зачем:** сейчас DynamicList в v1 — только wrapper + `query_text`; агент не видит главную таблицу/источник данных из Settings
+
+  - **Scope (черновик):** `Settings/MainTable`, связь с объектом метаданных; опционально поля СКД — уточнять по эталонным Form.xml (Планировщик, АРМ)
+
+  - **Связано с:** [`form-type-system.md`](form-type-system.md) (базовый type system форм **готово**); может потребовать bump `INDEXER_VERSION` и новые поля БД
+
+  - **Не в текущей итерации** — отдельный backlog-пункт после v9
 
 
 
@@ -182,25 +196,35 @@
 
 
 
-- **dependency-layer-phase-1** · `ready` · Таблица `metadata_dependencies` + ссылки реквизитов + tools
-
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фазы 1, схема, SQL, критерии готовности
-
-  - **Сторона:** resolver типов (`shared/`), `db_manager.py`, `tools.py`, `server.py`, bump `INDEXER_VERSION`
-
-  - **Tools:** `find_metadata_dependencies`, `find_metadata_dependents`
-
-  - **Критерий закрытия:** см. «Критерии готовности фазы 1» в `dependency-layer.md`
-
-
-
-- **dependency-layer-phase-2** · `ready` · Материализация `fo_*` в dependencies
+- **type-system-phase-2** · `ready` · Tool `find_referencing_objects` (обратный поиск по слотам)
 
   - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 2
 
-  - **Сторона:** `db_manager.py` (единая материализация в конце сборки)
+  - **Сторона:** `server/tools.py`, `server/server.py`, `docs/mcp-tools.md`
 
-  - **Критерий закрытия:** ФО из `fo_content_ref` / `fo_form_usage` видны через `find_metadata_*`
+  - **Критерий закрытия:** см. «Критерии готовности фазы 2» в `dependency-layer.md`
+
+
+
+- **relations-phase-3** · `ready` · `metadata_relations` + whitelist `Subsystem`
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 3
+
+  - **Зависимости:** type-system-phase-1
+
+  - **Критерий закрытия:** подсистемные связи в `find_referencing_objects` с меткой `via: subsystem_member`
+
+
+
+- **relations-phase-4** · `blocked` · whitelist `Role` (MVP grants)
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 4; **blocked** без реальной выгрузки ролей
+
+
+
+- **relations-phase-5** · `blocked` · `EventSubscription`
+
+  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 5; **blocked** без реальной выгрузки
 
 
 
@@ -271,17 +295,17 @@
 
 - **whitelist-subsystem** · `idea` · Индексация подсистем (`Subsystem`)
 
-  - **Зачем:** навигация по структуре конфигурации, `subsystem_contains` в dependency layer
+  - **Зачем:** навигация по структуре конфигурации, `subsystem_member` в `metadata_relations`
 
   - **Материалы:** [`metadata-whitelist.md`](metadata-whitelist.md), [`dependency-layer.md`](dependency-layer.md) фаза 3; нужна выгрузка с `Subsystems/`
 
-  - **Tools:** `find_metadata_dependencies` / `find_metadata_dependents` (после фазы 1)
+  - **Tools:** `find_referencing_objects` (после type-system-phase-2)
 
 
 
 - **whitelist-role** · `idea` · Индексация ролей (`Role`)
 
-  - **Зачем:** `role_grants` в dependency layer, анализ прав
+  - **Зачем:** `role_grant` в `metadata_relations`, анализ прав
 
   - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 4; **blocked** без реальной выгрузки ролей
 
@@ -291,7 +315,7 @@
 
 - **whitelist-event-subscription** · `idea` · Индексация подписок на события (`EventSubscription`)
 
-  - **Зачем:** `event_subscription_source` / `event_subscription_handler` в dependency layer
+  - **Зачем:** `event_source` / `event_handler` в `metadata_relations`
 
   - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 5; **blocked** без реальной выгрузки
 

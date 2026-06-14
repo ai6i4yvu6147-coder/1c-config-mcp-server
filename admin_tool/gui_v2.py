@@ -7,7 +7,7 @@ import threading
 # Добавляем корневую папку проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from admin_tool.db_manager import DatabaseManager
+from admin_tool.db_manager import DatabaseManager, format_build_error
 from shared.project_manager import ProjectManager
 from shared.xml_parser import get_configuration_name, get_configuration_type
 from shared.indexer_version import INDEXER_VERSION
@@ -515,7 +515,7 @@ class AddDatabaseWindow:
                 self.window.destroy()
         except Exception as e:
             self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось создать БД:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Не удалось создать БД:\n{format_build_error(e)}")
             self.create_button.config(state=tk.NORMAL)
 
 class QuickUpdateDialog:
@@ -642,7 +642,7 @@ class QuickUpdateDialog:
                 self.window.destroy()
         except Exception as e:
             self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
             self.quick_button.config(state=tk.NORMAL)
 
 class UpdateDatabaseWindow:
@@ -727,7 +727,7 @@ class UpdateDatabaseWindow:
                 self.window.destroy()
         except Exception as e:
             self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
             self.update_button.config(state=tk.NORMAL)
 
 

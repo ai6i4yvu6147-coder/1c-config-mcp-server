@@ -44,7 +44,11 @@
 - `scheduled_jobs`: свойства регламентных заданий (`method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, …); связь с объектом через `object_id` → `metadata_objects`.
 - `code_search` (FTS5): полнотекстовый поиск по коду модулей.
 - `fo_content_ref`, `fo_form_usage`: привязки функциональных опций (уже есть).
-- **`metadata_dependencies` (план):** унифицированный индекс рёбер между `metadata_objects` — см. `dependency-layer.md`.
+- **Type system (фаза 1 + формы):** см. [`dependency-layer.md`](dependency-layer.md), [`form-type-system.md`](form-type-system.md):
+  - `metadata_objects`: `object_kind` (`ConfigObject` | `TypeDescriptor`), `is_primitive`, `base_type`, `qualifier_1..3` для синтетических примитивов и form-wrappers (`ValueListType`, `ValueTable`, `DynamicList`);
+  - `metadata_type_slots` — типы реквизитов/колонок ТЧ и **реквизитов/колонок форм** (`source_table`: `attributes`, `tabular_section_columns`, `form_attributes`, `form_attribute_columns`);
+  - `form_attribute_columns` — колонки ValueTable / AdditionalColumns (имя, заголовок, `table_context`);
+  - **План (не реализовано):** `metadata_relations` — подсистемы, роли, подписки (фазы 3–5).
 
 ### Где к БД обращаются
 

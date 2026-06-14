@@ -10,6 +10,7 @@ import mcp.server.stdio
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from server.tools import ConfigurationTools, format_business_process_route_text
+from shared.metadata_type_resolver import format_types_for_text
 
 # Определяем корневую папку проекта
 if getattr(sys, 'frozen', False):
@@ -823,7 +824,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += "  Реквизиты:\n"
                         for attr in structure['attributes']:
                             main_mark = " [Основной]" if attr['is_main'] else ""
-                            response += f"    • {attr['name']}{main_mark}: {attr['type']}\n"
+                            type_text = format_types_for_text(attr.get('types') or [])
+                            response += f"    • {attr['name']}{main_mark}: {type_text}\n"
+                            for col in attr.get('columns') or []:
+                                col_type_text = format_types_for_text(col.get('types') or [])
+                                table_ctx = f" [{col['table']}]" if col.get('table') else ""
+                                response += f"      - {col['name']}{table_ctx}: {col_type_text}\n"
                             if attr.get('query_text'):
                                 response += f"      QueryText: {attr['query_text'][:100]}...\n"
                         response += "\n"
@@ -944,7 +950,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             std = " [стд]" if attr['is_standard'] else ""
                             title = f" — {attr['title']}" if attr.get('title') else ""
                             comment = f" — {attr['comment']}" if attr.get('comment') else ""
-                            response += f"    - {attr['name']}{std}: {attr['type']}{title}{comment}\n"
+                            type_text = format_types_for_text(attr.get('types') or [])
+                            response += f"    - {attr['name']}{std}: {type_text}{title}{comment}\n"
                         response += "\n"
 
                     if structure.get('dimensions'):
@@ -952,7 +959,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         for dim in structure['dimensions']:
                             title = f" — {dim['title']}" if dim.get('title') else ""
                             comment = f" — {dim['comment']}" if dim.get('comment') else ""
-                            response += f"    - {dim['name']}: {dim['type']}{title}{comment}\n"
+                            type_text = format_types_for_text(dim.get('types') or [])
+                            response += f"    - {dim['name']}: {type_text}{title}{comment}\n"
                         response += "\n"
 
                     if structure.get('resources'):
@@ -960,7 +968,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         for res in structure['resources']:
                             title = f" — {res['title']}" if res.get('title') else ""
                             comment = f" — {res['comment']}" if res.get('comment') else ""
-                            response += f"    - {res['name']}: {res['type']}{title}{comment}\n"
+                            type_text = format_types_for_text(res.get('types') or [])
+                            response += f"    - {res['name']}: {type_text}{title}{comment}\n"
                         response += "\n"
 
                     if structure.get('tabular_sections'):
@@ -972,7 +981,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             for col in ts['columns']:
                                 col_title = f" — {col.get('title')}" if col.get('title') else ""
                                 col_comment = f" — {col['comment']}" if col.get('comment') else ""
-                                response += f"      - {col['name']}: {col['type']}{col_title}{col_comment}\n"
+                                type_text = format_types_for_text(col.get('types') or [])
+                                response += f"      - {col['name']}: {type_text}{col_title}{col_comment}\n"
                         response += "\n"
 
                     if structure.get('enum_values'):
@@ -1069,7 +1079,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         section = f" [{r['section']}]" if r.get('section') != 'Attribute' else ""
                         title = f" — {r['title']}" if r.get('title') else ""
                         belong = f" [{r['object_belonging']}]" if r.get('object_belonging') else ""
-                        response += f"    - {r['object_type']}.{r['object_name']}: {r['attribute_name']}{section}: {r['attribute_type']}{title}{belong}\n"
+                        type_text = format_types_for_text(r.get('types') or [])
+                        response += f"    - {r['object_type']}.{r['object_name']}: {r['attribute_name']}{section}: {type_text}{title}{belong}\n"
                 response += "\n"
 
             return [TextContent(type="text", text=response)]
