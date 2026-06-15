@@ -1,6 +1,6 @@
 ## Type system для реквизитов форм
 
-**Статус:** **реализовано** (`INDEXER_VERSION` 9). DynamicList Settings (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
+**Статус:** **реализовано** (`INDEXER_VERSION` 9 — type system форм). Текущий формат индекса — **10** (фаза 3: подсистемы в `metadata_relations`, отдельный bump). DynamicList Settings (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
 
 Связанные документы: [`dependency-layer.md`](dependency-layer.md), [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`testing-protocol.md`](testing-protocol.md).
 
@@ -41,7 +41,7 @@ flowchart LR
 1. **Wrappers:** wrapper + inner (`TypeDescriptor` для `ValueListType`, `ValueTable`, `DynamicList` + inner slots из Settings).
 2. **Колонки:** таблица `form_attribute_columns` + слоты.
 3. **DynamicList Settings:** вне v1 — `form-dynamiclist-settings` в todo.
-4. **`find_referencing_objects` по формам:** после `type-system-phase-2`.
+4. **`find_referencing_objects` по формам:** **готово** (фаза 2 dependency-layer).
 5. **DefinedType / AnyRef / безымянный TypeSet:** slot не материализуется (как metadata фаза 1).
 
 ---
@@ -103,7 +103,7 @@ MCP-проверка: проект **Трансгаз**, база **ТД_Опе�
 
 - `form_items.item_type` (UI, не data type).
 - Settings DynamicList (MainTable, СКД) — `form-dynamiclist-settings`.
-- `find_referencing_objects` по слотам форм — с фазой 2.
+- `find_referencing_objects` по слотам форм — **готово** (фаза 2).
 - Условное оформление форм.
 
 ---

@@ -1,6 +1,6 @@
 ## Type system и structural relations (план)
 
-Документ фиксирует **целевую архитектуру** нормализации типов и структурных связей метаданных. **Type system (metadata + формы, v9)** реализован; фазы 2–5 — в backlog ([`todo.md`](todo.md)).
+Документ фиксирует **целевую архитектуру** нормализации типов и структурных связей метаданных. **Type system (metadata + формы, v9)**, **фаза 0** (`find_object` по `synonym`), **фаза 2** (`find_referencing_objects` по слотам) и **фаза 3** (`metadata_relations`, `Subsystem`) реализованы; фазы 4–5 — в backlog ([`todo.md`](todo.md)).
 
 Связанные документы: [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`metadata-whitelist.md`](metadata-whitelist.md), [`form-type-system.md`](form-type-system.md), [`todo.md`](todo.md).
 
@@ -8,13 +8,12 @@
 
 ### Зачем
 
-Текущая схема хорошо закрывает поиск объектов, формы, код (FTS5), ФО, регламентные задания.
+Текущая схема хорошо закрывает поиск объектов, формы, код (FTS5), ФО, регламентные задания, **обратный поиск по типам полей** (`find_referencing_objects`, фаза 2).
 
-Слабо закрыто:
+Ещё не закрыто:
 
-- **обратный поиск** — «кто ссылается на этот справочник» (фаза 2, `find_referencing_objects`);
-- **структурные связи** — подсистемы, роли, подписки (фазы 3–5, `metadata_relations`);
-- **DynamicList Settings** на формах (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
+- **структурные связи** — роли, подписки (фазы 4–5, `metadata_relations`);
+- **DynamicList Settings** на формах (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md) (смежная ось type system форм, не `metadata_relations`).
 
 ---
 
@@ -224,11 +223,11 @@ SQL — **UNION** двух источников:
 
 | Фаза | INDEXER_VERSION | Содержание | Статус |
 |------|-----------------|------------|--------|
-| **0** | — | `find_object` по `synonym` | backlog |
+| **0** | — | `find_object` по `synonym` | **готово** |
 | **1** | 8 | metadata: `TypeDescriptor`, `metadata_type_slots`, `get_object_structure.types` | **готово** |
 | **1b** | 9 | формы: `form_attribute_columns`, `get_form_structure.types` — [`form-type-system.md`](form-type-system.md) | **готово** |
-| **2** | +1 | `find_referencing_objects` (слоты metadata; формы — уточнить scope) | backlog |
-| **3** | +1 | `metadata_relations`; whitelist `Subsystem` | backlog |
+| **2** | — | `find_referencing_objects` (слоты metadata + формы) | **готово** |
+| **3** | 10 | `metadata_relations`; whitelist `Subsystem` | **готово** |
 | **4** | +1 | whitelist `Role` (MVP grants) | blocked (выгрузка) |
 | **5** | +1 | `EventSubscription` | blocked (выгрузка) |
 | **отдельно** | — | Поиск РЗ по `MethodName` | backlog |
@@ -240,14 +239,14 @@ SQL — **UNION** двух источников:
 
 ### Точки изменения в коде
 
-| Файл | Фаза 1 (готово) | Фаза 2+ (backlog) |
-|------|-----------------|-------------------|
-| `shared/xml_parser.py` | слоты metadata + logform | relations XML |
+| Файл | Фаза 1 (готово) | Фаза 2+ |
+|------|-----------------|---------|
+| `shared/xml_parser.py` | слоты metadata + logform | `_parse_subsystems`, relations XML (фаза 3 **готово**) |
 | `shared/metadata_type_resolver.py` | resolver, TypeDescriptor | — |
-| `admin_tool/db_manager.py` | схема слотов, form columns | `metadata_relations` |
-| `server/tools.py` | `types[]` в structure tools | `find_referencing_objects` |
+| `admin_tool/db_manager.py` | схема слотов, form columns | `metadata_relations` (фаза 3 **готово**) |
+| `server/tools.py` | `types[]` в structure tools | `find_referencing_objects` UNION (фазы 2–3 **готово**) |
 | `server/server.py` | — | регистрация tool |
-| `shared/indexer_version.py` | bump при схеме | bump при relations |
+| `shared/indexer_version.py` | bump при схеме | 10 при relations |
 
 ---
 
@@ -272,10 +271,16 @@ SQL — **UNION** двух источников:
 5. Тесты resolver/slots; MCP-проверка по `testing-protocol.md`.
 6. `INDEXER_VERSION` увеличен.
 
-### Критерии готовности фазы 2
+### Критерии готовности фазы 2 (выполнены)
 
-1. `find_referencing_objects` для справочника возвращает документы с реквизитами-ссылками через слоты.
-2. Ответ различает типовые и структурные источники (после фазы 3 — включая relations).
+1. `find_referencing_objects` для справочника/документа возвращает referencers через слоты metadata и форм.
+2. Ответ различает типовые источники по `via` (attribute, tabular_section_column, form_attribute, form_attribute_column) и структурные по `via: subsystem_member` (фаза 3).
+
+### Критерии готовности фазы 3 (выполнены)
+
+1. Подсистемы индексируются с квалифицированными именами; `content_refs` и вложенность — в `metadata_relations`.
+2. `find_referencing_objects` для объекта из Content подсистемы возвращает `Subsystem` с `via: subsystem_member`.
+3. `INDEXER_VERSION` увеличен до 10.
 
 ---
 

@@ -32,9 +32,11 @@
 - `CommonForm` (общие формы: `CommonForms/<Имя>.xml`, структура в `CommonForms/<Имя>/Ext/Form.xml`, модуль в `Ext/Form/Module.bsl`)
 - `ScheduledJob` (регламентные задания: один `ScheduledJobs/<Имя>.xml`, без модулей; свойства `MethodName`, `Use`, `Predefined`, …)
 
+Подсистемы (`Subsystem`) **не** в `ChildObjects` — парсятся отдельно из каталога `Subsystems/` (включая вложенные; квалифицированные имена из пути файла).
+
 ### Связь с type system и relations
 
-Типы `Subsystem`, `Role`, `EventSubscription` планируются в [`dependency-layer.md`](dependency-layer.md) (фазы 3–5): связи — в `metadata_relations`, не в строках типов и не через дублирование `fo_*`.
+Тип `Subsystem` **индексируется** (фаза 3): связи Content и вложенность — в `metadata_relations` (`subsystem_member`). Типы `Role`, `EventSubscription` планируются в [`dependency-layer.md`](dependency-layer.md) (фазы 4–5).
 
 ### Как добавить новый тип
 

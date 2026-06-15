@@ -63,3 +63,14 @@
 
 Дополнение: агент **не должен** пытаться «найти runtime» (например, искать `projects.json` или `databases/*.db` в workspace/на диске) как способ тестирования. Единственный источник истины для выбора проектов/баз в тесте — ответ `active_databases`.
 
+### MCP smoke после изменений dependency-layer (v10+)
+
+Минимальный чеклист после пересборки portable и пересоздания БД (`INDEXER_VERSION` 10):
+
+1. **`active_databases`** — у целевых баз нет `[!] устарела` и `[!] обновляется`; `user_version` совпадает с `shared/indexer_version.py`.
+2. **`find_object`** — поиск по **синониму** объекта (частичное совпадение), не только по имени.
+3. **`find_referencing_objects`** — обратный поиск по **ссылочному типу** (справочник/документ): в ответе есть `via: attribute` или `via: form_attribute` (типовые слоты).
+4. **`find_referencing_objects`** с `relation_kinds=["subsystem_member"]` — для объекта из Content подсистемы: в ответе `via: subsystem_member`, источник — `Subsystem`.
+
+Спека tools: [`mcp-tools.md`](mcp-tools.md), [`dependency-layer.md`](dependency-layer.md).
+

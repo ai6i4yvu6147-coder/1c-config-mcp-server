@@ -31,11 +31,14 @@ class ConfigurationParser:
         config_name = ''
         if properties is not None:
             # Имя конфигурации: в формате 2.20 — Properties/Name, в старом — возможно md:n
-            name_elem = properties.find('md:Name', ns) or properties.find('md:n', ns)
+            name_elem = properties.find('md:Name', ns)
+            if name_elem is None:
+                name_elem = properties.find('md:n', ns)
             if name_elem is not None and name_elem.text:
                 config_name = name_elem.text.strip()
         
         objects = self._parse_child_objects(config, ns)
+        objects.extend(self._parse_subsystems())
         
         return {
             'name': config_name,
@@ -81,6 +84,75 @@ class ConfigurationParser:
                         objects.append(obj_data)
         
         return objects
+    
+    def _subsystem_qualified_name(self, xml_path):
+        """Квалифицированное имя подсистемы из пути под Subsystems/."""
+        rel = xml_path.relative_to(self.root_dir / 'Subsystems')
+        parts = []
+        for part in rel.parts:
+            if part == 'Subsystems':
+                continue
+            if part.endswith('.xml'):
+                part = part[:-4]
+            parts.append(part)
+        return '.'.join(parts)
+
+    def _parse_subsystems(self):
+        """Парсит все подсистемы (включая вложенные) из каталога Subsystems/."""
+        subsystems_root = self.root_dir / 'Subsystems'
+        if not subsystems_root.is_dir():
+            return []
+
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        results = []
+        for xml_file in sorted(subsystems_root.rglob('*.xml')):
+            if 'Ext' in xml_file.parts:
+                continue
+            try:
+                root = ET.parse(xml_file).getroot()
+            except ET.ParseError:
+                continue
+            if self._get_object_element(root, 'Subsystem', md_ns) is None:
+                continue
+
+            qname = self._subsystem_qualified_name(xml_file)
+            properties = self._parse_properties(root, 'Subsystem')
+            obj_elem = self._get_object_element(root, 'Subsystem', md_ns)
+            uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
+
+            content_refs = []
+            properties_elem = root.find(f'.//{{{md_ns}}}Properties')
+            if properties_elem is not None:
+                content_elem = properties_elem.find(f'{{{md_ns}}}Content')
+                if content_elem is not None:
+                    for item in content_elem:
+                        text = (item.text or '').strip()
+                        if text and '.' in text:
+                            content_refs.append(text)
+
+            child_subsystem_names = []
+            child_objects = root.find(f'.//{{{md_ns}}}ChildObjects')
+            if child_objects is not None:
+                for sub_elem in child_objects.findall(f'{{{md_ns}}}Subsystem'):
+                    if sub_elem.text and sub_elem.text.strip():
+                        child_subsystem_names.append(sub_elem.text.strip())
+
+            results.append({
+                'name': qname,
+                'type': 'Subsystem',
+                'uuid': uuid,
+                'properties': properties,
+                'modules': [],
+                'forms': [],
+                'tabular_sections': [],
+                'dimensions': [],
+                'resources': [],
+                'enum_values': [],
+                'commands': [],
+                'content_refs': content_refs,
+                'child_subsystem_names': child_subsystem_names,
+            })
+        return results
     
     def _parse_object(self, name, obj_type, folder_name):
         """Парсит отдельный объект метаданных"""
@@ -245,6 +317,12 @@ class ConfigurationParser:
                             props[key] = int(elem.text.strip())
                         except ValueError:
                             pass
+            return props
+
+        # Подсистемы: только свойства, без реквизитов
+        if obj_type == 'Subsystem':
+            props['standard_attributes'] = []
+            props['custom_attributes'] = []
             return props
 
         # Функциональные опции: свои свойства (Location, PrivilegedGetMode, Content)

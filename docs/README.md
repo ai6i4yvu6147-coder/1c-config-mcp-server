@@ -10,7 +10,7 @@
 4. `mcp-tools.md` — какие инструменты MCP есть и как ими пользоваться.
 5. `database.md` — что хранится в SQLite (и почему **нет миграций**).
 6. `metadata-whitelist.md` — текущий whitelist типов метаданных и как добавлять новые.
-7. `dependency-layer.md` — type system (metadata + формы **готово**) и relations (фазы 2–5 в backlog).
+7. `dependency-layer.md` — type system (metadata + формы **готово**), `find_referencing_objects` (**готово**), подсистемы в `metadata_relations` (фаза 3 **готово**); роли и подписки — фазы 4–5 в backlog.
 8. `form-type-system.md` — спека type system форм (**готово**, v9): эталоны, решения, критерии MCP-проверки.
 9. `testing-protocol.md` — как здесь принято проверять изменения на «боевом» MCP.
 10. `performance.md` — заметки по узким местам и подходу к оптимизациям.

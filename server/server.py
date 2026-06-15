@@ -111,13 +111,13 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="find_object",
-            description="Найти объект метаданных по имени. project_filter обязателен. Для расширений в ответе возвращается object_belonging (Own/Adopted).",
+            description="Найти объект метаданных по имени или синониму. project_filter обязателен. Для расширений в ответе возвращается object_belonging (Own/Adopted).",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Имя объекта (можно частичное)"
+                        "description": "Имя или синоним объекта (можно частичное)"
                     },
                     "project_filter": {
                         "type": "string",
@@ -412,6 +412,46 @@ async def list_tools() -> list[Tool]:
                     "extension_filter": {
                         "type": "string",
                         "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                    }
+                },
+                "required": ["object_name", "project_filter"]
+            }
+        ),
+        Tool(
+            name="find_referencing_objects",
+            description=(
+                "Обратный поиск: кто ссылается на объект метаданных через типы полей "
+                "(metadata_type_slots) и структурные связи (metadata_relations). "
+                "project_filter обязателен. "
+                "via: attribute | tabular_section_column | form_attribute | form_attribute_column | "
+                "subsystem_member (подсистема в Content)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Имя или синоним целевого объекта (можно частичное)"
+                    },
+                    "project_filter": {
+                        "type": "string",
+                        "description": "Фильтр по проекту (обязательно)"
+                    },
+                    "extension_filter": {
+                        "type": "string",
+                        "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Максимум записей на базу (по умолчанию 100)"
+                    },
+                    "relation_kinds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Фильтр relation_kind в metadata_relations "
+                            "(например subsystem_member). Пусто — все виды связей."
+                        )
                     }
                 },
                 "required": ["object_name", "project_filter"]
@@ -1016,6 +1056,76 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         response += f"  Модули: {', '.join(structure['modules'])}\n"
 
                 response += "\n"
+
+            return [TextContent(type="text", text=response)]
+
+        elif name == "find_referencing_objects":
+            object_name = arguments["object_name"]
+            project_filter = arguments.get("project_filter")
+            extension_filter = arguments.get("extension_filter")
+            max_results = arguments.get("max_results", 100)
+            relation_kinds = arguments.get("relation_kinds")
+
+            results = tools.find_referencing_objects(
+                object_name, project_filter, extension_filter, max_results, relation_kinds
+            )
+
+            if not results:
+                return [TextContent(type="text", text=f"Объект '{object_name}' не найден или на него нет ссылок")]
+
+            response = f"Обратные ссылки на '{object_name}':\n\n"
+
+            for project_name, project_data in results.items():
+                response += f"Проект: {project_name}\n"
+                for db_name, payload in project_data.items():
+                    response += f"  {db_name}:\n"
+
+                    if payload.get('ambiguous'):
+                        response += f"    Неоднозначность: уточните object_name.\n"
+                        response += f"    Запрошено: {payload['requested_name']}\n"
+                        response += "    Кандидаты:\n"
+                        for c in payload['candidates']:
+                            syn = f" ({c['synonym']})" if c.get('synonym') else ""
+                            response += f"      - {c['type']}.{c['name']}{syn}\n"
+                        response += "\n"
+                        continue
+
+                    target = payload['target']
+                    syn = f" ({target['synonym']})" if target.get('synonym') else ""
+                    response += f"    Цель: {target['type']}.{target['name']}{syn}\n"
+                    total = payload.get('total_count', 0)
+                    returned = payload.get('returned_count', 0)
+                    response += f"    total_count: {total}, returned_count: {returned}"
+                    if payload.get('is_truncated'):
+                        response += ", is_truncated: true — увеличьте max_results"
+                    response += "\n"
+
+                    if not payload.get('referencers'):
+                        response += "    (нет обратных ссылок)\n\n"
+                        continue
+
+                    response += "    Referencers:\n"
+                    for ref in payload['referencers']:
+                        src = ref['src_object']
+                        src_syn = f" ({src['synonym']})" if src.get('synonym') else ""
+                        line = f"      • {src['type']}.{src['name']}{src_syn} [via: {ref['via']}]"
+                        via = ref['via']
+                        if via == 'attribute':
+                            section = ref.get('attribute_section') or 'Attribute'
+                            line += f" — {section}.{ref['field_name']}"
+                        elif via == 'tabular_section_column':
+                            line += f" — TabularSection.{ref['tabular_section_name']}.{ref['field_name']}"
+                        elif via == 'form_attribute':
+                            line += f" — Form.{ref['form_name']}.{ref['field_name']}"
+                        elif via == 'form_attribute_column':
+                            line += f" — Form.{ref['form_name']}.{ref['form_attribute_name']}.{ref['field_name']}"
+                        elif via == 'subsystem_member':
+                            detail = ref.get('source_detail') or 'Content'
+                            line += f" — {detail}: {ref.get('source_name', '')}"
+                        if ref.get('ordinal', 0) > 0:
+                            line += f" (ordinal={ref['ordinal']})"
+                        response += line + "\n"
+                    response += "\n"
 
             return [TextContent(type="text", text=response)]
 

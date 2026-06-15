@@ -700,6 +700,29 @@ class DatabaseManager:
             )
         ''')
 
+        # Структурные связи метаданных (подсистемы, роли, подписки — не типы полей)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata_relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                src_object_id INTEGER NOT NULL,
+                dst_object_id INTEGER NOT NULL,
+                relation_kind TEXT NOT NULL,
+                source_name TEXT,
+                source_detail TEXT,
+                FOREIGN KEY (src_object_id) REFERENCES metadata_objects(id),
+                FOREIGN KEY (dst_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mrel_src ON metadata_relations(src_object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mrel_dst ON metadata_relations(dst_object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_mrel_kind ON metadata_relations(relation_kind)
+        ''')
+
         # Привязка ФО к объектам метаданных (Content ФО: документ/реквизит/колонка ТЧ/ресурс)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fo_content_ref (
@@ -937,23 +960,24 @@ class DatabaseManager:
                 self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
             for attr in obj['properties'].get('custom_attributes', []):
                 self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
-            for dim in obj.get('dimensions', []):
-                self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
-            for res in obj.get('resources', []):
-                self._insert_attribute(cursor, object_id, res, section='Resource', pending_type_slots=pending_type_slots)
-            for attr in obj.get('attributes', []):
-                self._insert_attribute(cursor, object_id, attr, section='Attribute', pending_type_slots=pending_type_slots)
-            for ts in obj.get('tabular_sections', []):
-                self._insert_tabular_section(cursor, object_id, ts, pending_type_slots=pending_type_slots)
-            enum_values = obj.get('enum_values', [])
-            if enum_values:
-                self._insert_enum_values(cursor, object_id, enum_values)
-            if obj['type'] == 'BusinessProcess':
-                self._insert_bp_route_data(
-                    cursor, object_id,
-                    obj.get('route_points', []),
-                    obj.get('route_transitions', []),
-                )
+            if obj['type'] not in ('ScheduledJob', 'Subsystem'):
+                for dim in obj.get('dimensions', []):
+                    self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
+                for res in obj.get('resources', []):
+                    self._insert_attribute(cursor, object_id, res, section='Resource', pending_type_slots=pending_type_slots)
+                for attr in obj.get('attributes', []):
+                    self._insert_attribute(cursor, object_id, attr, section='Attribute', pending_type_slots=pending_type_slots)
+                for ts in obj.get('tabular_sections', []):
+                    self._insert_tabular_section(cursor, object_id, ts, pending_type_slots=pending_type_slots)
+                enum_values = obj.get('enum_values', [])
+                if enum_values:
+                    self._insert_enum_values(cursor, object_id, enum_values)
+                if obj['type'] == 'BusinessProcess':
+                    self._insert_bp_route_data(
+                        cursor, object_id,
+                        obj.get('route_points', []),
+                        obj.get('route_transitions', []),
+                    )
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 20 + int((idx / total_objects) * 40)
@@ -980,6 +1004,8 @@ class DatabaseManager:
         type_resolver = MetadataTypeResolver()
         if pending_type_slots:
             type_resolver.insert_slots(cursor, pending_type_slots, type_name_to_id)
+
+        self._link_subsystem_relations(cursor, data['objects'], type_name_to_id)
 
         # Заполняем fo_content_ref из Content каждой ФО
         for obj in data['objects']:
@@ -1029,6 +1055,54 @@ class DatabaseManager:
 
         self.conn.commit()
         cursor.execute('PRAGMA synchronous=NORMAL')
+
+    def _link_subsystem_relations(self, cursor, objects, type_name_to_id):
+        """Материализует subsystem_member в metadata_relations из Content и ChildObjects подсистем."""
+        subsystem_ids = {}
+        for obj in objects:
+            if obj['type'] != 'Subsystem':
+                continue
+            cursor.execute(
+                'SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?',
+                (obj['name'], 'Subsystem'),
+            )
+            row = cursor.fetchone()
+            if row:
+                subsystem_ids[obj['name']] = row['id']
+
+        for obj in objects:
+            if obj['type'] != 'Subsystem':
+                continue
+            src_id = subsystem_ids.get(obj['name'])
+            if src_id is None:
+                continue
+
+            for ref_str in obj.get('content_refs') or []:
+                if '.' not in ref_str:
+                    continue
+                obj_type, obj_name = ref_str.split('.', 1)
+                dst_id = type_name_to_id.get((obj_type, obj_name))
+                if dst_id is None:
+                    continue
+                cursor.execute('''
+                    INSERT INTO metadata_relations (
+                        src_object_id, dst_object_id, relation_kind, source_name, source_detail
+                    )
+                    VALUES (?, ?, 'subsystem_member', ?, 'Content')
+                ''', (src_id, dst_id, ref_str))
+
+            parent_qname = obj['name']
+            for child_name in obj.get('child_subsystem_names') or []:
+                child_qname = f'{parent_qname}.{child_name}'
+                dst_id = subsystem_ids.get(child_qname)
+                if dst_id is None:
+                    continue
+                cursor.execute('''
+                    INSERT INTO metadata_relations (
+                        src_object_id, dst_object_id, relation_kind, source_name, source_detail
+                    )
+                    VALUES (?, ?, 'subsystem_member', ?, 'ChildSubsystem')
+                ''', (src_id, dst_id, child_name))
     
     def _link_scheduled_job_procedures(self, cursor):
         """Проставляет used_in_scheduled_job для процедур общих модулей из MethodName регл. заданий."""

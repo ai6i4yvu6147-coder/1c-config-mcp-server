@@ -27,7 +27,7 @@
 - MCP tools: `mcp-tools.md`
 - SQLite (таблицы/связи, FTS5, правило NO_DB_MIGRATIONS): `database.md`
 - Whitelist метаданных и как расширять: `metadata-whitelist.md`
-- Type system (metadata + формы **готово**) и relations (фазы 2–5 в backlog): `dependency-layer.md`
+- Type system (metadata + формы **готово**), `find_referencing_objects` (**готово**), подсистемы в `metadata_relations` (фаза 3 **готово**); роли и подписки — фазы 4–5 в backlog: `dependency-layer.md`
 - Детали type system форм, эталоны MCP: `form-type-system.md`
 - Протокол тестирования: `testing-protocol.md`
 

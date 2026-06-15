@@ -6,6 +6,13 @@
 
 ---
 
+## 2026-06-15
+
+- **Dependency-layer фаза 3: `metadata_relations` + whitelist `Subsystem`:** парсер `_parse_subsystems()` (rglob, квалифицированные имена, `content_refs`, `child_subsystem_names`); таблица `metadata_relations` и `_link_subsystem_relations` при сборке БД; `find_referencing_objects` — UNION слотов и relations, фильтр `relation_kinds`, метка `via: subsystem_member`. `INDEXER_VERSION` увеличен до 10 — базы пересоздать из выгрузки. Тесты `tests/test_xml_parser_subsystem.py`, расширение `tests/test_find_referencing_objects.py`.
+- **MCP: `find_referencing_objects` (dependency-layer фаза 2):** обратный поиск по `metadata_type_slots` — metadata (реквизиты, колонки ТЧ) и формы (реквизиты, колонки); метки `via`; `max_results`; helper `_resolve_config_object` для DRY с `get_object_structure`. `INDEXER_VERSION` не менялся. Unit-тесты `tests/test_find_referencing_objects.py`.
+- **admin_tool GUI: статус «устарела» после обновления:** обновление дерева проектов и диалогов после сборки БД перенесено в главный поток tkinter через `AdminAppV2.schedule_on_main` (`root.after`); исправлено для создания, быстрого и обычного обновления базы.
+- **MCP: поиск объектов по синониму (dependency-layer фаза 0):** `find_object` и `get_object_structure` ищут по `metadata_objects.synonym` (точное и частичное совпадение); `INDEXER_VERSION` не менялся. Unit-тесты `tests/test_find_object_synonym.py`.
+
 ## 2026-06-14
 
 - **admin_tool: TypeDescriptor UNIQUE constraint:** нормализация квалификаторов (`None`→`''`, `Number` без fraction→`0`, int→str) и один `MetadataTypeResolver` на сборку; исправлены дубликаты `metadata_objects` при индексации типов.

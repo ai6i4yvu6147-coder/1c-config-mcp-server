@@ -74,7 +74,7 @@
 
 
 
-## Срез состояния (2026-06-14)
+## Срез состояния (2026-06-15)
 
 
 
@@ -86,21 +86,21 @@
 
 | Поиск РЗ через `list_objects` / `find_object` / `get_object_structure` | **готово** (по имени метаданных) |
 
-| Поиск объектов по **синониму** (`metadata_objects.synonym`) | **нет** — см. `find-object-synonym` |
+| Поиск объектов по **синониму** (`metadata_objects.synonym`) | **готово** (см. CHANGELOG) |
+
+| **`find_referencing_objects`** (обратный поиск по слотам) | **готово** (см. CHANGELOG) |
 
 | Поиск РЗ по `MethodName` | **нет** — см. `scheduled-job-search` |
 
 | Admin GUI: массовое обновление, статус операции | **нет** — см. `gui-bulk-update` |
 
-| Admin GUI: «устарела» после успешного обновления | **баг** — см. `gui-outdated-status-bug` |
-
 | Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
 
-| Расширение whitelist (Subsystem, Role, …) | **не начато** — см. `dependency-layer.md` фазы 3–5 |
+| Расширение whitelist (Role, EventSubscription, …) | **частично** — `Subsystem` готово (фаза 3); см. `dependency-layer.md` фазы 4–5 |
 
-| Type system (metadata + формы, `metadata_type_slots`) | **готово** — `INDEXER_VERSION` 9; см. CHANGELOG, [`form-type-system.md`](form-type-system.md) |
+| Type system (metadata + формы, `metadata_type_slots`) | **готово** — v8–9; текущий формат индекса — `INDEXER_VERSION` 10; см. CHANGELOG, [`form-type-system.md`](form-type-system.md) |
 
-| `find_referencing_objects`, `metadata_relations` | **не начато** — фазы 2–5 ниже |
+| `metadata_relations` (подсистемы, роли, …) | **частично** — подсистемы (фаза 3, v10); роли/подписки — фазы 4–5 |
 
 
 
@@ -124,19 +124,7 @@
 
   - **Связано с:** [`form-type-system.md`](form-type-system.md) (базовый type system форм **готово**); может потребовать bump `INDEXER_VERSION` и новые поля БД
 
-  - **Не в текущей итерации** — отдельный backlog-пункт после v9
-
-
-
-- **gui-outdated-status-bug** · `ready` · После обновления БД в GUI статус остаётся «устарела»
-
-  - **Симптом:** успешное обновление конфигурации, в дереве по-прежнему красная подсветка / «Устарела (v… < v…)»
-
-  - **Гипотеза:** после `create_database` дерево не перечитывается — в `QuickUpdateDialog._update_database_thread` и `UpdateDatabaseWindow._update_database_thread` нет вызова `main_app._load_projects()` (в отличие от `CreateDatabaseWindow`)
-
-  - **Сторона:** `admin_tool/gui_v2.py`
-
-  - **Критерий закрытия:** после любого сценария обновления одной базы колонка «Состояние» показывает `OK v{INDEXER_VERSION}` без ручного перезапуска GUI
+  - **Не в текущей итерации** — отдельный backlog-пункт после v10
 
 
 
@@ -154,24 +142,6 @@
 
 
 
-- **find-object-synonym** · `ready` · Поиск объектов метаданных по синониму
-
-  - **Аудит (2026-06-10):** синоним **индексируется** (`metadata_objects.synonym`, парсер `xml_parser._parse_properties`), но **не участвует в поиске**
-
-    - `find_object`: только `WHERE o.name LIKE ?` ([`server/tools.py`](../server/tools.py))
-
-    - `get_object_structure` (неоднозначность): частичное совпадение тоже только по `name`
-
-    - `find_attribute`: по имени реквизита, не по title/синониму объекта
-
-  - **Варианты:** расширить `find_object` (`name OR synonym LIKE`) · опциональный параметр `search_field` · отдельный tool
-
-  - **Связано с:** `scheduled-job-search` (синоним РЗ — частный случай)
-
-  - **Критерий закрытия:** `find_object` по фрагменту русского синонима находит объект без знания технического имени
-
-
-
 - **scheduled-job-search** · `idea` · Поиск регламентных заданий по `MethodName`
 
   - **Проблема:** процедура из `MethodName` (`CommonModule.X.Y`) не ищется через `find_object`
@@ -186,36 +156,6 @@
 
 
 
-- **dependency-layer-phase-0** · `ready` · `find_object` по синониму (без схемы)
-
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 0
-
-  - **Сторона:** `server/tools.py` (`find_object`, при неоднозначности — `get_object_structure`)
-
-  - **Критерий закрытия:** поиск по фрагменту русского `synonym` находит объект
-
-
-
-- **type-system-phase-2** · `ready` · Tool `find_referencing_objects` (обратный поиск по слотам)
-
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 2
-
-  - **Сторона:** `server/tools.py`, `server/server.py`, `docs/mcp-tools.md`
-
-  - **Критерий закрытия:** см. «Критерии готовности фазы 2» в `dependency-layer.md`
-
-
-
-- **relations-phase-3** · `ready` · `metadata_relations` + whitelist `Subsystem`
-
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 3
-
-  - **Зависимости:** type-system-phase-1
-
-  - **Критерий закрытия:** подсистемные связи в `find_referencing_objects` с меткой `via: subsystem_member`
-
-
-
 - **relations-phase-4** · `blocked` · whitelist `Role` (MVP grants)
 
   - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 4; **blocked** без реальной выгрузки ролей
@@ -225,6 +165,16 @@
 - **relations-phase-5** · `blocked` · `EventSubscription`
 
   - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 5; **blocked** без реальной выгрузки
+
+
+
+- **refactor-god-modules** · `idea` · Декомпозиция крупных модулей перед фазой 4 dependency-layer
+
+  - **Зачем:** `server/tools.py`, `admin_tool/db_manager.py`, `shared/xml_parser.py`, `server/server.py` — по ~1.5–2.2k строк; риск регрессий при Role/EventSubscription
+
+  - **Scope (черновик):** выделить domain-пакеты (forms, relations, code search) без смены публичного API MCP
+
+  - **Когда:** перед `relations-phase-4`, не блокирует текущую эксплуатацию
 
 
 
@@ -290,16 +240,6 @@
   - **Приоритет:** низкий; не блокирует `gui-bulk-update` и фикс статуса
 
   - **Открыто:** оставаться на tkinter или рассматривать другой UI-слой
-
-
-
-- **whitelist-subsystem** · `idea` · Индексация подсистем (`Subsystem`)
-
-  - **Зачем:** навигация по структуре конфигурации, `subsystem_member` в `metadata_relations`
-
-  - **Материалы:** [`metadata-whitelist.md`](metadata-whitelist.md), [`dependency-layer.md`](dependency-layer.md) фаза 3; нужна выгрузка с `Subsystems/`
-
-  - **Tools:** `find_referencing_objects` (после type-system-phase-2)
 
 
 

@@ -44,7 +44,7 @@ flowchart LR
 
 **Domain-таблицы** (`fo_content_ref`, `scheduled_jobs`, …) сосуществуют с ядром; **не** дублировать их в `metadata_relations`.
 
-Подробная спека: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + формы)** реализован (`INDEXER_VERSION` 9); relations и `find_referencing_objects` — в backlog ([`todo.md`](todo.md)).
+Подробная спека: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + формы)**, **`find_referencing_objects`** (слоты + `metadata_relations` для подсистем) реализованы (`INDEXER_VERSION` 10); роли и подписки — в backlog ([`todo.md`](todo.md)).
 
 ### Принципы индексации
 
@@ -64,7 +64,7 @@ flowchart LR
 ### Приоритет tools для агента
 
 1. `get_object_structure` — структура и исходящие типы
-2. `find_referencing_objects` — обратные ссылки (фаза 2, в backlog)
+2. `find_referencing_objects` — обратные ссылки по слотам (**готово**)
 3. `get_functional_options` — ФО
 4. `search_code` — если метаданные не ответили
 

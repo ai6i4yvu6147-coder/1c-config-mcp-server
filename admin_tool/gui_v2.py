@@ -35,6 +35,10 @@ class AdminAppV2:
         
         self._create_widgets()
         self._load_projects()
+
+    def schedule_on_main(self, fn):
+        """Выполнить fn в главном потоке tkinter (безопасно из worker thread)."""
+        self.root.after(0, fn)
     
     def _create_widgets(self):
         """Создает элементы интерфейса"""
@@ -505,18 +509,24 @@ class AddDatabaseWindow:
     def _create_database_thread(self, name, db_type, db_filename, db_path):
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
-            
+
             if success:
                 db_id = self.main_app.pm.add_database(self.project["id"], name, db_type, db_filename)
                 self.main_app.pm.update_source_xml(self.project["id"], db_id, str(self.xml_path))
-                self.main_app._load_projects()
-                
-                messagebox.showinfo("Успех", "База данных создана успешно!")
-                self.window.destroy()
+
+                def on_success():
+                    self.main_app._load_projects()
+                    messagebox.showinfo("Успех", "База данных создана успешно!")
+                    self.window.destroy()
+
+                self.main_app.schedule_on_main(on_success)
         except Exception as e:
-            self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось создать БД:\n{format_build_error(e)}")
-            self.create_button.config(state=tk.NORMAL)
+            def on_error():
+                self.main_app._load_projects()
+                messagebox.showerror("Ошибка", f"Не удалось создать БД:\n{format_build_error(e)}")
+                self.create_button.config(state=tk.NORMAL)
+
+            self.main_app.schedule_on_main(on_error)
 
 class QuickUpdateDialog:
     """Диалог быстрого обновления"""
@@ -635,15 +645,21 @@ class QuickUpdateDialog:
     def _update_database_thread(self, db_path, xml_path):
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, xml_path)
-            
+
             if success:
-                self.main_app._load_projects()
-                messagebox.showinfo("Успех", "База данных обновлена успешно!")
-                self.window.destroy()
+                def on_success():
+                    self.main_app._load_projects()
+                    messagebox.showinfo("Успех", "База данных обновлена успешно!")
+                    self.window.destroy()
+
+                self.main_app.schedule_on_main(on_success)
         except Exception as e:
-            self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
-            self.quick_button.config(state=tk.NORMAL)
+            def on_error():
+                self.main_app._load_projects()
+                messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
+                self.quick_button.config(state=tk.NORMAL)
+
+            self.main_app.schedule_on_main(on_error)
 
 class UpdateDatabaseWindow:
     """Окно обновления базы данных"""
@@ -715,20 +731,27 @@ class UpdateDatabaseWindow:
     def _update_database_thread(self, db_path):
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
-            
+
             if success:
                 self.main_app.pm.update_source_xml(
                     self.project["id"],
                     self.database["id"],
-                    str(self.xml_path)
+                    str(self.xml_path),
                 )
-                self.main_app._load_projects()
-                messagebox.showinfo("Успех", "База данных обновлена успешно!")
-                self.window.destroy()
+
+                def on_success():
+                    self.main_app._load_projects()
+                    messagebox.showinfo("Успех", "База данных обновлена успешно!")
+                    self.window.destroy()
+
+                self.main_app.schedule_on_main(on_success)
         except Exception as e:
-            self.main_app._load_projects()
-            messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
-            self.update_button.config(state=tk.NORMAL)
+            def on_error():
+                self.main_app._load_projects()
+                messagebox.showerror("Ошибка", f"Не удалось обновить БД:\n{format_build_error(e)}")
+                self.update_button.config(state=tk.NORMAL)
+
+            self.main_app.schedule_on_main(on_error)
 
 
 def main():

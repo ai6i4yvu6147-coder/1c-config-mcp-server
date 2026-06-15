@@ -29,7 +29,7 @@
 ### Регламентные задания (`ScheduledJob`)
 
 - **Список:** `list_objects(object_type="ScheduledJob")`.
-- **Поиск по имени:** `find_object(name="...")` (частичное совпадение по `metadata_objects.name`).
+- **Поиск по имени или синониму:** `find_object(name="...")` (частичное совпадение по `metadata_objects.name` или `synonym`). `get_object_structure` разрешает объект по имени или синониму (точное и частичное).
 - **Детали:** `get_object_structure` → `method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, `key`, `description`.
 - **Процедуры общих модулей:** `get_module_procedures` для `CommonModule` — у процедур, на которые ссылается `MethodName` регл. задания, поле `used_in_scheduled_job: true` (в тексте — пометка `[регл. задание]`).
 - После изменений — пересоздать БД через `admin_tool`.
@@ -41,7 +41,7 @@
   - `route_points` — `{name, type, synonym, uuid, true_port?, false_port?}` (type: Start, Activity, Condition, Completion, Split, Join, …);
   - `route_transitions` — `{from, to, from_port?, title?}`.
 - В **текстовом ответе MCP**: компактный индекс точек по типам и **adjacency list** переходов (полный граф, включая Split/Join). Подписи веток условий — из `title` линии или «Да»/«Нет» по портам Condition.
-- После изменений схемы — пересоздать БД через `admin_tool` (`INDEXER_VERSION` 8+).
+- После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **10**).
 
 ### Type system (фаза 1 — реализовано)
 
@@ -54,19 +54,33 @@
   - `{ "kind": "primitive", "base_type": "Number", "qualifiers": { "digits": 10, "fraction": 2 } }`
   - составной тип — несколько элементов в `types`.
 - **`find_attribute`** — поле **`types`** вместо строки `attribute_type`.
-- **`list_objects` / `find_object`** — только `ConfigObject`; `TypeDescriptor` (примитивы) не показываются.
+- **`list_objects` / `find_object`** — только `ConfigObject`; `TypeDescriptor` (примитивы) не показываются. `find_object` ищет по **имени и синониму** объекта.
 
 **Не материализуются (MVP):** `DefinedType`, `AnyRef`, безымянный `TypeSet`.
 
-### Планируемые tools (relations, фаза 2+)
+### Обратный поиск (`find_referencing_objects`, фазы 2–3 — реализовано)
 
-Не реализовано. Спека: [`dependency-layer.md`](dependency-layer.md).
+Спека: [`dependency-layer.md`](dependency-layer.md).
 
-- **`find_referencing_objects`** — обратный поиск: кто ссылается на объект (слоты + `metadata_relations`); один tool, не пара incoming/outgoing.
-- Исходящие ссылки отдельным tool **не** планируются — покрываются `get_object_structure`.
+**Приоритет для агента:** «кто ссылается на этот справочник/документ» — `find_referencing_objects`, не `search_code`.
+
+- **`find_referencing_objects(object_name, project_filter, …)`** — обратный поиск через `metadata_type_slots` и `metadata_relations`:
+  - metadata: реквизиты (`via: attribute`), колонки ТЧ (`via: tabular_section_column`);
+  - формы: реквизиты формы (`via: form_attribute`), колонки реквизита формы (`via: form_attribute_column`);
+  - подсистемы: объект в Content (`via: subsystem_member`, поле `source_name` — строка `Type.Name`).
+- **`object_name`** — имя или синоним целевого объекта (как в `find_object` / `get_object_structure`).
+- **`max_results`** — лимит записей на базу (по умолчанию 100); при обрезке — `is_truncated: true`.
+- **`relation_kinds`** — фильтр `relation_kind` в `metadata_relations` (например `subsystem_member`); слоты metadata/форм всегда включаются. Пусто — все виды связей.
+- Роли, подписки — после фаз 4–5; ФО — **`get_functional_options`**.
+
+Исходящие ссылки отдельным tool **не** планируются — покрываются **`get_object_structure`**.
+
+### Планируемые tools (relations, фазы 4+)
+
+Спека: [`dependency-layer.md`](dependency-layer.md).
+
+- **`metadata_relations`** в `find_referencing_objects` — роли, подписки (фазы 4–5).
 - **`find_relation_path`** — позже, обход с `depth > 1`.
 
 ФО — по-прежнему **`get_functional_options`**; в общий graph **не** дублировать.
-
-Также планируется расширение **`find_object`** поиском по `synonym` (фаза 0, без новой схемы).
 
