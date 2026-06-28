@@ -6,6 +6,7 @@
 
 1. `docs/agent-onboarding.md`
 2. `docs/README.md` (оглавление)
+3. Интеграция с Admin Hub: `docs/admin-hub/integration.md`
 
 ### Самые важные правила
 

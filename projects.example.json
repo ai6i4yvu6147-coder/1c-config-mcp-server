@@ -1,15 +1,18 @@
 {
+  "schemaVersion": 1,
   "projects": [
     {
-      "id": "00000000-0000-0000-0000-000000000000",
+      "id": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
       "name": "Пример проекта",
       "active": true,
       "databases": [
         {
-          "id": "00000000-0000-0000-0000-000000000000",
+          "id": "2d90d4c4-4f2c-4c57-8d28-83c0c60db117",
           "name": "Основная конфигурация",
           "type": "base",
           "db_file": "example_base.db",
+          "source_path": "D:/1c-export",
+          "source_kind": "directory",
           "source_xml": "D:/1c-export/Configuration.xml"
         }
       ]

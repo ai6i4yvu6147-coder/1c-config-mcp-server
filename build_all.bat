@@ -3,7 +3,7 @@ echo Building all components...
 
 echo.
 call venv\Scripts\activate.bat
-echo [1/2] Building Admin Tool v2...
+echo [1/3] Building Admin Tool v2...
 pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
@@ -16,7 +16,7 @@ pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     admin_tool/gui_v2.py
 
 echo.
-echo [2/2] Building MCP Server...
+echo [2/3] Building MCP Server...
 pyinstaller --onedir --name "1c-config-server" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
@@ -30,6 +30,14 @@ pyinstaller --onedir --name "1c-config-server" --noconfirm ^
     server/server.py
 
 echo.
+echo [3/3] Building Admin Hub CLI...
+pyinstaller --onefile --name "1c-config-cli" --noconfirm ^
+    --hidden-import=sqlite3 ^
+    --hidden-import=json ^
+    --add-data "shared;shared" ^
+    admin_tool/cli.py
+
+echo.
 echo Creating Portable folder structure in parent directory...
 set "PORTABLE_ROOT=..\1c_config_mcp_server_Portable"
 if exist "%PORTABLE_ROOT%" rmdir /s /q "%PORTABLE_ROOT%"
@@ -41,6 +49,13 @@ xcopy /E /I /Y dist\1C-Config-Admin "%PORTABLE_ROOT%\Admin"
 echo Copying MCP Server...
 xcopy /E /I /Y dist\1c-config-server "%PORTABLE_ROOT%\Server"
 
+echo Copying Hub CLI...
+mkdir "%PORTABLE_ROOT%\Tools"
+copy /Y dist\1c-config-cli.exe "%PORTABLE_ROOT%\Tools\1c-config-cli.exe"
+
+echo Copying module manifest...
+copy /Y module.manifest.example.json "%PORTABLE_ROOT%\module.manifest.json"
+
 echo Creating launchers...
 echo @echo off > "%PORTABLE_ROOT%\Admin.bat"
 echo start "" "%%~dp0Admin\1C-Config-Admin.exe" >> "%PORTABLE_ROOT%\Admin.bat"
@@ -50,11 +65,12 @@ echo "%%~dp0Server\1c-config-server.exe" >> "%PORTABLE_ROOT%\Server.bat"
 
 echo.
 echo Done! Portable structure: %PORTABLE_ROOT%\
-echo     Admin/           - Admin GUI v2 (with Projects)
-echo     Server/          - MCP Server
-echo     databases/       - Created on first run (Admin or MCP)
-echo     projects.json    - Projects configuration
-echo     Admin.bat        - Launch Admin
-echo     Server.bat       - Launch Server (for testing)
+echo     Admin/                 - Admin GUI v2
+echo     Server/                - MCP Server
+echo     Tools/1c-config-cli.exe - Admin Hub protocol CLI
+echo     module.manifest.json   - Module manifest
+echo     databases/             - Created on first run
+echo     projects.json          - Projects configuration
+echo     Admin.bat / Server.bat - Launchers
 echo.
 echo Build completed successfully!

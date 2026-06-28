@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "moduleType": "config-mcp",
+  "moduleName": "1C Config MCP",
+  "moduleId": "1c-config-mcp",
+  "moduleVersion": "1.0.0",
+  "indexerVersion": 10,
+  "mode": "standalone",
+  "runtime": {
+    "kind": "python-exe",
+    "entryExe": "Server/1c-config-server.exe",
+    "adminExe": "Admin/1C-Config-Admin.exe",
+    "cliExe": "Tools/1c-config-cli.exe"
+  },
+  "paths": {
+    "root": ".",
+    "config": "projects.json",
+    "dataDir": "databases",
+    "logsDir": "logs",
+    "operationsLog": "logs/operations.log"
+  },
+  "capabilities": {
+    "inventory": true,
+    "status": true,
+    "configSync": true,
+    "headlessOps": false,
+    "healthCheck": true
+  },
+  "registry": {
+    "fragmentSchemaVersion": 1,
+    "exportCommand": "export-registry",
+    "applyCommand": "apply-registry"
+  },
+  "cliContract": {
+    "jsonEncoding": "utf-8",
+    "jsonBom": false
+  }
+}

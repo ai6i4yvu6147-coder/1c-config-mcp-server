@@ -389,18 +389,12 @@ class ConfigurationTools:
         """
         # Автоопределение путей если не указаны
         if projects_file is None or databases_dir is None:
-            if getattr(sys, 'frozen', False):
-                # Portable: exe в подпапке, поднимаемся на уровень выше
-                app_path = Path(sys.executable).parent
-                root = app_path.parent
-            else:
-                # Разработка: текущая папка - это корень
-                root = Path.cwd()
-            
+            from shared.runtime_paths import get_paths
+            paths = get_paths()
             if projects_file is None:
-                projects_file = root / "projects.json"
+                projects_file = paths.config
             if databases_dir is None:
-                databases_dir = root / "databases"
+                databases_dir = paths.data_dir
         
         self.pm = ProjectManager(str(projects_file), str(databases_dir))
         self.connections = {}

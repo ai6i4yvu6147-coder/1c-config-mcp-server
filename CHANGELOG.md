@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-06-28
+
+- **Admin Hub protocol v1.0.3 (UTF-8 JSON I/O):** `shared/cli_json.py` (`write_json_stdout` через `stdout.buffer`, `read_json_file` с reject BOM); все `--json` команды CLI; BOM reject на `apply-registry --input`; `cliContract` в manifest example; `docs/admin-hub/protocol-v1.0.3-addendum.md`; тесты `tests/test_cli_json_encoding.py`.
+- **Admin Hub Phase 2 (registry sync):** `apply-registry --input … --json` (patch default, snapshot, `removedIds`, atomic write `projects.json`); `shared/registry_apply.py`, `shared/source_path.py`, `shared/registry_ids.py`; `sourcePath`/`sourceKind` (directory → resolve `Configuration.xml`); strict UUID v4 на apply; export/status v1.0.2; `followUpOperations` при смене source; archive на apply — skip + warning (deviation); тесты `tests/test_registry_apply.py`.
+- **Документация Admin Hub:** addendum v1.0.2 в `docs/admin-hub/protocol-v1.0.2-addendum.md`; обновлены `integration.md`, README раздела.
+- **Admin Hub Phase 1 (read-only protocol):** `shared/runtime_paths.py`, `shared/hub_protocol.py`, `shared/index_status.py`, `admin_tool/cli.py` (`inventory`, `status`, `export-registry --json`); `module.manifest.example.json`; единый resolver путей в `ProjectManager` / MCP server; `build_all.bat` — `Tools/1c-config-cli.exe` и `module.manifest.json` в portable; `schemaVersion` в `projects.example.json`; тесты `tests/test_hub_protocol.py`.
+- **Документация Admin Hub:** направление интеграции модуля зафиксировано в `docs/admin-hub/` (`integration.md`, `protocol-v1.md`, `protocol-v1.0.1-addendum.md`); обновлены `docs/README.md`, `architecture.md`, `todo.md` (hub-protocol phase 1–3), `AGENTS.md`, `agent-onboarding.md`. Удалены черновики и дубликаты из корня репозитория (анкеты, концепт, старый protocol draft).
+
 ## 2026-06-15
 
 - **Dependency-layer фаза 3: `metadata_relations` + whitelist `Subsystem`:** парсер `_parse_subsystems()` (rglob, квалифицированные имена, `content_refs`, `child_subsystem_names`); таблица `metadata_relations` и `_link_subsystem_relations` при сборке БД; `find_referencing_objects` — UNION слотов и relations, фильтр `relation_kinds`, метка `via: subsystem_member`. `INDEXER_VERSION` увеличен до 10 — базы пересоздать из выгрузки. Тесты `tests/test_xml_parser_subsystem.py`, расширение `tests/test_find_referencing_objects.py`.

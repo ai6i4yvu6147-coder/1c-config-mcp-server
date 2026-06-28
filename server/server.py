@@ -11,24 +11,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from server.tools import ConfigurationTools, format_business_process_route_text
 from shared.metadata_type_resolver import format_types_for_text
+from shared.runtime_paths import get_paths
 
-# Определяем корневую папку проекта
-if getattr(sys, 'frozen', False):
-    # Запущено из exe: Portable/Server/1c-config-server.exe -> Portable/
-    application_path = Path(sys.executable).parent
-    project_root = application_path.parent
-else:
-    # Запущено из Python: project_root/server/server.py -> project_root/
-    application_path = Path(__file__).parent
-    project_root = application_path.parent
+_module_paths = get_paths()
 
 # Создаем сервер
 app = Server("1c-config-server")
 
 # Создаем инструменты с правильными путями
 tools = ConfigurationTools(
-    projects_file=str(project_root / "projects.json"),
-    databases_dir=str(project_root / "databases")
+    projects_file=str(_module_paths.config),
+    databases_dir=str(_module_paths.data_dir),
 )
 
 

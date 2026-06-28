@@ -93,6 +93,8 @@
 | Поиск РЗ по `MethodName` | **нет** — см. `scheduled-job-search` |
 
 | Admin GUI: массовое обновление, статус операции | **нет** — см. `gui-bulk-update` |
+| Admin Hub protocol Phase 1 (manifest, read-only CLI) | **готово** — см. CHANGELOG, [`admin-hub/integration.md`](admin-hub/integration.md) |
+| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 core **готово**; Phase 3 + `operations.log` — см. todo |
 
 | Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
 
@@ -125,6 +127,24 @@
   - **Связано с:** [`form-type-system.md`](form-type-system.md) (базовый type system форм **готово**); может потребовать bump `INDEXER_VERSION` и новые поля БД
 
   - **Не в текущей итерации** — отдельный backlog-пункт после v10
+
+
+
+- **hub-protocol-phase-2-ops** · `idea` · Admin Hub: operations.log append-only
+
+  - **Scope:** append audit trail при apply-registry / rebuild (путь из manifest `operationsLog`)
+
+  - **Критерий:** hub видит историю control-plane операций в JSONL
+
+  - **Связано с:** Phase 2 core (**готово** — apply-registry, sourcePath, UUID v4)
+
+
+
+- **hub-protocol-phase-3** · `idea` · Admin Hub Phase 3: headless rebuild
+
+  - **Scope:** `rebuild-index`, `rebuild-all`, `reconcile-markers`; связка с `gui-bulk-update`
+
+  - **Критерий:** пересборка индекса без tkinter
 
 
 

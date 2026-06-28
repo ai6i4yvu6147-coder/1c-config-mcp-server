@@ -11,6 +11,12 @@ flowchart LR
   Tools --> SQLite
 ```
 
+### Portable и Admin Hub (целевая модель)
+
+Сейчас модуль — автономный portable (`Admin/`, `Server/`, `projects.json`, `databases/`). Целевое направление — **managed tool** протокола Admin Hub: manifest + thin CLI + sync registry, без переноса hub в этот репозиторий. MCP server остаётся read-only адаптером; control-plane — CLI и GUI поверх общего service layer.
+
+Подробности: [`admin-hub/integration.md`](admin-hub/integration.md).
+
 ### Основные компоненты
 
 - **Парсер выгрузки 1С**: `shared/xml_parser.py`

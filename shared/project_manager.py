@@ -17,18 +17,12 @@ class ProjectManager:
         """
         # Автоопределение путей если не указаны
         if projects_file is None or databases_dir is None:
-            if getattr(sys, 'frozen', False):
-                # Portable: exe в подпапке, поднимаемся на уровень выше
-                app_path = Path(sys.executable).parent
-                root = app_path.parent
-            else:
-                # Разработка: текущая папка - это корень
-                root = Path.cwd()
-            
+            from shared.runtime_paths import get_paths
+            paths = get_paths()
             if projects_file is None:
-                projects_file = root / "projects.json"
+                projects_file = paths.config
             if databases_dir is None:
-                databases_dir = root / "databases"
+                databases_dir = paths.data_dir
         
         self.projects_file = Path(projects_file)
         self.databases_dir = Path(databases_dir)
@@ -58,6 +52,24 @@ class ProjectManager:
         """Сохранение проектов в JSON"""
         with open(self.projects_file, 'w', encoding='utf-8') as f:
             json.dump(self.projects, f, indent=2, ensure_ascii=False)
+        self._projects_file_mtime = self._get_projects_file_mtime()
+
+    def save_projects_atomic(self):
+        """Atomic write: temp file + os.replace (Admin Hub apply-registry)."""
+        self.projects_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.projects_file.with_suffix(".json.tmp")
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(self.projects, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, self.projects_file)
+            self._projects_file_mtime = self._get_projects_file_mtime()
+        except Exception:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise
     
     def create_project(self, name: str) -> str:
         """

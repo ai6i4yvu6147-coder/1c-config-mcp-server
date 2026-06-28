@@ -15,3 +15,9 @@
 9. `testing-protocol.md` — как здесь принято проверять изменения на «боевом» MCP.
 10. `performance.md` — заметки по узким местам и подходу к оптимизациям.
 
+### Admin Hub (интеграция с единой админкой)
+
+11. [`admin-hub/README.md`](admin-hub/README.md) — оглавление раздела.
+12. [`admin-hub/integration.md`](admin-hub/integration.md) — направление разработки **этого модуля** (principles, roadmap).
+13. [`admin-hub/protocol-v1.md`](admin-hub/protocol-v1.md) + addendum [v1.0.1](admin-hub/protocol-v1.0.1-addendum.md) + [v1.0.2](admin-hub/protocol-v1.0.2-addendum.md) — протокол экосистемы.
+
