@@ -8,6 +8,8 @@
 
 ## 2026-06-28
 
+- **Согласование registry Hub ↔ config-mcp (2026-06-28):** mapping в [`docs/admin-hub/integration.md`](docs/admin-hub/integration.md) § «Согласованный mapping»; архив в [`docs/hub-sync/`](docs/hub-sync/).
+- **Документация Remote Sync E2E:** контекст ConfigAdmin handoff (layout ExportRoot, полный цикл apply→rebuild, симптом «нет базы» после R1) — в [`docs/admin-hub/integration.md`](docs/admin-hub/integration.md); исходный handoff из корня не хранится.
 - **Admin Hub protocol v1.0.3 (UTF-8 JSON I/O):** `shared/cli_json.py` (`write_json_stdout` через `stdout.buffer`, `read_json_file` с reject BOM); все `--json` команды CLI; BOM reject на `apply-registry --input`; `cliContract` в manifest example; `docs/admin-hub/protocol-v1.0.3-addendum.md`; тесты `tests/test_cli_json_encoding.py`.
 - **Admin Hub Phase 2 (registry sync):** `apply-registry --input … --json` (patch default, snapshot, `removedIds`, atomic write `projects.json`); `shared/registry_apply.py`, `shared/source_path.py`, `shared/registry_ids.py`; `sourcePath`/`sourceKind` (directory → resolve `Configuration.xml`); strict UUID v4 на apply; export/status v1.0.2; `followUpOperations` при смене source; archive на apply — skip + warning (deviation); тесты `tests/test_registry_apply.py`.
 - **Документация Admin Hub:** addendum v1.0.2 в `docs/admin-hub/protocol-v1.0.2-addendum.md`; обновлены `integration.md`, README раздела.

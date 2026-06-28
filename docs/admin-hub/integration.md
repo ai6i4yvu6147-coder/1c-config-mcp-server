@@ -38,7 +38,30 @@ flowchart TB
 - отдаёт метаданные и код через MCP (read-only query plane);
 - управляет реестром проектов/баз через `projects.json` и admin GUI.
 
-Admin Hub владеет связями клиент → проект → инфобаза; этот модуль материализует свой фрагмент в `projects.json` и выполняет headless-операции (rebuild, status).
+Admin Hub владеет canonical registry (клиенты, выгрузки, связи); этот модуль материализует фрагмент в `projects.json` и выполняет headless-операции (rebuild, status).
+
+### Согласованный mapping Hub ↔ config-mcp (2026-06-28)
+
+**Статус:** agreed async (2026-06-28). Архив переписки: [`docs/hub-sync/`](../hub-sync/). Канонический addendum — `docs/admin-hub/registry-mapping.md` в репозитории Hub (`1c-admin-tool`).
+
+| Термин Hub | Термин config-mcp | Соотношение | Примечание |
+|------------|-------------------|-------------|------------|
+| **Client** | `projects[]` (элемент) | **1:1** (целевое) | `clientId` на project; `name` — для людей и `project_filter` в MCP |
+| **Infobase** | нет отдельной сущности | 1:N | Одна инфобаза 1С → 1..N `databases[]` (base + extensions) |
+| **ConfigurationExport** | `database` (`source_path`, `source_kind`) | **1:1** | Одна запись database на один export |
+| **ConfigurationTemplate** | `database.type` + `name` | N:1 | Отдельная таблица в config-mcp не нужна |
+| **Hub `projects`** (SQLite, v1.0.2 §10) | нет аналога | — | Внутренняя сущность Hub; в `projects.json` не материализуется |
+| **Task** | нет | — | Вне scope config-mcp |
+
+**Идентификаторы в fragment:**
+
+- `projectId` — стабильный UUID на **Client** (`clients.config_mcp_project_id` в целевой модели Hub); upsert в `projects[].id`.
+- `clientId` — **обязательно** в целевом fragment; reconcile portable по `clientId` без дубликатов.
+- `infobaseId` — **database registry id** = `ConfigurationExport.id` в Hub; **не** `Infobase.id`. В локальном JSON: `databases[].id`. Один `rebuild-index` на один такой id.
+
+**Целевой fragment:** один config-mcp project на Client, N `databases[]` (patch после каждого export). **R1** (ручной линк infobase→project, fragment 1:1:1) — переходный, не целевое поведение.
+
+**Rename:** ключи `project` / `projects.json` в config-mcp **не меняем**; mapping фиксируется текстом в протоколе.
 
 ### Принципы разработки (обязательные)
 
@@ -103,7 +126,53 @@ Portable root (после `build_all.bat`):
 
 **Export-only в fragment:** `indexStatus` (userVersion, isOutdated, isBuilding) — observational metadata.
 
-**ID mapping:** `projects[].id` → `projectId`, `databases[].id` → `infobaseId` в registry fragment; локальный json может сохранять поле `id` для обратной совместимости при чтении.
+**ID mapping:** `projects[].id` → `projectId`, `databases[].id` → `infobaseId` в registry fragment; локальный json может сохранять поле `id` для обратной совместимости при чтении. Семантика `infobaseId` — id **выгрузки** (`ConfigurationExport`), не подключения к инфобазе 1С; см. § «Согласованный mapping».
+
+### ConfigAdmin Remote Sync (контекст E2E, 2026-06-28)
+
+Первый production-like прогон **Remote Sync R1** (ConfigAdmin → RDP → Hub) подтвердил **доставку XML** на Hub. Полный MCP-цикл — отдельный шаг.
+
+| Шаг | R1 (transport) | Полный цикл (целевой) |
+|-----|----------------|------------------------|
+| Export на RDP (`DumpConfigToFiles`) | готово | готово |
+| Upload + распаковка в `{ExportRoot}` | готово | готово |
+| `apply-registry` (paths в `projects.json`) | опционально (`syncMcpAfterComplete`) | готово |
+| **`rebuild-index`** (XML → SQLite) | **нет** — только `followUpOperations` | Hub orchestration Phase 3 |
+| MCP search / tools | нет без rebuild | готово |
+
+**Симптом после R1:** файлы в ExportRoot есть, config-mcp «нет базы» / пустой index — **нормально**, если парсинг не запускался. Это не баг transport.
+
+**Канонический layout on disk** (локальная выгрузка и Remote Sync — один builder в Hub):
+
+```text
+{ExportRoot}/{ClientName}/{BaseName}/Основная конфигурация/
+  Configuration.xml
+  Catalogs/
+  Documents/
+  …
+```
+
+- `sourcePath` в fragment — **каталог** `…/Основная конфигурация`, не zip и не один файл.
+- `sourceKind` — `"directory"`.
+- Entry point парсера — `Configuration.xml` внутри каталога ([`shared/source_path.py`](../../shared/source_path.py)).
+- Расширения конфигурации в Remote Sync MVP — позже (R2); сейчас только основная.
+
+**Fragment от Hub** (v1.0.2, subprocess `apply-registry --input fragment.json --json`):
+
+- **R1 (сейчас):** `projectId` ← `infobases.config_mcp_project_id` (ручной линк), один database на sync.
+- **Целевой (registry R2):** `projectId` ← `clients.config_mcp_project_id`, `clientId` обязателен, N `databases[]` на Client; `infobaseId` = `ConfigurationExport.id` (не `Infobase.id`).
+- `sourcePath`, `sourceKind`, `platformVersion` (regex из пути к `1cv8.exe`).
+- Legacy `sourceXml` Hub **не** шлёт.
+
+**Триггеры sync с config-mcp:** локальная выгрузка + MCP; Remote Sync с `syncMcpAfterComplete`; ручной sync из WPF «MCP конфигураций».
+
+**Предусловия auto-sync после Remote Sync:** sync receiver на Hub; база привязана к project config-mcp; флаг `syncMcpAfterComplete` при создании job.
+
+**Операционно:** `sourcePath` — путь на **машине Hub**; portable config-mcp должен видеть тот же каталог (обычно Hub и MCP на одном хосте). Кириллица в путях — UTF-8 CLI v1.0.3.
+
+**Совместная проверка (кратко):** job `Completed` → `{ExportRoot}/…/Основная конфигурация/Configuration.xml` exists → `apply-registry` → **`rebuild-index --db-id <infobaseId>`** (Phase 3) → `status --json`: index актуален, MCP tools работают. До Phase 3 rebuild — вручную через GUI или CLI.
+
+**Не scope config-mcp:** transport RDP→Hub, pairing, WPF API, установка MCP на RDP.
 
 ### Протокол v1.0.2 — влияние на config-mcp
 
@@ -149,13 +218,14 @@ Portable root (после `build_all.bat`):
 
 **Осталось в backlog:** `operations.log` (append-only audit trail).
 
-#### Phase 3 — headless operations
+#### Phase 3 — headless operations — **P0 для Remote Sync E2E**
 
 - CLI: `rebuild-index`, `rebuild-all`, `reconcile-markers`
 - `--trigger-rebuild` на apply (optional)
 - связка с `gui-bulk-update` в backlog
+- **Блокер полного цикла Hub:** после `apply-registry` Hub ждёт `rebuild-index` по `followUpOperations` (ConfigAdmin orchestration — их Phase 3)
 
-**Критерий:** rebuild stale indexes без tkinter.
+**Критерий:** rebuild stale / новых indexes без tkinter; Remote Sync R1 + apply → MCP tools работают.
 
 ### Связь с существующим backlog
 
@@ -175,7 +245,7 @@ Portable root (после `build_all.bat`):
 
 ### Отклонения и версии
 
-При конфликте между v1, v1.0.1 и v1.0.2 — **приоритет у v1.0.2** ([`protocol-v1.0.2-addendum.md`](protocol-v1.0.2-addendum.md)).
+При конфликте между v1, v1.0.1, v1.0.2 и v1.0.3 — **приоритет у v1.0.3** ([`protocol-v1.0.3-addendum.md`](protocol-v1.0.3-addendum.md)).
 
 Планируемое отклонение (зафиксировать при реализации, если останется):
 
