@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from shared.cli_json import read_json_file
 from shared.db_build_state import is_stale_building
-from shared.index_status import build_index_status, collect_locks_for_db
+from shared.index_status import build_index_status, collect_locks_for_db, compute_index_readiness
 from shared.indexer_version import INDEXER_VERSION
 from shared.project_manager import ProjectManager
 from shared.registry_apply import run_apply_registry_from_data
@@ -116,6 +116,9 @@ def run_status(explicit_root: Optional[PathLike] = None) -> Dict[str, Any]:
                     "userVersion": idx["userVersion"],
                     "isOutdated": idx["isOutdated"],
                     "isBuilding": idx["isBuilding"],
+                    "indexReadiness": compute_index_readiness(
+                        db_path, source_path_exists=src_exists
+                    ),
                 }
             )
 

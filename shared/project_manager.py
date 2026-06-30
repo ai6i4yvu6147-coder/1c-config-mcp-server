@@ -227,6 +227,14 @@ class ProjectManager:
                 return db
         return None
 
+    def find_database_by_id(self, db_id: str) -> Optional[tuple]:
+        """Найти базу по infobaseId во всех проектах. Returns (project, db) or None."""
+        for project in self.get_all_projects():
+            db = self._find_database(project, db_id)
+            if db is not None:
+                return project, db
+        return None
+
 
 # Тестовая функция
 def test_project_manager():

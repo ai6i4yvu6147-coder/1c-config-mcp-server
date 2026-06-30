@@ -27,6 +27,9 @@ projects.json
 # Планы / заметки (служебные)
 plans/
 
+# Одноразовые handoff-отчёты для других команд (не коммитить)
+/HANDOFF-*.md
+
 # Claude Code (локальные worktrees, не в репозиторий)
 .claude/
 

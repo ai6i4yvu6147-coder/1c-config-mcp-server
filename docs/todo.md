@@ -74,7 +74,7 @@
 
 
 
-## Срез состояния (2026-06-15)
+## Срез состояния (2026-06-29)
 
 
 
@@ -94,7 +94,7 @@
 
 | Admin GUI: массовое обновление, статус операции | **нет** — см. `gui-bulk-update` |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **готово** — см. CHANGELOG, [`admin-hub/integration.md`](admin-hub/integration.md) |
-| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **готово**; Phase 3 **P0** (Remote Sync E2E) — см. todo, `integration.md` § Remote Sync |
+| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **готово**; Phase 3 rebuild CLI **готово**; `operations.log` — backlog; см. `integration.md` |
 
 | Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
 
@@ -136,19 +136,7 @@
 
   - **Критерий:** hub видит историю control-plane операций в JSONL
 
-  - **Связано с:** Phase 2 core (**готово** — apply-registry, sourcePath, UUID v4)
-
-
-
-- **hub-protocol-phase-3** · `ready` · Admin Hub Phase 3: headless rebuild
-
-  - **Scope:** `rebuild-index`, `rebuild-all`, `reconcile-markers`; связка с `gui-bulk-update`
-
-  - **Критерий:** пересборка индекса без tkinter; полный цикл Remote Sync / local export: `apply-registry` → `rebuild-index` → MCP tools
-
-  - **Контекст:** ConfigAdmin Remote Sync R1 (2026-06-28) — transport OK; без rebuild-index «файлы есть, базы нет» — ожидаемо. См. [`admin-hub/integration.md`](admin-hub/integration.md) § Remote Sync
-
-  - **P1 (после P0):** `status --json` — явнее различать «source на диске / index отсутствует» vs «index актуален»
+  - **Связано с:** Phase 2–3 core (**готово** — apply-registry, rebuild CLI)
 
 
 

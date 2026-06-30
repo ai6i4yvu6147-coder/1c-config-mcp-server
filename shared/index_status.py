@@ -44,6 +44,34 @@ def build_index_status(db_path: PathLike) -> Dict[str, Any]:
     }
 
 
+def compute_index_readiness(
+    db_path: PathLike,
+    *,
+    source_path_exists: bool,
+) -> str:
+    """
+    Hub-facing readiness label for a database index.
+
+    Returns one of: missing, building, outdated, current.
+    """
+    p = Path(db_path)
+    idx = build_index_status(p)
+
+    if idx["isBuilding"] and not is_stale_building(p):
+        return "building"
+
+    ver = idx["userVersion"]
+    db_missing = ver is None or ver == 0 or not p.is_file()
+
+    if source_path_exists and db_missing:
+        return "missing"
+
+    if idx["isOutdated"]:
+        return "outdated"
+
+    return "current"
+
+
 def collect_locks_for_db(db_path: PathLike, target_id: str) -> list:
     """Lock entries for status output (addendum §6.3 / §10.2)."""
     p = Path(db_path)

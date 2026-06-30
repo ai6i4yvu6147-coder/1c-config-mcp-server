@@ -11,3 +11,5 @@
 
 При доработках admin/CLI/sync под Admin Hub — следовать `docs/admin-hub/integration.md` и addendum v1.0.1; MCP tools остаются read-only query plane.
 
+Handoff-отчёты для других команд — эпиhemeral (`HANDOFF-*.md` в корне, не в git); канон интеграции только в `docs/admin-hub/`. См. `.cursor/rules/cross-team-handoff.mdc`.
+

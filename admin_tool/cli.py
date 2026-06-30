@@ -11,6 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared.cli_json import write_json_stdout
 from shared.hub_protocol import run_apply_registry, run_export_registry, run_inventory, run_status
+from shared.hub_rebuild import (
+    run_rebuild_all,
+    run_rebuild_index,
+    run_reconcile_markers,
+    run_triggered_rebuilds,
+)
 
 EXIT_SUCCESS = 0
 EXIT_VALIDATION = 1
@@ -35,6 +41,8 @@ def _build_parser() -> argparse.ArgumentParser:
         ("inventory", "Module inventory (JSON)"),
         ("status", "Module status and readiness (JSON)"),
         ("export-registry", "Export registry fragment (JSON)"),
+        ("rebuild-all", "Rebuild all databases with valid source (JSON)"),
+        ("reconcile-markers", "Remove stale build markers and orphaned .tmp (JSON)"),
     ):
         sp = sub.add_parser(name, help=help_text)
         sp.add_argument(
@@ -43,6 +51,19 @@ def _build_parser() -> argparse.ArgumentParser:
             default=True,
             help="JSON output on stdout (default: true)",
         )
+
+    rebuild_sp = sub.add_parser("rebuild-index", help="Rebuild one database index (JSON)")
+    rebuild_sp.add_argument(
+        "--db-id",
+        required=True,
+        help="infobaseId (database registry id)",
+    )
+    rebuild_sp.add_argument(
+        "--json",
+        action="store_true",
+        default=True,
+        help="JSON output on stdout (default: true)",
+    )
 
     apply_sp = sub.add_parser("apply-registry", help="Apply registry fragment (JSON)")
     apply_sp.add_argument(
@@ -56,6 +77,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("patch", "snapshot"),
         default="patch",
         help="Apply mode: patch (upsert-only, default) or snapshot",
+    )
+    apply_sp.add_argument(
+        "--trigger-rebuild",
+        action="store_true",
+        help="Run rebuild-index for each followUpOperations entry after apply",
     )
     apply_sp.add_argument(
         "--json",
@@ -72,6 +98,18 @@ def _emit_json(payload: object, use_json: bool) -> None:
     write_json_stdout(payload, indent=indent)
 
 
+def _rebuild_exit_code(payload: dict) -> int:
+    if payload.get("success"):
+        return EXIT_SUCCESS
+    if payload.get("result") == "busy":
+        return EXIT_RUNTIME
+    if payload.get("errors") and any(
+        "not found" in e.lower() for e in payload["errors"]
+    ):
+        return EXIT_VALIDATION
+    return EXIT_RUNTIME
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -85,8 +123,25 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_status(args.root)
         elif command == "export-registry":
             payload = run_export_registry(args.root)
+        elif command == "rebuild-index":
+            payload = run_rebuild_index(args.db_id, args.root)
+            _emit_json(payload, args.json)
+            return _rebuild_exit_code(payload)
+        elif command == "rebuild-all":
+            payload = run_rebuild_all(args.root)
+            _emit_json(payload, args.json)
+            return EXIT_SUCCESS if payload.get("success") else EXIT_RUNTIME
+        elif command == "reconcile-markers":
+            payload = run_reconcile_markers(args.root)
         elif command == "apply-registry":
             payload = run_apply_registry(args.input, args.root, apply_mode=args.apply_mode)
+            if payload.get("success") and args.trigger_rebuild:
+                follow_ups = (
+                    payload.get("postApplyActions") or {}
+                ).get("followUpOperations") or []
+                payload["triggeredRebuilds"] = run_triggered_rebuilds(
+                    follow_ups, explicit_root=args.root
+                )
             if not payload.get("success"):
                 _emit_json(payload, args.json)
                 if payload.get("errors"):

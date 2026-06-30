@@ -5,7 +5,7 @@
 - **Протокол:** v1 + addendum v1.0.1 + v1.0.2 + v1.0.3 (при конфликте — приоритет у **v1.0.3**).
 - **Phase 1 (read-only):** **реализован** — manifest example, `runtime_paths`, `hub_protocol`, CLI (`inventory`, `status`, `export-registry`), сборка `Tools/1c-config-cli.exe`.
 - **Phase 2 (registry sync):** **реализован (core)** — `apply-registry`, `sourcePath`/`sourceKind`, UUID v4, atomic write; `operations.log` — backlog.
-- **Phase 3:** не начат (`rebuild-index` CLI, `--trigger-rebuild`).
+- **Phase 3 (headless rebuild):** **реализован** — `rebuild-index`, `rebuild-all`, `reconcile-markers`, `--trigger-rebuild`; `indexReadiness` в status.
 - **Режим по умолчанию:** `standalone` portable; hub optional.
 
 **CLI (dev):**
@@ -13,6 +13,7 @@
 ```bash
 python -m admin_tool.cli --root /path/to/portable status --json
 python -m admin_tool.cli --root /path/to/portable apply-registry --input fragment.json --json
+python -m admin_tool.cli --root /path/to/portable rebuild-index --db-id <infobaseId> --json
 ```
 
 **Переопределение root:** `--root` или env `CONFIG_MCP_ROOT`.
@@ -87,7 +88,7 @@ Admin Hub владеет canonical registry (клиенты, выгрузки, �
 | `apply-registry` | **готово** (patch default, atomic write, UUID v4) |
 | `shared/cli_json.py` | **готово** (UTF-8 stdout/input, v1.0.3) |
 | `shared/source_path.py` | **готово** |
-| `rebuild-index` / `rebuild-all` / `reconcile-markers` | Phase 3 |
+| `rebuild-index` / `rebuild-all` / `reconcile-markers` | **готово** (`shared/hub_rebuild`, `admin_tool/cli`) |
 | `operations.log` | backlog (Phase 2 ops) |
 
 Portable root (после `build_all.bat`):
@@ -137,7 +138,7 @@ Portable root (после `build_all.bat`):
 | Export на RDP (`DumpConfigToFiles`) | готово | готово |
 | Upload + распаковка в `{ExportRoot}` | готово | готово |
 | `apply-registry` (paths в `projects.json`) | опционально (`syncMcpAfterComplete`) | готово |
-| **`rebuild-index`** (XML → SQLite) | **нет** — только `followUpOperations` | Hub orchestration Phase 3 |
+| **`rebuild-index`** (XML → SQLite) | **готово** (CLI + `followUpOperations`) | Hub orchestration (subprocess) |
 | MCP search / tools | нет без rebuild | готово |
 
 **Симптом после R1:** файлы в ExportRoot есть, config-mcp «нет базы» / пустой index — **нормально**, если парсинг не запускался. Это не баг transport.
@@ -170,7 +171,7 @@ Portable root (после `build_all.bat`):
 
 **Операционно:** `sourcePath` — путь на **машине Hub**; portable config-mcp должен видеть тот же каталог (обычно Hub и MCP на одном хосте). Кириллица в путях — UTF-8 CLI v1.0.3.
 
-**Совместная проверка (кратко):** job `Completed` → `{ExportRoot}/…/Основная конфигурация/Configuration.xml` exists → `apply-registry` → **`rebuild-index --db-id <infobaseId>`** (Phase 3) → `status --json`: index актуален, MCP tools работают. До Phase 3 rebuild — вручную через GUI или CLI.
+**Совместная проверка (кратко):** job `Completed` → `{ExportRoot}/…/Основная конфигурация/Configuration.xml` exists → `apply-registry` → **`rebuild-index --db-id <infobaseId>`** → `status --json`: `indexReadiness: "current"`, MCP tools работают.
 
 **Не scope config-mcp:** transport RDP→Hub, pairing, WPF API, установка MCP на RDP.
 
@@ -182,7 +183,7 @@ Portable root (после `build_all.bat`):
 | `sourcePath` + `sourceKind` вместо `sourceXml` | export/status/apply — **готово** | archive workflow — Phase 3 |
 | Strict UUID v4 для hub IDs | валидация в `apply-registry` | — |
 | Archive workflow (`sourceKind=archive`) | apply: skip + warning | полная поддержка — Phase 3 |
-| `followUpOperations` schema | apply-registry при смене sourcePath | rebuild CLI — Phase 3 |
+| `followUpOperations` schema | apply-registry при смене sourcePath | rebuild CLI — **готово** |
 | `staleAfterMs` в locks | опционально | улучшение `status` |
 | JSON Schema files | не в этом репо (пакет Hub) | при необходимости — fragment schema |
 | Subprocess CLI для config-mcp | **соответствует** (Phase 1 CLI) | — |
@@ -218,14 +219,82 @@ Portable root (после `build_all.bat`):
 
 **Осталось в backlog:** `operations.log` (append-only audit trail).
 
-#### Phase 3 — headless operations — **P0 для Remote Sync E2E**
+#### Phase 3 — headless operations — **готово**
 
-- CLI: `rebuild-index`, `rebuild-all`, `reconcile-markers`
-- `--trigger-rebuild` на apply (optional)
-- связка с `gui-bulk-update` в backlog
-- **Блокер полного цикла Hub:** после `apply-registry` Hub ждёт `rebuild-index` по `followUpOperations` (ConfigAdmin orchestration — их Phase 3)
+- `shared/hub_rebuild.py`, команды в `admin_tool/cli.py`
+- `rebuild-index --db-id <infobaseId>`, `rebuild-all`, `reconcile-markers`
+- `--trigger-rebuild` на `apply-registry` → `triggeredRebuilds[]`
+- `status --json`: поле `indexReadiness` на database
+- тесты `tests/test_hub_rebuild.py`
+- сборка: тот же `DatabaseManager.build_from_xml_atomic`, что GUI
 
-**Критерий:** rebuild stale / новых indexes без tkinter; Remote Sync R1 + apply → MCP tools работают.
+**Критерий:** rebuild без tkinter; Remote Sync apply → rebuild → MCP tools; Hub вызывает subprocess по `followUpOperations`.
+
+См. § **Phase 3 CLI** ниже.
+
+**Осталось в backlog:** `gui-bulk-update` (общий code path с `rebuild-all`), `operations.log`.
+
+### Phase 3 CLI (контракт для Hub)
+
+Реализация: [`shared/hub_rebuild.py`](../../shared/hub_rebuild.py), [`admin_tool/cli.py`](../../admin_tool/cli.py).
+
+**Вызов:**
+
+```text
+Tools/1c-config-cli.exe --root <portableRoot> <command> --json
+```
+
+| Команда | Аргументы | exit 0 | exit 1 | exit 3 |
+|---------|-----------|--------|--------|--------|
+| `rebuild-index` | `--db-id <infobaseId>` | успех | unknown id, нет source | build fail, `busy` |
+| `rebuild-all` | — | все ok | — | хотя бы одна fail |
+| `reconcile-markers` | — | всегда | — | — |
+
+**`rebuild-index` — успешный ответ:**
+
+```json
+{
+  "success": true,
+  "operation": "rebuild-index",
+  "operationRunId": "<uuid>",
+  "targetId": "<infobaseId>",
+  "result": "success",
+  "completedAt": "2026-06-29T12:00:00Z",
+  "durationMs": 4200,
+  "dbFile": "main.db",
+  "userVersion": 10,
+  "expectedVersion": 10,
+  "warnings": [],
+  "errors": []
+}
+```
+
+При активной сборке: `"result": "busy"`, `success: false`, exit 3.
+
+**`rebuild-all`:** `summary` + `results[]`; базы без source — `result: "skipped"`; continue-on-error.
+
+**`reconcile-markers`:** `removedMarkers`, `removedTmp`, `remainingMarkers`, `remainingTmp`.
+
+**`apply-registry --trigger-rebuild`:** после успешного apply выполняет rebuild для каждого `followUpOperations` с `command: "rebuild-index"`; результаты в `triggeredRebuilds[]`.
+
+**Hub orchestration:** после apply читать `postApplyActions.followUpOperations` и для каждой записи:
+
+```text
+rebuild-index --db-id <args.db-id> --json
+```
+
+`--db-id` = `infobaseId` = `ConfigurationExport.id` = `databases[].id`.
+
+**`status --json` — `indexReadiness` на database:**
+
+| Значение | Условие |
+|----------|---------|
+| `missing` | source есть, индекса нет |
+| `building` | активный не-stale `.building` |
+| `outdated` | `userVersion < INDEXER_VERSION` |
+| `current` | иначе |
+
+Во время rebuild: маркер `databases/<file>.building`, MCP помечает базу `is_updating` / lock `reason: "rebuild-index"`. Stale threshold (v1.0.2): 3600000 ms.
 
 ### Связь с существующим backlog
 
