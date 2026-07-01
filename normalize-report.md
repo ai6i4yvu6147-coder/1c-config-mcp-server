@@ -1,5 +1,7 @@
 # Отчёт о нормализации: 1c-config-mcp
 
+> **Current state (2026-07-02):** canon **2.4.0** · Sub · 1 agent (`doc-librarian`) · 4 skills · agent-cache docs English (`agent_docs_lang: en`). Authoritative metadata: [`docs/normalize-record.md`](docs/normalize-record.md). Sections below are historical normalize passes.
+
 **Дата:** 2026-06-30  
 **Роль:** Sub (subordinate)  
 **Канон:** 2.2.0 (Workspace improve)  
@@ -86,12 +88,98 @@ OK (0 warning(s))
 
 ## Следующие шаги
 
-1. Protocol reconcile с Head → `docs/group/protocol-ref/epoch1/` (skill `run-protocol-reconciliation`).
-2. После `stable` — дельты через inbox/outbox (`sync-relay.py`).
-3. Head: разместить канон в `docs/group/shared/` (маппинг с локальным `docs/admin-hub/`).
+1. Дельты после `stable` — skill **`sync`** + оператор по `OPERATOR-HANDOFF.md`.
+2. Head: поддерживать канон в `docs/group/shared/` (маппинг с локальным `docs/admin-hub/`).
 
 ---
 
 ## Урок (обратная связь WI)
 
-Предыдущий заход через устаревший `normalize-apply.py --upgrade-wi` перезаписал `requirements.txt` и скопировал лишнее (`templates/`, `protocol-ref/`). Текущая нормализация — по `initiators/subordinate.md` и канону 2.2.0 agent-first.
+Предыдущий заход через устаревший `normalize-apply.py --upgrade-wi` перезаписал `requirements.txt` и скопировал лишнее (`templates/`, `protocol-ref/`). Первая нормализация — по `initiators/subordinate.md` и канону 2.2.0 agent-first.
+
+---
+
+## Re-normalize 2.3.0
+
+**Дата:** 2026-07-01  
+**Канон:** WI **2.3.0** (operator handoff, unified skill `sync`)
+
+### Изменения layout
+
+| Было (2.2.0) | Стало (2.3.0) |
+|--------------|---------------|
+| 9 skills, 2 agents | 4 skills, 1 agent (`doc-librarian`) |
+| `scripts/sync-relay.py` | **Удалён** — оператор копирует outbox→inbox по `docs/group/OPERATOR-HANDOFF.md` |
+| 6 legacy group-sync skills | Единый skill **`sync`** |
+| `group-sync-arbitrator` agent | **Удалён** |
+| — | `docs/group/OPERATOR-HANDOFF.md`, `docs/group/templates/` |
+
+### Сохранено без изменений
+
+- `protocol_sync_state: stable`, epoch 0, `protocol-ref/epoch0/`
+- `docs/admin-hub/`, продуктовый код, `cross-team-handoff.mdc`
+- `requirements.txt` (merge, не overwrite)
+
+### project-doctor (2.3.0)
+
+```
+project-doctor: C:\projects\1c-config-mcp
+  type: Sub (canon 2.3.0)
+
+OK (0 warning(s))
+```
+
+### Entry-point docs
+
+Обновлены: `AGENTS.md`, `docs/README.md`, `docs/agent-onboarding.md`, `docs/todo.md`, `README_AI.md`, `CHANGELOG.md`.
+
+---
+
+## Re-normalize 2.4.0
+
+**Дата:** 2026-07-02  
+**Канон:** WI **2.4.0** (agent-cache tier English, language migration)
+
+### Removed (deprecations)
+
+Блок `2.3.0` из `normalize.deprecations.yaml` (local 2.3.0 → target 2.4.0):
+
+| Путь | Статус |
+|------|--------|
+| `scripts/sync-relay.py` | удалён (ранее 2.3.0) |
+| `.cursor/agents/group-sync-arbitrator.md` | удалён |
+| `.cursor/skills/emit-group-sync-packet` | удалён |
+| `.cursor/skills/process-group-inbox` | удалён |
+| `.cursor/skills/export-group-protocol` | удалён |
+| `.cursor/skills/import-group-protocol` | удалён |
+| `.cursor/skills/run-protocol-reconciliation` | удалён |
+| `.cursor/skills/review-protocol-diff` | удалён (subordinate) |
+
+### Изменения layout
+
+| Область | Действие |
+|---------|----------|
+| `docs/canons/` | Скопированы из WI (English, canon 2.4.0) |
+| `.cursor/skills/` | Обновлены из WI templates (English) |
+| `.cursor/agents/doc-librarian.md` | Обновлён (секция Language migration) |
+| `group.manifest.yaml` | `canon_version: 2.4.0` |
+| `scripts/project-doctor.py` | Обновлён (canon 2.4.0) |
+| Agent-cache tier docs | Переведены на English (`agent_docs_lang: en`) |
+
+### Сохранено без изменений
+
+- `protocol_sync_state: stable`, epoch 0, `protocol-ref/epoch0/` (значения полей)
+- `docs/admin-hub/`, продуктовый код, `cross-team-handoff.mdc`
+- `CHANGELOG.md`, `docs/group/OPERATOR-HANDOFF.md` (human tier)
+- `requirements.txt` (merge, не overwrite)
+- `protocol-ref/epoch0/protocol-v1*.md`, `registry-mapping.md` (технический контент)
+
+### project-doctor (2.4.0)
+
+```
+project-doctor: C:\projects\1c-config-mcp
+  type: Sub (canon 2.4.0)
+
+OK (0 warning(s))
+```
+

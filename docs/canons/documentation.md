@@ -1,12 +1,47 @@
-# Канон: документация
+# Canon: documentation
 
-Версия: **2.1.0**
+Version: **2.2.0**
 
-Единый порядок документации для **любого** проекта. Agent-facing материалы — **на русском** (если не оговорено иное).
+Unified documentation order for **any** project. Material in the **agent-cache tier** is **English**. Russian is allowed for **human-tier** docs and **product UI** (see below).
+
+On conflict during translation: preserve **meaning and canon structure**, not word-for-word Russian.
 
 ---
 
-## Уровни
+## Language tiers
+
+### Agent-cache tier (English)
+
+Paths the agent reads repeatedly in the pipeline. Full list also in `<WI>/normalize.bundle.yaml` → `agent_cache_tier`.
+
+| Scope | Paths |
+|-------|-------|
+| All roles | `README.md`, `AGENTS.md` |
+| All roles | `docs/README.md`, `docs/agent-onboarding.md`, `docs/architecture.md`, `docs/todo.md` |
+| All roles | `docs/canons/**` |
+| All roles | `.cursor/skills/**`, `.cursor/agents/**` |
+| Head (H) | `docs/group/README.md`, `docs/group/shared/**`, `docs/group/templates/**` |
+| Sub | `docs/group/integration.md`, `docs/group/protocol-ref/**`, `docs/group/templates/**` |
+
+**Exceptions:** files with `<!-- project-local: -->` at the top — do not translate or overwrite.
+
+**On re-normalize:** skill **`maintain-docs`** → **`doc-librarian`** translates agent-cache paths to English (merge, not blind replace). Track `agent_docs_lang: en` in `docs/normalize-record.md`.
+
+### Human tier (Russian OK)
+
+Not auto-translated on normalize:
+
+- `CHANGELOG.md`
+- `docs/group/OPERATOR-HANDOFF.md`
+- `docs/group/archive/` (historical negotiation records)
+
+### Product UI (out of scope)
+
+Russian UI strings, localization files, and UI specs under `src/` — maintained by developers; normalize does **not** touch them.
+
+---
+
+## Levels
 
 ```mermaid
 flowchart TB
@@ -20,64 +55,65 @@ flowchart TB
  Integ[integration.md]
  InS[inbox from head]
  OutS[outbox to head]
- LocalDocs[docs локальные]
+ LocalDocs[local docs]
  end
 
  Shared -->|critical change| OutH
- OutH -->|sync-relay| InS
- InS -->|agent merge| LocalDocs
- LocalDocs -->|critical change| OutS
- OutS -->|sync-relay| InH
- InH -->|agent merge| Shared
+ OutH -->|operator copy| InS
+ InS -->|skill sync| LocalDocs
+ LocalDocs -->|skill sync| OutS
+ OutS -->|operator copy| InH
+ InH -->|skill sync| Shared
 ```
 
 ---
 
-## Корень и docs/ (все типы)
+## Root and docs/ (all types)
 
-См. `project-structure.md`. Порядок чтения в `docs/README.md`:
+See `project-structure.md`. Reading order in `docs/README.md`:
 
 1. `agent-onboarding.md`
-2. `todo.md` — **включая необработанные пакеты в inbox**
+2. `todo.md` — **including unprocessed inbox packets**
 3. `architecture.md`
-4. Доменные спеки
-5. Для **Sub**: `group/integration.md`
+4. Domain specs (agent-read paths → English)
+5. For **Sub**: `group/integration.md`
 
 ---
 
-## Головной vs подчинённый
+## Head vs Sub
 
-| Тема | Head (H) | Sub |
-|------|----------|-----|
-| Канон общего протокола | `docs/group/shared/` | ссылка; правки по пакетам |
-| Локальная адаптация | — | `docs/` + `integration.md` |
-| Карта группы | `docs/group/README.md` | ссылка в `integration.md` |
-| Синхронизация | outbox/inbox per sub-id | inbox/outbox |
+| Topic | Head (H) | Sub |
+|-------|----------|-----|
+| Shared protocol canon | `docs/group/shared/` | reference; updates via packets |
+| Local adaptation | — | `docs/` + `integration.md` |
+| Group map | `docs/group/README.md` | link in `integration.md` |
+| Sync | outbox/inbox per sub-id | inbox/outbox |
 
-**Правило:** общее для группы — канон в Head `shared/`. Sub владеет **своей** версией направления в локальных спеках; обновляет их по **пакетам**, не копированием всего `shared/`.
-
----
-
-## Sync-пакеты (ephemeral)
-
-Не документация и не канон — **инструкция к правке**. Формат: `group-sync.md`, шаблон `templates/sync-packet.example.md`.
-
-После обработки агентом (skill `process-group-inbox`) — файл **удаляется**.
+**Rule:** group-wide canon lives in Head `shared/`. Sub owns **its** direction in local specs; updates via **packets**, not by copying all of `shared/`.
 
 ---
 
-## Политики обновления
+## Sync packets (ephemeral)
 
-1. Локальное изменение → доменный doc + `CHANGELOG.md`
-2. Критичное для группы в Head → правка `shared/` → пакет в outbox → `sync-relay.py --deliver`
-3. Критичное для общего пути в Sub → пакет в outbox → relay → Head обрабатывает inbox
-4. `info`-изменения — без пакета (достаточно CHANGELOG локально)
+Not documentation or canon — **edit instructions**. Format: `group-sync.md`, template `templates/sync-packet.example.md`.
+
+After agent processing (skill **`sync`**) — file is **deleted**.
 
 ---
 
-## Чеклист
+## Update policies
 
-- [ ] Тип S/H/Sub в `agent-onboarding.md`
-- [ ] inbox/outbox в `.gitignore`
-- [ ] Sub: нет коммитов пакетов
-- [ ] H: общие спеки только в `shared/`
+1. Local change → domain doc + `CHANGELOG.md`
+2. Group-critical in Head → edit `shared/` → skill `sync` → outbox → operator copies to Sub inbox
+3. Group-critical path in Sub → skill `sync` → outbox → operator copies to Head inbox
+4. `info` changes — no packet (local CHANGELOG is enough)
+
+---
+
+## Checklist
+
+- [ ] S/H/Sub type in `agent-onboarding.md`
+- [ ] inbox/outbox in `.gitignore`
+- [ ] Sub: no committed packets
+- [ ] H: shared specs only in `shared/`
+- [ ] Agent-cache tier in English (`agent_docs_lang: en` in normalize-record)

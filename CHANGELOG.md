@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-07-02
+
+- **Re-normalize 2.4.0 (Sub):** agent-cache tier на English (`agent_docs_lang: en`); каноны WI 2.4.0; skills/agents обновлены из WI templates; deprecations 2.3.0 подтверждены удалёнными; `project-doctor` 2.4.0. Состояние протокола без изменений.
+
+## 2026-07-01
+
+- **Re-normalize 2.3.0 (Sub):** layout 2 agents→1 (`doc-librarian`); skills 9→4 (`normalize-project`, `canon-align`, `maintain-docs`, `sync`); удалён `sync-relay.py`; добавлены `docs/group/OPERATOR-HANDOFF.md`, `docs/group/templates/`; entry-point docs обновлены. Состояние протокола (`stable`, epoch 0, `protocol-ref`) без изменений.
+
 ## 2026-06-30
 
 - **Дата последнего обновления базы:** mtime `.db` как `lastUpdatedAt` / `last_updated_at` — Admin GUI (колонка «Обновлена»), MCP `active_databases`, CLI `status` и `export-registry` (`indexStatus`); helper в `shared/index_status.py`.

@@ -1,6 +1,6 @@
-## Архитектура
+## Architecture
 
-### Поток данных (high level)
+### Data flow (high level)
 
 ```mermaid
 flowchart LR
@@ -11,67 +11,67 @@ flowchart LR
   Tools --> SQLite
 ```
 
-### Portable и Admin Hub (целевая модель)
+### Portable and Admin Hub (target model)
 
-Сейчас модуль — автономный portable (`Admin/`, `Server/`, `projects.json`, `databases/`). Целевое направление — **managed tool** протокола Admin Hub: manifest + thin CLI + sync registry, без переноса hub в этот репозиторий. MCP server остаётся read-only адаптером; control-plane — CLI и GUI поверх общего service layer.
+Currently the module is an autonomous portable (`Admin/`, `Server/`, `projects.json`, `databases/`). Target direction — **managed tool** of the Admin Hub protocol: manifest + thin CLI + sync registry, without moving the hub into this repo. MCP server remains a read-only adapter; control-plane — CLI and GUI over the shared service layer.
 
-Подробности: [`admin-hub/integration.md`](admin-hub/integration.md).
+Details: [`admin-hub/integration.md`](admin-hub/integration.md).
 
-### Основные компоненты
+### Main components
 
-- **Парсер выгрузки 1С**: `shared/xml_parser.py`
-  - Вход: путь к `Configuration.xml` в каталоге выгрузки.
-  - Выход: структура `data` (конфигурация, список объектов, их свойства/формы/модули).
-  - Важно: обработка типов метаданных ограничена whitelist’ом `object_types`.
+- **1C export parser**: `shared/xml_parser.py`
+  - Input: path to `Configuration.xml` in the export directory.
+  - Output: `data` structure (configuration, object list, properties/forms/modules).
+  - Important: metadata type handling is limited to the `object_types` whitelist.
 
-- **Построение SQLite БД**: `admin_tool/db_manager.py`
-  - Создаёт схему таблиц и загружает данные.
-  - Индексирует код модулей в FTS5 (`code_search`) и процедуры/функции (`module_procedures`).
-  - Важно: миграций нет — только пересоздание БД при изменениях (см. `docs/database.md`).
+- **SQLite DB builder**: `admin_tool/db_manager.py`
+  - Creates table schema and loads data.
+  - Indexes module code in FTS5 (`code_search`) and procedures/functions (`module_procedures`).
+  - Important: no migrations — only DB recreation on changes (see `docs/database.md`).
 
-- **MCP сервер**: `server/server.py`
-  - Регистрирует инструменты и отдаёт их MCP-клиенту.
+- **MCP server**: `server/server.py`
+  - Registers tools and exposes them to the MCP client.
 
-- **Инструменты MCP (запросы к SQLite)**: `server/tools.py`
-  - Читает список активных баз/проектов через `shared/project_manager.py` и runtime-конфиг `projects.json` (лежит рядом с portable-экземпляром, не в исходниках).
-  - Использует кэш соединений SQLite, инвалидируя соединение при изменении `mtime` файла базы.
+- **MCP tools (SQLite queries)**: `server/tools.py`
+  - Reads active databases/projects via `shared/project_manager.py` and runtime config `projects.json` (lives next to the portable instance, not in sources).
+  - Uses SQLite connection cache, invalidating the connection when the DB file `mtime` changes.
 
-### Ядро схемы данных (целевая модель)
+### Core data schema (target model)
 
-Три слоя — **не смешивать**:
+Three layers — **do not mix**:
 
-| Слой | Таблица | Назначение |
-|------|---------|------------|
-| Каталог | `metadata_objects` | Объекты конфигурации + синтетические `TypeDescriptor` (примитивы) |
-| Типовая система | `metadata_type_slots` | Типы реквизитов, колонок ТЧ, полей форм (FK, не строки) |
-| Структурные связи | `metadata_relations` | Подсистемы, роли, подписки — не выражается типом поля |
+| Layer | Table | Purpose |
+|-------|-------|---------|
+| Catalog | `metadata_objects` | Configuration objects + synthetic `TypeDescriptor` (primitives) |
+| Type system | `metadata_type_slots` | Attribute types, tabular section columns, form fields (FK, not strings) |
+| Structural relations | `metadata_relations` | Subsystems, roles, subscriptions — not expressible as field types |
 
-**Единый каталог:** ссылочный тип `CatalogRef.X` указывает **напрямую** на объект `Catalog.X` в `metadata_objects`. Отдельный каталог типов с обёртками вокруг объектов **не** используется.
+**Unified catalog:** reference type `CatalogRef.X` points **directly** to object `Catalog.X` in `metadata_objects`. A separate type catalog with wrappers around objects is **not** used.
 
-**Domain-таблицы** (`fo_content_ref`, `scheduled_jobs`, …) сосуществуют с ядром; **не** дублировать их в `metadata_relations`.
+**Domain tables** (`fo_content_ref`, `scheduled_jobs`, …) coexist with the core; **do not** duplicate them in `metadata_relations`.
 
-Подробная спека: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + формы)**, **`find_referencing_objects`** (слоты + `metadata_relations` для подсистем) реализованы (`INDEXER_VERSION` 10); роли и подписки — в backlog ([`todo.md`](todo.md)).
+Full spec: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + forms)**, **`find_referencing_objects`** (slots + `metadata_relations` for subsystems) are implemented (`INDEXER_VERSION` 10); roles and subscriptions — in backlog ([`todo.md`](todo.md)).
 
-### Принципы индексации
+### Indexing principles
 
-- Парсер **быстро** кладёт нормализованные факты; типы реквизитов/колонок metadata и **форм** — в `metadata_type_slots` (см. [`form-type-system.md`](form-type-system.md)).
-- **Сложная семантика выборки** — в tools; **технические индексы** (FTS, FK на слоты) — где иначе full scan.
-- Новые типы whitelist добавлять **точечно** по tier: лёгкие (Subsystem) → средние (Role MVP) → тяжёлые (СКД, RLS) отдельными эпиками.
-- Узкое место сборки на крупных конфигурациях — **формы и BSL**, не INSERT слотов типов.
+- The parser **quickly** stores normalized facts; attribute/column types for metadata and **forms** — in `metadata_type_slots` (see [`form-type-system.md`](form-type-system.md)).
+- **Complex query semantics** — in tools; **technical indexes** (FTS, FK on slots) — where otherwise full scan.
+- Add new whitelist types **incrementally** by tier: light (Subsystem) → medium (Role MVP) → heavy (DCS, RLS) as separate epics.
+- Build bottleneck on large configurations — **forms and BSL**, not type slot INSERTs.
 
-### Правила включения в `metadata_objects`
+### Rules for inclusion in `metadata_objects`
 
-Попадает только то, **на что есть ссылочные отношения**: объекты whitelist, `TypeDescriptor`, позже `DefinedType`.
+Only what **has reference relations**: whitelist objects, `TypeDescriptor`, later `DefinedType`.
 
-**Не класть по умолчанию:** XDTO целиком, служебные артефакты без FK.
+**Do not add by default:** XDTO wholesale, service artifacts without FK.
 
-Поле `object_kind`: `ConfigObject` | `TypeDescriptor`. Tools фильтруют `ConfigObject` для списков объектов.
+Field `object_kind`: `ConfigObject` | `TypeDescriptor`. Tools filter `ConfigObject` for object lists.
 
-### Приоритет tools для агента
+### Tool priority for the agent
 
-1. `get_object_structure` — структура и исходящие типы
-2. `find_referencing_objects` — обратные ссылки по слотам (**готово**)
-3. `get_functional_options` — ФО
-4. `search_code` — если метаданные не ответили
+1. `get_object_structure` — structure and outgoing types
+2. `find_referencing_objects` — reverse references by slots (**done**)
+3. `get_functional_options` — functional options
+4. `search_code` — when metadata did not answer
 
-См. [`mcp-tools.md`](mcp-tools.md).
+See [`mcp-tools.md`](mcp-tools.md).

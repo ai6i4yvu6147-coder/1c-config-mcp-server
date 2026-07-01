@@ -1,24 +1,26 @@
-# Каноны структуры проектов
+# Project structure canons
 
-Версия: **2.1.0**
+Version: **2.1.0**
 
-Универсальный стандарт для **любых** репозиториев. Не привязан к конкретному стеку или домену.
+Universal standard for **any** repository. Not tied to a specific stack or domain.
 
----
-
-## Три типа проекта
-
-| Код | Тип | Когда использовать |
-|-----|-----|-------------------|
-| **S** | Standalone (обычный) | Автономный проект без группы |
-| **H** | Head (головной) | Владеет общей документацией группы, координирует подчинённые |
-| **Sub** | Subordinate (подчинённый) | Входит в группу; локальные спеки + синхронизация через пакеты |
-
-Любой проект **сначала** соответствует базе **S**. Тип H и Sub — расширения поверх базы.
+Agent-cache tier paths — **English** (see `documentation.md`).
 
 ---
 
-## База (все типы: S, H, Sub)
+## Three project types
+
+| Code | Type | When to use |
+|------|------|-------------|
+| **S** | Standalone | Autonomous project, no group |
+| **H** | Head | Owns group shared docs, coordinates subordinates |
+| **Sub** | Subordinate | In a group; local specs + sync via packets |
+
+Every project **first** matches base **S**. H and Sub are extensions on top.
+
+---
+
+## Base (all types: S, H, Sub)
 
 ```
 <project>/
@@ -28,8 +30,8 @@
 ├── .gitignore
 ├── src/
 ├── tests/
-├── fixtures/               # опционально
-├── scripts/                # опционально
+├── fixtures/               # optional
+├── scripts/                # optional
 └── docs/
     ├── README.md
     ├── agent-onboarding.md
@@ -38,80 +40,80 @@
     └── …
 ```
 
-### Что не коммитить (все типы)
+### Do not commit (all types)
 
 - `venv/`, `node_modules/`, `build/`, `dist/`
-- Runtime-конфиги — только `*.example.json` / `.env.example`
+- Runtime configs — only `*.example.json` / `.env.example`
 - `plans/`, `scratch/`
-- **Транспорт группы:** `docs/group/inbox/`, `docs/group/outbox/` — ephemeral, в `.gitignore`
+- **Group transport:** `docs/group/inbox/`, `docs/group/outbox/` — ephemeral, in `.gitignore`
 
 ---
 
-## Расширение H (головной проект)
+## H extension (head project)
 
 ```
 <head>/
-├── …база S…
+├── …base S…
 ├── group.manifest.yaml
 └── docs/
     └── group/
         ├── README.md
-        ├── shared/              # КАНОН общей документации (редактируется только здесь)
+        ├── shared/              # SHARED canon (edited only here)
         ├── outbox/
-        │   └── <sub-id>/        # исходящие пакеты (gitignored)
+        │   └── <sub-id>/        # outgoing packets (gitignored)
         └── inbox/
-            └── <sub-id>/        # входящие от Sub (gitignored)
+            └── <sub-id>/        # incoming from Sub (gitignored)
 ```
 
-**Обязательно:** `group.manifest.yaml` (`role: head`), `docs/group/README.md`, `docs/group/shared/`
+**Required:** `group.manifest.yaml` (`role: head`), `docs/group/README.md`, `docs/group/shared/`
 
 ---
 
-## Расширение Sub (подчинённый проект)
+## Sub extension (subordinate project)
 
 ```
 <subordinate>/
-├── …база S…
-├── group.manifest.yaml          # рекомендуется: role subordinate + путь к Head
+├── …base S…
+├── group.manifest.yaml          # recommended: role subordinate + path to Head
 └── docs/
     └── group/
-        ├── integration.md       # связь с Head, локальные отклонения, last_sync_*
-        ├── inbox/               # пакеты от Head (gitignored)
-        └── outbox/              # пакеты для Head (gitignored)
+        ├── integration.md       # link to Head, local deviations, last_sync_*
+        ├── inbox/               # packets from Head (gitignored)
+        └── outbox/              # packets to Head (gitignored)
 ```
 
-**Обязательно:** `docs/group/integration.md`
+**Required:** `docs/group/integration.md`
 
-**Не делать в Sub:**
+**Do not in Sub:**
 
-- Держать канон общего протокола — только в Head `docs/group/shared/`
-- Коммитить sync-пакеты в git
-- Общаться с другими Sub напрямую — только через Head
+- Hold shared protocol canon — only in Head `docs/group/shared/`
+- Commit sync packets to git
+- Talk to other Subs directly — only via Head
 
 ---
 
-## Матрица обязательных элементов
+## Required elements matrix
 
-| Элемент | S | H | Sub |
+| Element | S | H | Sub |
 |---------|:-:|:-:|:-:|
 | `README.md`, `AGENTS.md`, `CHANGELOG.md` | ✅ | ✅ | ✅ |
 | `docs/{README,agent-onboarding,architecture,todo}.md` | ✅ | ✅ | ✅ |
-| `group.manifest.yaml` | — | ✅ | рекомендуется |
+| `group.manifest.yaml` | — | ✅ | recommended |
 | `docs/group/README.md` | — | ✅ | — |
 | `docs/group/shared/` | — | ✅ | — |
 | `docs/group/integration.md` | — | — | ✅ |
-| `docs/group/inbox/`, `outbox/` в `.gitignore` | — | ✅ | ✅ |
+| `docs/group/inbox/`, `outbox/` in `.gitignore` | — | ✅ | ✅ |
 
 ---
 
-## Запрещено (все типы)
+## Forbidden (all types)
 
-| Антипаттерн | Правильно |
-|-------------|-----------|
-| `readme.txt` вместо `README.md` | `README.md` |
-| Длинные спеки в корне | `docs/` |
-| Sync-пакеты в git | `.gitignore` + удаление после обработки |
-| Sub ↔ Sub напрямую | только через Head |
-| Зеркальная копия `shared/` в Sub | пакеты + локальная адаптация спек |
+| Anti-pattern | Correct |
+|--------------|---------|
+| `readme.txt` instead of `README.md` | `README.md` |
+| Long specs in root | `docs/` |
+| Sync packets in git | `.gitignore` + delete after processing |
+| Sub ↔ Sub directly | only via Head |
+| Mirror copy of `shared/` in Sub | packets + local spec adaptation |
 
-Шаблоны: `../../templates/standalone/`, `head/`, `subordinate/`
+Templates: `../../templates/standalone/`, `head/`, `subordinate/`

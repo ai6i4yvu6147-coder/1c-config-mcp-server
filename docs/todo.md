@@ -1,282 +1,200 @@
 # Project backlog
 
+Live list of open tasks and ideas for **1C configuration MCP server functionality** (parser, index, MCP tools, admin GUI). File in git — so after clone on another machine the current state is visible.
 
+**Do not duplicate** closed tasks and history here — only what is not done yet. Closed items — in [`CHANGELOG.md`](../CHANGELOG.md).
 
-Живой список невыполненных задач и идей по **функционалу MCP-сервера конфигурации 1С** (парсер, индекс, MCP tools, admin GUI). Файл в git — чтобы после clone на другой машине было видно текущее состояние.
+**Do not include** operational steps (portable rebuild, manual `databases/*.db` recreation by user, MCP setup in IDE) — those are not tool improvements.
 
+## Admin Hub / group integration
 
+- **Status:** `stable`, epoch 0 (see [`group/integration.md`](group/integration.md))
+- **Layout 2.4.0:** 1 subagent (`.cursor/agents/`: `doc-librarian`); 4 skills — `normalize-project`, `canon-align`, `maintain-docs`, `sync`
+- **Inbox:** before a session check `docs/group/inbox/`; if packets — skill **`sync`** (outbox→inbox delivery — [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md)), delete after processing
+- Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — backlog
 
-**Не дублировать** сюда закрытые задачи и историю — только то, что ещё не сделано. Закрытое — в [`CHANGELOG.md`](../CHANGELOG.md).
+## How to use
 
+| Role | Action |
+|------|--------|
+| Project owner | Adds items, changes status, removes completed |
+| Agent | On request reads the list, checks readiness for an item, suggests next step |
 
+## Statuses
 
-**Не включать** сюда эксплуатационные шаги (пересборка portable, пересоздание `databases/*.db` пользователем вручную, настройка MCP в IDE) — это не доработки инструмента.
+| Status | Meaning |
+|--------|---------|
+| `idea` | Intent, not yet shaped into a task |
+| `ready` | Task formulated, can be taken |
+| `blocked` | Waiting on external condition (export, scope decision) |
+| `in-progress` | In progress |
 
+When done, the item is **removed** from the list (or moved to CHANGELOG — by agreement).
 
+## Readiness check (for agent)
 
-## Как пользоваться
+On request "check todo" or "can we do X from the list":
 
+1. Read this file.
+2. For the relevant item — is there code/docs/tests in the repo; for parser — is a real export needed (see `agent-onboarding.md`).
+3. Answer: what is ready, what is missing, what blocks start.
 
-
-| Роль | Действие |
-
-|------|----------|
-
-| Владелец проекта | Добавляет пункты, меняет статус, убирает выполненное |
-
-| Агент | По запросу читает список, проверяет готовность к пункту, предлагает следующий шаг |
-
-
-
-## Статусы
-
-
-
-| Статус | Значение |
-
-|--------|----------|
-
-| `idea` | Намерение, ещё не оформлено в задачу |
-
-| `ready` | Задача сформулирована, можно брать в работу |
-
-| `blocked` | Ждёт внешнего условия (выгрузка, решение по scope) |
-
-| `in-progress` | В работе |
-
-
-
-При выполнении пункт **удаляется** из списка (или переносится в CHANGELOG — по согласованию).
-
-
-
-## Проверка готовности (для агента)
-
-
-
-По запросу «проверь todo» или «можно ли сделать X из списка»:
-
-
-
-1. Прочитать этот файл.
-
-2. Для релевантного пункта — есть ли в репозитории код/доки/тесты; для парсера — нужна ли реальная выгрузка (см. `agent-onboarding.md`).
-
-3. Ответить: что готово, чего не хватает, что блокирует старт.
-
-
-
-Не начинать реализацию по списку без явного запроса пользователя.
-
-
+Do not start implementation from the list without explicit user request.
 
 ---
 
+## State snapshot (2026-06-29)
 
-
-## Срез состояния (2026-06-29)
-
-
-
-| Область | Статус |
-
-|---------|--------|
-
-| `ScheduledJob` в whitelist, `scheduled_jobs`, `used_in_scheduled_job` | **готово** (см. CHANGELOG) |
-
-| Поиск РЗ через `list_objects` / `find_object` / `get_object_structure` | **готово** (по имени метаданных) |
-
-| Поиск объектов по **синониму** (`metadata_objects.synonym`) | **готово** (см. CHANGELOG) |
-
-| **`find_referencing_objects`** (обратный поиск по слотам) | **готово** (см. CHANGELOG) |
-
-| Поиск РЗ по `MethodName` | **нет** — см. `scheduled-job-search` |
-
-| Admin GUI: массовое обновление, статус операции | **нет** — см. `gui-bulk-update` |
-| Admin Hub protocol Phase 1 (manifest, read-only CLI) | **готово** — см. CHANGELOG, [`admin-hub/integration.md`](admin-hub/integration.md) |
-| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **готово**; Phase 3 rebuild CLI **готово**; `operations.log` — backlog; см. `integration.md` |
-
-| Admin GUI: лог этапов / тайминги сборки БД | **нет** — см. `gui-build-log-timings` |
-
-| Расширение whitelist (Role, EventSubscription, …) | **частично** — `Subsystem` готово (фаза 3); см. `dependency-layer.md` фазы 4–5 |
-
-| Type system (metadata + формы, `metadata_type_slots`) | **готово** — v8–9; текущий формат индекса — `INDEXER_VERSION` 10; см. CHANGELOG, [`form-type-system.md`](form-type-system.md) |
-
-| `metadata_relations` (подсистемы, роли, …) | **частично** — подсистемы (фаза 3, v10); роли/подписки — фазы 4–5 |
-
-
+| Area | Status |
+|------|--------|
+| `ScheduledJob` in whitelist, `scheduled_jobs`, `used_in_scheduled_job` | **done** (see CHANGELOG) |
+| Scheduled job search via `list_objects` / `find_object` / `get_object_structure` | **done** (by metadata name) |
+| Object search by **synonym** (`metadata_objects.synonym`) | **done** (see CHANGELOG) |
+| **`find_referencing_objects`** (reverse search by slots) | **done** (see CHANGELOG) |
+| Scheduled job search by `MethodName` | **no** — see `scheduled-job-search` |
+| Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
+| Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub/integration.md`](admin-hub/integration.md) |
+| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **done**; Phase 3 rebuild CLI **done**; `operations.log` — backlog; see `integration.md` |
+| Admin GUI: build stage log / timings | **no** — see `gui-build-log-timings` |
+| Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |
+| Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 10; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
+| `metadata_relations` (subsystems, roles, …) | **partial** — subsystems (phase 3, v10); roles/subscriptions — phases 4–5 |
 
 ---
 
+## Tasks
 
+<!-- id | status | brief | context / links -->
 
-## Задачи
+- **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
+  - **Why:** currently DynamicList in v1 — wrapper + `query_text` only; agent does not see main table/data source from Settings
 
+  - **Scope (draft):** `Settings/MainTable`, link to metadata object; optional DCS fields — refine against reference Form.xml (Scheduler, ARM)
 
-<!-- id | статус | кратко | контекст / ссылки -->
+  - **Related:** [`form-type-system.md`](form-type-system.md) (basic form type system **done**); may require bump `INDEXER_VERSION` and new DB fields
 
-
-
-- **form-dynamiclist-settings** · `idea` · Парсинг Settings динамического списка на форме (MainTable, СКД)
-
-  - **Зачем:** сейчас DynamicList в v1 — только wrapper + `query_text`; агент не видит главную таблицу/источник данных из Settings
-
-  - **Scope (черновик):** `Settings/MainTable`, связь с объектом метаданных; опционально поля СКД — уточнять по эталонным Form.xml (Планировщик, АРМ)
-
-  - **Связано с:** [`form-type-system.md`](form-type-system.md) (базовый type system форм **готово**); может потребовать bump `INDEXER_VERSION` и новые поля БД
-
-  - **Не в текущей итерации** — отдельный backlog-пункт после v10
-
-
+  - **Not in current iteration** — separate backlog item after v10
 
 - **hub-protocol-phase-2-ops** · `idea` · Admin Hub: operations.log append-only
 
-  - **Scope:** append audit trail при apply-registry / rebuild (путь из manifest `operationsLog`)
+  - **Scope:** append audit trail on apply-registry / rebuild (path from manifest `operationsLog`)
 
-  - **Критерий:** hub видит историю control-plane операций в JSONL
+  - **Criterion:** hub sees control-plane operation history in JSONL
 
-  - **Связано с:** Phase 2–3 core (**готово** — apply-registry, rebuild CLI)
+  - **Related:** Phase 2–3 core (**done** — apply-registry, rebuild CLI)
 
+- **gui-bulk-update** · `ready` · Bulk update all configurations + progress indicator
 
+  - **Task:** update all databases of all projects (or selected project) in one command, with saved `source_xml` paths
 
-- **gui-bulk-update** · `ready` · Массовая актуализация всех конфигураций + индикатор процесса
+  - **UI (minimum):** status line/header, e.g. "Updating project Hamburg, extension FT_Dorabotki"; progress (N of M) if possible
 
-  - **Задача:** обновить все базы всех проектов (или выбранного проекта) одной командой, с сохранёнными путями `source_xml`
+  - **Side:** `admin_tool/gui_v2.py`, `ProjectManager` (XML paths already in `projects.json`)
 
-  - **UI (минимум):** строка/заголовок состояния, напр. «Обновляется проект Гамбург, расширение ФТ_Доработки»; по возможности — прогресс (N из M)
+  - **Open:** stop on first error; update only stale or all
 
-  - **Сторона:** `admin_tool/gui_v2.py`, `ProjectManager` (пути к XML уже в `projects.json`)
+  - **Done when:** one button/action walks databases with `source_xml`; user sees current operation; tree is up to date on completion
 
-  - **Открыто:** останавливать ли при первой ошибке; обновлять ли только устаревшие или все
+- **scheduled-job-search** · `idea` · Scheduled job search by `MethodName`
 
-  - **Критерий закрытия:** одна кнопка/действие проходит по списку баз с `source_xml`; пользователь видит текущую операцию; по завершении дерево актуально
+  - **Problem:** procedure from `MethodName` (`CommonModule.X.Y`) is not found via `find_object`
 
+  - **Options:** extend `find_object` for ScheduledJob type · JOIN with `scheduled_jobs.method_name` · separate MCP tool
 
+  - **Materials:** `scheduled_jobs` table; on schema change — `bump-indexer-version.md`
 
-- **scheduled-job-search** · `idea` · Поиск регламентных заданий по `MethodName`
+  - **Not to confuse with** dependency layer (`dependency-layer.md`) — separate axis (handler, not metadata ref)
 
-  - **Проблема:** процедура из `MethodName` (`CommonModule.X.Y`) не ищется через `find_object`
-
-  - **Варианты:** расширить `find_object` для типа ScheduledJob · JOIN с `scheduled_jobs.method_name` · отдельный MCP tool
-
-  - **Материалы:** таблица `scheduled_jobs`; при доработке схемы — `bump-indexer-version.md`
-
-  - **Не путать с** dependency layer (`dependency-layer.md`) — это отдельная ось (handler, не metadata ref)
-
-  - **Критерий заключения:** запрос «найди РЗ для процедуры Y» даёт релевантный результат
-
-
+  - **Done when:** query "find scheduled job for procedure Y" returns relevant result
 
 - **relations-phase-4** · `blocked` · whitelist `Role` (MVP grants)
 
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 4; **blocked** без реальной выгрузки ролей
-
-
+  - **Spec:** [`dependency-layer.md`](dependency-layer.md) — phase 4; **blocked** without real role export
 
 - **relations-phase-5** · `blocked` · `EventSubscription`
 
-  - **Спека:** [`dependency-layer.md`](dependency-layer.md) — фаза 5; **blocked** без реальной выгрузки
+  - **Spec:** [`dependency-layer.md`](dependency-layer.md) — phase 5; **blocked** without real export
 
+- **refactor-god-modules** · `idea` · Decompose large modules before dependency-layer phase 4
 
+  - **Why:** `server/tools.py`, `admin_tool/db_manager.py`, `shared/xml_parser.py`, `server/server.py` — ~1.5–2.2k lines each; regression risk on Role/EventSubscription
 
-- **refactor-god-modules** · `idea` · Декомпозиция крупных модулей перед фазой 4 dependency-layer
+  - **Scope (draft):** extract domain packages (forms, relations, code search) without changing public MCP API
 
-  - **Зачем:** `server/tools.py`, `admin_tool/db_manager.py`, `shared/xml_parser.py`, `server/server.py` — по ~1.5–2.2k строк; риск регрессий при Role/EventSubscription
-
-  - **Scope (черновик):** выделить domain-пакеты (forms, relations, code search) без смены публичного API MCP
-
-  - **Когда:** перед `relations-phase-4`, не блокирует текущую эксплуатацию
-
-
+  - **When:** before `relations-phase-4`, does not block current operations
 
 ---
 
+## Ideas
 
+<!-- status: idea — no fixed scope -->
 
-## Идеи
+- **gui-build-log-timings** · `idea` · DB build stage log and timings on update form
 
+  - **Task:** on create/update DB form — scrollable list (like a log): lines as stages complete, with duration, e.g. `12:01:05 — XML parse — 412 s`, `12:07:12 — Objects (N) — …`, `12:14:03 — Forms — …`, `12:14:10 — fo_content_ref / scheduled job linking — 0.4 s`, `Done`
 
+  - **Why:** on large exports (Logist main) unclear if "hung" or long stage; timings show bottlenecks (parser vs forms vs other)
 
-<!-- статус: idea — без жёсткого scope -->
+  - **Side:** `admin_tool/db_manager.py` (stage breakdown + `time.perf_counter()`), `admin_tool/gui_v2.py` (log widget)
 
+  - **Why progress bar failed before (account for in implementation):**
+    - `DatabaseManager.create_database` already accepts `progress_callback`, but **GUI does not pass it** — all threads call `create_database(xml)` without callback (`CreateDatabaseWindow`, `QuickUpdateDialog`, `UpdateDatabaseWindow`)
+    - update runs in **background `threading.Thread`**; in tkinter **cannot** touch widgets from worker thread — only via `queue.Queue` + `root.after()` (or `after` with queue polling)
+    - current callbacks in `_insert_configuration` — only "Objects" / "Forms" every 10 objects; **no** messages for XML parse, `fo_content_ref`, `_link_scheduled_job_procedures`, commit — UI "silent" for minutes
 
+  - **Recommended MVP (simpler than progress bar):** append-only `ScrolledText` / `Listbox` + event queue; do not try smooth `%` first — discrete lines on **stage completion** enough. Progress bar — optional later if same `after` mechanism works
 
-- **gui-build-log-timings** · `idea` · Лог этапов сборки БД и замеры времени на форме обновления
+  - **tkinter constraint:** dynamic updates **possible**, but only with correct thread → queue → main loop; otherwise UI looks "dead". If `after` queue unreliable on long builds — document in item and consider UI alternative (`gui-redesign`)
 
-  - **Задача:** на форме создания/обновления БД — прокручиваемый список (как лог): строки по мере прохождения этапов, с длительностью, напр. `12:01:05 — Парсинг XML — 412 с`, `12:07:12 — Объекты (N) — …`, `12:14:03 — Формы — …`, `12:14:10 — fo_content_ref / линковка РЗ — 0.4 с`, `Готово`
+  - **Related:** `gui-bulk-update` (same log on bulk update)
 
-  - **Зачем:** на крупных выгрузках (Логист основная) непонятно, «зависло» или идёт долгий этап; замеры покажут узкие места (парсер vs формы vs прочее)
+  - **Done when:** on Logist main update log shows all major stages with seconds; UI updates during build without freezing
 
-  - **Сторона:** `admin_tool/db_manager.py` (разбивка этапов + `time.perf_counter()`), `admin_tool/gui_v2.py` (виджет лога)
+- **gui-cancel-build** · `idea` · Cancel DB load/update from GUI
 
-  - **Почему не сработал прогресс-бар раньше (учесть при реализации):**
-    - `DatabaseManager.create_database` уже принимает `progress_callback`, но **GUI его не передаёт** — все потоки вызывают `create_database(xml)` без callback (`CreateDatabaseWindow`, `QuickUpdateDialog`, `UpdateDatabaseWindow`)
-    - обновление идёт в **фоновом `threading.Thread`**; в tkinter **нельзя** трогать виджеты из worker-потока — только через `queue.Queue` + `root.after()` (или `after` с polling очереди)
-    - текущие callback в `_insert_configuration` — только «Объекты» / «Формы» раз в 10 объектов; **нет** сообщений на парсинг XML, `fo_content_ref`, `_link_scheduled_job_procedures`, commit — там UI «молчит» минутами
+  - **Task:** "Cancel" on create/update DB form — stop long build without closing entire admin tool
 
-  - **Рекомендуемый MVP (проще прогресс-бара):** append-only `ScrolledText` / `Listbox` + очередь событий; не пытаться сначала сделать плавный `%` — достаточно дискретных строк по **завершении** этапа. Прогресс-бар — опционально позже, если заработает тот же механизм `after`
+  - **Why:** on large configs (10–20+ min) user may pick wrong file, wrong database, or change mind; thread runs to end, window "silent"
 
-  - **Ограничение tkinter:** динамические оповещения **возможны**, но только с правильной связкой поток → очередь → главный loop; без этого UI кажется «мёртвым». Если `after`-очередь окажется ненадёжной на длинных сборках — зафиксировать в пункте и рассмотреть альтернативу UI (`gui-redesign`)
+  - **Side:** `admin_tool/gui_v2.py` (button, cancel flag, thread state), `admin_tool/db_manager.py` (cancel checks in long loops)
 
-  - **Связано с:** `gui-bulk-update` (тот же лог при массовом обновлении)
+  - **Technically (account for):**
+    - `threading.Thread` **cannot** be reliably killed externally — cooperative cancel: `threading.Event` / `should_cancel()` callback → checks in `_insert_configuration` (object/form loops), optionally in parser
+    - full XML parse (`parser.parse()`) **not interruptible** mid-way currently — accept "cancel after parse" or staged parse (separate work)
+    - on cancel: `rollback` / no `commit`, remove or do not leave broken `.db` (file often `unlink()` before build — document desired behavior)
+    - UI: button active only during build; on cancel — log entry (`gui-build-log-timings`) "Cancelled by user"
 
-  - **Критерий закрытия:** при обновлении Логист основная в логе видны все крупные этапы с секундами; UI обновляется во время сборки без зависания окна
+  - **Related:** `gui-build-log-timings`, `gui-bulk-update` (cancel one DB in batch / cancel whole batch — clarify)
 
+  - **Done when:** during build "Cancel" stops process in reasonable time (seconds, not minutes); no "half-ready" working DB left in `projects.json`/tree without explicit warning
 
-- **gui-cancel-build** · `idea` · Прерывание загрузки/обновления базы из GUI
+- **gui-redesign** · `idea` · Refresh admin GUI look (optional)
 
-  - **Задача:** кнопка «Отмена» на форме создания/обновления БД — остановить долгую сборку без закрытия всего admin tool
+  - **Context:** currently tkinter "utilitarian", like old software; improve readability, spacing, icons/colors, maybe `ttk` theme
 
-  - **Зачем:** на крупных конфигурациях (10–20+ мин) пользователь может ошибиться файлом, выбрать не ту базу или передумать; сейчас поток идёт до конца, окно «молчит»
+  - **Side:** `admin_tool/gui_v2.py`
 
-  - **Сторона:** `admin_tool/gui_v2.py` (кнопка, флаг отмены, состояние потока), `admin_tool/db_manager.py` (проверка отмены в длинных циклах)
+  - **Priority:** low; does not block `gui-bulk-update` and status fix
 
-  - **Технически (учесть):**
-    - `threading.Thread` **нельзя** надёжно убить извне — нужен cooperative cancel: `threading.Event` / callback `should_cancel()` → проверки в `_insert_configuration` (циклы объектов/форм), опционально в парсере
-    - парсинг XML целиком (`parser.parse()`) сейчас **не прерывается** на полпути — либо принять «отмена после парсинга», либо поэтапный парс (отдельная доработка)
-    - при отмене: `rollback` / не `commit`, удалить или не оставлять битый `.db` (сейчас перед сборкой файл часто `unlink()` — зафиксировать желаемое поведение)
-    - UI: кнопка активна только пока идёт сборка; по отмене — запись в лог (`gui-build-log-timings`) «Отменено пользователем»
+  - **Open:** stay on tkinter or consider another UI layer
 
-  - **Связано с:** `gui-build-log-timings`, `gui-bulk-update` (отмена одной базы в пакете / отмена всего пакета — уточнить)
+- **whitelist-role** · `idea` · Index roles (`Role`)
 
-  - **Критерий закрытия:** во время сборки «Отмена» останавливает процесс за разумное время (секунды, не минуты); в `projects.json`/дереве не остаётся «полуготовой» рабочей БД без явного предупреждения
+  - **Why:** `role_grant` in `metadata_relations`, rights analysis
 
+  - **Materials:** whitelist, [`dependency-layer.md`](dependency-layer.md) phase 4; **blocked** without real role export
 
-- **gui-redesign** · `idea` · Обновить внешний вид admin GUI (не обязательно)
+  - **Open:** MVP without full RLS model (rights in `source_path`)
 
-  - **Контекст:** сейчас tkinter «утилитарно», как старое ПО; улучшить читаемость, отступы, иконки/цвета, возможно `ttk` тема
+- **whitelist-event-subscription** · `idea` · Index event subscriptions (`EventSubscription`)
 
-  - **Сторона:** `admin_tool/gui_v2.py`
+  - **Why:** `event_source` / `event_handler` in `metadata_relations`
 
-  - **Приоритет:** низкий; не блокирует `gui-bulk-update` и фикс статуса
+  - **Materials:** whitelist, [`dependency-layer.md`](dependency-layer.md) phase 5; **blocked** without real export
 
-  - **Открыто:** оставаться на tkinter или рассматривать другой UI-слой
+  - **Open:** reverse index handler → subscriptions
 
+- **whitelist-http-service** · `idea` · Index HTTP services (`HTTPService`)
 
-
-- **whitelist-role** · `idea` · Индексация ролей (`Role`)
-
-  - **Зачем:** `role_grant` в `metadata_relations`, анализ прав
-
-  - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 4; **blocked** без реальной выгрузки ролей
-
-  - **Открыто:** MVP без полной модели RLS (права в `source_path`)
-
-
-
-- **whitelist-event-subscription** · `idea` · Индексация подписок на события (`EventSubscription`)
-
-  - **Зачем:** `event_source` / `event_handler` в `metadata_relations`
-
-  - **Материалы:** whitelist, [`dependency-layer.md`](dependency-layer.md) фаза 5; **blocked** без реальной выгрузки
-
-  - **Открыто:** обратный индекс handler → подписки
-
-
-
-- **whitelist-http-service** · `idea` · Индексация HTTP-сервисов (`HTTPService`)
-
-  - **Низкий приоритет** среди типов из whitelist-кандидатов; уточнять по запросу
-
-
+  - **Low priority** among whitelist candidates; refine on request

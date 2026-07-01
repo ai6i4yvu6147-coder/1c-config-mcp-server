@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка репозитория на соответствие канонам (2.2.0). Типы: S, H, Sub.
+Проверка репозитория на соответствие канонам (2.4.0). Типы: S, H, Sub.
 
 Usage:
   python project-doctor.py
@@ -44,7 +44,7 @@ REQUIRED: dict[str, list[str]] = {
     ],
 }
 
-GROUP_SCRIPTS = ("sync-relay.py", "protocol-snapshot.py", "sync-status.py")
+GROUP_SCRIPTS = ("protocol-snapshot.py", "sync-status.py")
 INTEGRATION_FIELDS = (
     "protocol_epoch",
     "protocol_sync_state",
@@ -140,7 +140,7 @@ def main() -> int:
     repo_type = args.type or detect_type(repo)
 
     print(f"project-doctor: {repo}")
-    print(f"  type: {repo_type} (canon 2.2.0)")
+    print(f"  type: {repo_type} (canon 2.4.0)")
 
     errors, warnings = check_repo(repo, repo_type)
 

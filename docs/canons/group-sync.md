@@ -1,74 +1,112 @@
-# Канон: синхронизация документации группы
+# Canon: group documentation sync
 
-Версия: **2.2.0**
+Version: **2.3.0**
 
-Пакетная синхронизация **Head ↔ Sub** (star-топология). Baseline протокола + дельты после `stable`.
-
----
-
-## Принципы
-
-1. **Head** — хранитель канона (`docs/group/shared/`).
-2. **Sub** — локальные спеки + `integration.md` + `protocol-ref/epoch<N>/`.
-3. **Sub ↔ Sub** — запрещено; только через Head.
-4. **Relay** переносит пакеты и snapshot-каталоги; **doc-librarian** правит docs; **group-sync-arbitrator** (H/Sub) — вердикты.
-5. Inbox/outbox **не в git**; `protocol-ref/` и `shared/` — коммитить.
+Packet sync **Head ↔ Sub** (star topology). Protocol baseline + deltas after `stable`. Operator manually copies files between repositories.
 
 ---
 
-## Состояния протокола
+## Principles
 
-| state | Значение |
-|-------|----------|
-| `negotiating` | offer / dispute / merge в процессе |
-| `stable` | Sub принял текущий `protocol_epoch` |
-| `stale` | Head поднял epoch; Sub ещё не принял ripple |
-
-Поля: `protocol_epoch`, `protocol_sync_state`, `stable_at`, `open_disputes`, `dispute_round` (max 3 → `defer_manual`).
-
-Head ведёт таблицу Sub в `docs/group/README.md`: `sub_id | epoch | state | last_ack`.
+1. **Head** — canon keeper (`docs/group/shared/`).
+2. **Sub** — local specs + `integration.md` + `protocol-ref/epoch<N>/`.
+3. **Sub ↔ Sub** — only via Head.
+4. **Inbox/outbox** — ephemeral, not in git; operator copies sender outbox → recipient inbox.
+5. **Review-snapshot** — on contract proposals, `review-snapshot-<ts>/` next to packet with doc copies for review.
+6. **Durable canon** — `shared/`, `protocol-ref/epoch<N>/`, `docs/group/archive/` after ack.
+7. **Mapping** — integration contracts in `docs/group/shared/` (e.g. `registry-mapping.md` in config-mcp).
 
 ---
 
-## Режимы синхронизации
+## Skills
 
-| Режим | Когда |
-|-------|-------|
-| **Baseline / reconcile** | Первое выравнивание, дрейф протокола |
-| **`sync_delta`** | После `stable` у группы |
+| Skill | Role | Purpose |
+|-------|------|---------|
+| `sync-base` | Head | Sub onboarding: full snapshot + `protocol_offer` in outbox |
+| `sync` | Head, Sub | Negotiation cycle + inbox processing |
 
-### Каскад
+Packet templates: `docs/group/templates/` (after normalize) or `../../templates/` in WI.
 
-offer → (librarian) → dispute/ack → (arbitrator на H) → merge → ripple → calm на всех Sub.
-
-Критичное изменение Sub A доходит до Sub B **только через Head**.
+Operator: `docs/group/OPERATOR-HANDOFF.md` — copy paths (filled on normalize). Human-tier — Russian OK.
 
 ---
 
-## Типы пакетов (`kind`)
+## Protocol states
 
-| kind | direction | Содержание |
-|------|-----------|------------|
-| `protocol_offer` | H→Sub | Snapshot-каталог + summary |
-| `protocol_dispute` | Sub→H | Расхождения, предложение Sub |
-| `protocol_merge` | H→Sub | Вердикт + изменения shared |
-| `protocol_ack` | любой | epoch принят → stable |
-| `protocol_ripple` | H→Sub | Канон изменён; новый offer |
-| `sync_delta` | любой | Дельта после stable |
+| state | Meaning |
+|-------|---------|
+| `negotiating` | offer / dispute / merge in progress |
+| `stable` | Sub accepted current `protocol_epoch` |
+| `stale` | Head raised epoch; Sub has not accepted ripple yet |
 
-Шаблон dispute: `../../templates/protocol-dispute.example.md`  
-Шаблон delta: `../../templates/sync-packet.example.md`
+Fields: `protocol_epoch`, `protocol_sync_state`, `stable_at`, `open_disputes`, `dispute_round` (max 3 → `defer_manual`).
+
+Head maintains Sub table in `docs/group/README.md`: `sub_id | epoch | state | last_ack`.
 
 ---
 
-## Топология и каталоги
+## Sync modes
+
+| Mode | When | Skill |
+|------|------|-------|
+| **Baseline** | First alignment, new Sub | `sync-base` |
+| **`sync_delta`** | Contract / delta after `stable` | `sync` |
+| **Ripple** | Epoch bump in `shared/` | `sync` + snapshot (see below) |
+
+### Negotiation cascade
+
+```
+sync_delta (proposal) → protocol_dispute → protocol_merge → protocol_ack → stable
+```
+
+or on onboarding:
+
+```
+protocol_offer → protocol_ack → stable
+```
+
+Critical change from Sub A reaches Sub B **only through Head**.
+
+---
+
+## Head: when to ripple
+
+| Situation | Action |
+|-----------|--------|
+| **Epoch bump** in `shared/`, affects all Subs | `protocol_ripple` + snapshot in outbox of each lagging Sub (`sync-base` style) |
+| **Single Sub contract** (mapping, addendum) | `sync` / `sync_delta` only to that Sub; no ripple if epoch unchanged |
+| **One Sub ack changed shared norm** others already installed | Optional ripple to affected Subs |
+
+---
+
+## Packet types (`kind`)
+
+| kind | direction | Content |
+|------|-----------|---------|
+| `protocol_offer` | H→Sub | Snapshot catalog + summary |
+| `protocol_dispute` | Sub→H | Accepted without dispute + gaps (D1, D2, …) |
+| `protocol_merge` | H→Sub | Verdict table by ID + shared changes |
+| `protocol_ack` | Sub→H | epoch accepted → stable |
+| `protocol_ripple` | H→Sub | Canon changed; new offer |
+| `sync_delta` | H→Sub | Delta / contract after stable |
+
+Dispute template: `protocol-dispute.example.md`  
+Delta template: `sync-packet.example.md`
+
+After processing: delete packet from inbox.
+
+---
+
+## Topology and directories
 
 ### Head
 
 ```
 docs/group/outbox/<sub-id>/<packet>.md
 docs/group/outbox/<sub-id>/protocol-snapshot-epoch<N>-<ts>/
+docs/group/outbox/<sub-id>/review-snapshot-<ts>/
 docs/group/inbox/<sub-id>/<packet>.md
+docs/group/archive/<sub-id>/          # committed, after ack
 ```
 
 ### Sub
@@ -76,13 +114,15 @@ docs/group/inbox/<sub-id>/<packet>.md
 ```
 docs/group/inbox/<packet>.md
 docs/group/inbox/protocol-snapshot-epoch<N>-<ts>/
+docs/group/inbox/review-snapshot-<ts>/
 docs/group/outbox/<packet>.md
-docs/group/protocol-ref/epoch<N>/    # stable copy, в git
+docs/group/protocol-ref/epoch<N>/    # stable copy, in git
+docs/group/templates/                 # packet templates
 ```
 
 ---
 
-## Формат пакета (общее)
+## Packet format (common)
 
 ```yaml
 ---
@@ -100,8 +140,6 @@ summary: |
 ---
 ```
 
-После обработки: удалить пакет из inbox.
-
 ---
 
 ## group.manifest.yaml
@@ -111,11 +149,11 @@ summary: |
 ```yaml
 group:
   id: <group-id>
-  canon_version: "2.2.0"
+  canon_version: "2.4.0"
 role: head
 subordinates:
   - id: <sub-id>
-    path: C:/projects/<sub-repo>
+    path: C:/projects/<sub-repo>   # for OPERATOR-HANDOFF.md
 ```
 
 ### Sub
@@ -127,45 +165,35 @@ group:
 role: subordinate
 head:
   id: <head-id>
-  path: C:/projects/<head-repo>
+  path: C:/projects/<head-repo>    # for OPERATOR-HANDOFF.md
 ```
 
 ---
 
-## Инструменты
+## Tools
 
 ```powershell
-python scripts/sync-relay.py --deliver --repo .
-python scripts/sync-relay.py --status --repo .
 python scripts/protocol-snapshot.py --export --repo . --sub <id>
+python scripts/protocol-snapshot.py --attach-review --repo . --sub <id> --files <paths...>
 python scripts/protocol-snapshot.py --install --repo .
 python scripts/sync-status.py --repo .
+python scripts/sync-status.py --operator-check --repo .
 ```
 
 ---
 
-## Субагенты и skills
+## Subagents
 
-| Агент | Роли |
-|-------|------|
-| `doc-librarian` | S, H, Sub |
-| `group-sync-arbitrator` | H, Sub |
-
-| Skill | Когда |
+| Agent | Roles |
 |-------|-------|
-| `export-group-protocol` | Head: offer |
-| `import-group-protocol` | Sub: принять offer |
-| `review-protocol-diff` | Sub: gate перед dispute |
-| `arbitrate-protocol-dispute` | Head: вердикт |
-| `run-protocol-reconciliation` | Полный цикл |
-| `emit-group-sync-packet` | Дельта после stable |
-| `process-group-inbox` | Входная точка inbox (маршрутизация по `kind`) |
-| `canon-align` | Структура репо через `project-doctor.py` |
+| `doc-librarian` | S, H, Sub — bulk doc edits (`maintain-docs`) |
 
-Шаблоны: `../../templates/skills/`, `../../templates/agents/`
+Group sync — skill `sync` / `sync-base`, not a separate subagent.
+
+Templates: `../../templates/skills/`, `../../templates/agents/`
 
 ---
 
-## Пример группы
+## Example group
 
 `../../examples/1c-cursor-group.manifest.yaml`

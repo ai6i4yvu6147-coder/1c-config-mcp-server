@@ -1,17 +1,17 @@
-# Интеграция с группой
+# Group integration
 
-## Головной проект
+## Head project
 
 - **group id:** `1c-cursor`
 - **head id:** `1c-admin-tool`
-- **путь:** `C:/projects/1c-admin-tool`
-- **канон протокола:** `C:/projects/1c-admin-tool/docs/group/shared/`
-- **карта группы (Head):** `C:/projects/1c-admin-tool/docs/group/README.md`
+- **path:** `C:/projects/1c-admin-tool`
+- **protocol canon:** `C:/projects/1c-admin-tool/docs/group/shared/`
+- **group map (Head):** `C:/projects/1c-admin-tool/docs/group/README.md`
 
-## Состояние протокола
+## Protocol state
 
-| Поле | Значение |
-|------|----------|
+| Field | Value |
+|-------|-------|
 | protocol_epoch | 0 |
 | protocol_sync_state | stable |
 | stable_at | 2026-06-30T06:30:05Z |
@@ -24,33 +24,34 @@
 
 `protocol_sync_state`: `negotiating` | `stable` | `stale`
 
-## Синхронизация (пакеты)
+## Sync (packets)
 
-- **inbox:** `docs/group/inbox/` — пакеты от Head (gitignored, обработать и удалить)
-- **outbox:** `docs/group/outbox/` — пакеты для Head → `sync-relay.py --deliver`
-- **protocol-ref:** `docs/group/protocol-ref/epoch<N>/` — зафиксированный baseline от Head (коммитить после reconcile)
+- **inbox:** `docs/group/inbox/` — packets from Head (gitignored, process and delete)
+- **outbox:** `docs/group/outbox/` — after skill **`sync`**
+- **operator:** copy between repos — [`OPERATOR-HANDOFF.md`](OPERATOR-HANDOFF.md)
+- **protocol-ref:** `docs/group/protocol-ref/epoch<N>/` — fixed baseline from Head (commit after reconcile)
 
-Перед работой: skill `process-group-inbox` или doc-librarian.
+Before work: skill **`sync`** (when the operator reports inbox is ready).
 
-## Версии синхронизации (дельты после stable)
+## Sync versions (deltas after stable)
 
-| Поле | Значение |
-|------|----------|
+| Field | Value |
+|-------|-------|
 | last_sync_from_head | |
 | last_sync_to_head | |
 
-## Локальные отклонения
+## Local deviations
 
-- **Операционный канон Hub:** [`docs/admin-hub/`](../admin-hub/) — локальная адаптация managed tool (маппинг на `docs/group/shared/` у Head; см. WI `examples/1c-cursor-group.manifest.yaml`).
-- **Admin Hub Phase 3:** headless `rebuild-index` / `rebuild-all` / `reconcile-markers` реализованы; контракт в [`integration.md`](../admin-hub/integration.md) § Phase 3 CLI.
-- **Ephemeral handoff:** отчёты для других команд — `HANDOFF-*.md` в корне (gitignored); правило [`.cursor/rules/cross-team-handoff.mdc`](../../.cursor/rules/cross-team-handoff.mdc).
-- **Структура кода:** `admin_tool/`, `server/`, `shared/` (не `src/`).
-- **protocol-ref:** `docs/group/protocol-ref/epoch0/` — Head baseline (epoch 0, v1.0.3); локальные указатели — `docs/admin-hub/`.
+- **Hub operational canon:** [`docs/admin-hub/`](../admin-hub/) — local managed tool adaptation (mapping to Head `docs/group/shared/`; see WI `examples/1c-cursor-group.manifest.yaml`).
+- **Admin Hub Phase 3:** headless `rebuild-index` / `rebuild-all` / `reconcile-markers` implemented; contract in [`integration.md`](../admin-hub/integration.md) § Phase 3 CLI.
+- **Ephemeral handoff:** reports for other teams — `HANDOFF-*.md` in repo root (gitignored); rule [`.cursor/rules/cross-team-handoff.mdc`](../../.cursor/rules/cross-team-handoff.mdc).
+- **Code layout:** `admin_tool/`, `server/`, `shared/` (not `src/`).
+- **protocol-ref:** `docs/group/protocol-ref/epoch0/` — Head baseline (epoch 0, v1.0.3); local pointers — `docs/admin-hub/`.
 
-## Статус
+## Status
 
-| Область | Статус | Примечание |
-|---------|--------|------------|
-| Hub / group integration | stable | epoch 0 принят; merge `20260630T162902`, v1.0.3 в protocol-ref |
-| Admin Hub Phase 3 CLI | готово | `shared/hub_rebuild.py`, `admin_tool/cli.py` |
-| Portable MCP runtime | автономен | Не зависит от Hub для query plane |
+| Area | Status | Note |
+|------|--------|------|
+| Hub / group integration | stable | epoch 0 accepted; merge `20260630T162902`, v1.0.3 in protocol-ref |
+| Admin Hub Phase 3 CLI | done | `shared/hub_rebuild.py`, `admin_tool/cli.py` |
+| Portable MCP runtime | autonomous | Does not depend on Hub for query plane |

@@ -4,6 +4,7 @@ Protocol snapshot export/install for Head -> Sub baseline sync.
 
 Usage:
   python protocol-snapshot.py --export --repo <head> --sub <sub-id> [--epoch N]
+  python protocol-snapshot.py --attach-review --repo <head> --sub <sub-id> --files <path> [<path> ...]
   python protocol-snapshot.py --install --repo <sub>
   python protocol-snapshot.py --status --repo <path>
 """
@@ -74,6 +75,10 @@ def _manifest_head(repo: Path) -> dict | None:
         return yaml.safe_load(f) or {}
 
 
+def _utc_ts() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+
+
 def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
     shared = _find_shared(repo)
     if not shared:
@@ -81,7 +86,7 @@ def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
         return 2
 
     ep = epoch if epoch is not None else _read_epoch(repo)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    ts = _utc_ts()
     dest_name = f"protocol-snapshot-epoch{ep}-{ts}"
     outbox = repo / GROUP / "outbox" / sub_id / dest_name
     outbox.mkdir(parents=True, exist_ok=True)
@@ -117,6 +122,39 @@ def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
         yaml.dump(snap, f, allow_unicode=True, default_flow_style=False)
 
     print(f"Exported {len(entries)} file(s) to {outbox}")
+    return 0
+
+
+def cmd_attach_review(repo: Path, sub_id: str, file_paths: list[str]) -> int:
+    if not file_paths:
+        print("--files required for attach-review", file=sys.stderr)
+        return 2
+
+    ts = _utc_ts()
+    dest_name = f"review-snapshot-{ts}"
+    outbox = repo / GROUP / "outbox" / sub_id / dest_name
+    outbox.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for rel in file_paths:
+        src = (repo / rel).resolve()
+        if not src.is_file():
+            print(f"[SKIP] not a file: {rel}", file=sys.stderr)
+            continue
+        try:
+            src.relative_to(repo.resolve())
+        except ValueError:
+            print(f"[SKIP] outside repo: {rel}", file=sys.stderr)
+            continue
+        dst = outbox / src.name
+        shutil.copy2(src, dst)
+        copied += 1
+
+    if copied == 0:
+        print("No files copied", file=sys.stderr)
+        return 2
+
+    print(f"Attached {copied} file(s) to {outbox}")
     return 0
 
 
@@ -187,10 +225,12 @@ def cmd_status(repo: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Protocol snapshot export/install")
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--sub", help="Sub module id (export)")
+    parser.add_argument("--sub", help="Sub module id (export / attach-review)")
     parser.add_argument("--epoch", type=int)
+    parser.add_argument("--files", nargs="+", help="Paths to copy into review-snapshot (attach-review)")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--export", action="store_true")
+    group.add_argument("--attach-review", action="store_true")
     group.add_argument("--install", action="store_true")
     group.add_argument("--status", action="store_true")
     args = parser.parse_args()
@@ -205,6 +245,11 @@ def main() -> int:
             print("--sub required for export", file=sys.stderr)
             return 2
         return cmd_export(repo, args.sub, args.epoch)
+    if args.attach_review:
+        if not args.sub:
+            print("--sub required for attach-review", file=sys.stderr)
+            return 2
+        return cmd_attach_review(repo, args.sub, args.files or [])
     if args.install:
         return cmd_install(repo)
     return cmd_status(repo)
