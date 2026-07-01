@@ -26,9 +26,14 @@ projects.json
 
 # Планы / заметки (служебные)
 plans/
+scratch/
 
 # Одноразовые handoff-отчёты для других команд (не коммитить)
 /HANDOFF-*.md
+
+# Транспорт группы (ephemeral)
+docs/group/inbox/
+docs/group/outbox/
 
 # Claude Code (локальные worktrees, не в репозиторий)
 .claude/

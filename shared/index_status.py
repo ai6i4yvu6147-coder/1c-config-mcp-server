@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -33,6 +35,24 @@ def is_index_outdated(db_path: PathLike) -> bool:
     return ver < INDEXER_VERSION
 
 
+def read_db_last_updated_at(db_path: PathLike) -> Optional[str]:
+    """mtime .db as ISO-8601 UTC (…Z); None if file missing."""
+    p = Path(db_path)
+    if not p.is_file():
+        return None
+    ts = os.path.getmtime(p)
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def format_last_updated_local(iso_z: Optional[str]) -> str:
+    """DD.MM.YYYY HH:MM in local TZ; empty string if None."""
+    if not iso_z:
+        return ""
+    dt = datetime.fromisoformat(iso_z.replace("Z", "+00:00"))
+    return dt.astimezone().strftime("%d.%m.%Y %H:%M")
+
+
 def build_index_status(db_path: PathLike) -> Dict[str, Any]:
     user_version = read_db_user_version(db_path)
     building = is_building(db_path)
@@ -41,6 +61,7 @@ def build_index_status(db_path: PathLike) -> Dict[str, Any]:
         "expectedVersion": INDEXER_VERSION,
         "isOutdated": is_index_outdated(db_path),
         "isBuilding": building,
+        "lastUpdatedAt": read_db_last_updated_at(db_path),
     }
 
 

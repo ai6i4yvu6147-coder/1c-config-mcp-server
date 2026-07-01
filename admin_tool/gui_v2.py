@@ -11,6 +11,7 @@ from admin_tool.db_manager import DatabaseManager, format_build_error
 from shared.project_manager import ProjectManager
 from shared.xml_parser import get_configuration_name, get_configuration_type
 from shared.indexer_version import INDEXER_VERSION
+from shared.index_status import read_db_last_updated_at, format_last_updated_local
 from shared.db_build_state import (
     is_building,
     is_stale_building,
@@ -25,7 +26,7 @@ class AdminAppV2:
     def __init__(self, root):
         self.root = root
         self.root.title(f"Администратор баз 1С-MCP v2 — формат индекса v{INDEXER_VERSION}")
-        self.root.geometry("1000x600")
+        self.root.geometry("1100x600")
         
         self.db_dir = Path("databases")
         self.db_dir.mkdir(exist_ok=True)
@@ -71,15 +72,17 @@ class AdminAppV2:
         self.tree.tag_configure("building_stale", foreground="#e65100")
         
         # Колонки
-        self.tree["columns"] = ("type", "file", "status")
-        self.tree.column("#0", width=320, minwidth=200)
-        self.tree.column("type", width=90, minwidth=70)
-        self.tree.column("file", width=240, minwidth=120)
-        self.tree.column("status", width=280, minwidth=180)
+        self.tree["columns"] = ("type", "file", "updated", "status")
+        self.tree.column("#0", width=280, minwidth=180)
+        self.tree.column("type", width=80, minwidth=60)
+        self.tree.column("file", width=200, minwidth=100)
+        self.tree.column("updated", width=130, minwidth=110)
+        self.tree.column("status", width=260, minwidth=160)
         
         self.tree.heading("#0", text="Название", anchor=tk.W)
         self.tree.heading("type", text="Тип", anchor=tk.W)
         self.tree.heading("file", text="Файл БД", anchor=tk.W)
+        self.tree.heading("updated", text="Обновлена", anchor=tk.W)
         self.tree.heading("status", text="Состояние", anchor=tk.W)
         
         # Привязка двойного клика для активации
@@ -144,7 +147,7 @@ class AdminAppV2:
         projects = self.pm.get_all_projects()
         
         if not projects:
-            self.tree.insert("", "end", text="(нет проектов)", values=("", "", ""))
+            self.tree.insert("", "end", text="(нет проектов)", values=("", "", "", ""))
             return
         
         for project in projects:
@@ -155,7 +158,7 @@ class AdminAppV2:
             project_item = self.tree.insert(
                 "", "end", 
                 text=project_text,
-                values=("Проект", "", ""),
+                values=("Проект", "", "", ""),
                 tags=("project", project["id"])
             )
             
@@ -187,10 +190,12 @@ class AdminAppV2:
                     status = f"Новее ПО (v{ver} > v{INDEXER_VERSION}) → обновите сервер"
                     db_tags = ("database", project["id"], db["id"], "newer_than_app")
                 
+                updated_label = format_last_updated_local(read_db_last_updated_at(db_path))
+
                 self.tree.insert(
                     project_item, "end",
                     text=db_text,
-                    values=(db["type"], db["db_file"], status),
+                    values=(db["type"], db["db_file"], updated_label, status),
                     tags=db_tags
                 )
     

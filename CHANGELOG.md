@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-30
+
+- **Дата последнего обновления базы:** mtime `.db` как `lastUpdatedAt` / `last_updated_at` — Admin GUI (колонка «Обновлена»), MCP `active_databases`, CLI `status` и `export-registry` (`indexStatus`); helper в `shared/index_status.py`.
+- **Нормализация Sub (канон 2.2.0):** agent-first по WI; `group.manifest.yaml`, `docs/group/integration.md`, `docs/canons/`, scripts (`project-doctor`, `sync-relay`, `sync-status`, `protocol-snapshot`), 9 skills + 2 agents; `README.md` вместо `readme.txt`; `pyyaml>=6.0` в requirements (без удаления `mcp`/`pyinstaller`); отчёт `normalize-report.md`.
+
 ## 2026-06-29
 
 - **Admin Hub Phase 3 (headless rebuild):** CLI `rebuild-index --db-id`, `rebuild-all`, `reconcile-markers`; `--trigger-rebuild` на `apply-registry` → `triggeredRebuilds[]`; `shared/hub_rebuild.py`, `find_database_by_id` в `ProjectManager`; `status --json` — `indexReadiness` на database; тесты `tests/test_hub_rebuild.py`; контракт в `docs/admin-hub/integration.md` § Phase 3 CLI.

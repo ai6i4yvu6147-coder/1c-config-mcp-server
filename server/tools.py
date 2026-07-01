@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.project_manager import ProjectManager
 from shared.indexer_version import INDEXER_VERSION
+from shared.index_status import read_db_last_updated_at
 from shared.db_build_state import is_building as _is_db_updating
 from shared.metadata_type_resolver import slot_to_mcp_type
 
@@ -490,6 +491,7 @@ class ConfigurationTools:
                 'type': db['db_type'],
                 'is_outdated': _is_db_outdated(db['db_path']),
                 'is_updating': _is_db_updating(db['db_path']),
+                'last_updated_at': read_db_last_updated_at(db['db_path']),
             })
         return {'projects': list(by_project.values())}
 

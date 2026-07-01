@@ -4,6 +4,8 @@
 
 Проект индексирует выгрузку конфигурации 1С (XML + BSL) в SQLite и предоставляет MCP-инструменты для поиска/анализа кода и метаданных.
 
+**Тип проекта:** Sub (subordinate) в группе `1c-cursor`; Head — `1c-admin-tool`. Синхронизация документации — пакетами через `docs/group/inbox/` и `outbox/` (см. `group/integration.md`). Перед работой проверьте inbox (skill `process-group-inbox`).
+
 ### Ключевые политики проекта (не нарушать)
 
 - **NO_DB_MIGRATIONS**: никогда не писать миграции/конвертации существующих SQLite-баз в `databases/`. После изменений схемы/логики импорта базы **всегда пересоздаются** через `admin_tool` из исходной выгрузки.
@@ -31,4 +33,5 @@
 - Детали type system форм, эталоны MCP: `form-type-system.md`
 - Протокол тестирования: `testing-protocol.md`
 - Интеграция с Admin Hub (направление, не блокирует текущую работу): `admin-hub/integration.md`
+- Группа и синхронизация с Head: `group/integration.md`
 

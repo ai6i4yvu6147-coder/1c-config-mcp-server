@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from server.tools import ConfigurationTools, format_business_process_route_text
 from shared.metadata_type_resolver import format_types_for_text
+from shared.index_status import format_last_updated_local
 from shared.runtime_paths import get_paths
 
 _module_paths = get_paths()
@@ -530,7 +531,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     suffix = " [!] устарела"
                 else:
                     suffix = ""
-                lines.append(f"  — {db['name']} ({db['type']}){suffix}")
+                updated = format_last_updated_local(db.get("last_updated_at"))
+                updated_part = f", обновлена {updated}" if updated else ""
+                lines.append(f"  — {db['name']} ({db['type']}){updated_part}{suffix}")
             lines.append("")
         return [TextContent(type="text", text="Активные проекты и базы:\n\n" + "\n".join(lines) if lines else "Нет активных проектов.")]
 

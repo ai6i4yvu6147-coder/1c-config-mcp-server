@@ -1,0 +1,18 @@
+created: 20260630T062240
+epoch: 0
+files:
+- path: protocol-v1.0.1-addendum.md
+  sha256: 139f33598a92c735
+- path: protocol-v1.0.2-addendum.md
+  sha256: c97b39e25b83c95d
+- path: protocol-v1.0.3-addendum.md
+  sha256: c9beef0eec38c6a0
+- path: protocol-v1.md
+  sha256: cb9909ee8467f8d0
+- path: README.md
+  sha256: f712d47b3a3d37ca
+- path: registry-mapping.md
+  sha256: 089d27b4be2771ad
+from: 1c-cursor
+snapshot_version: 1
+to: 1c-config-mcp

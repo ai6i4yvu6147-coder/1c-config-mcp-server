@@ -116,6 +116,7 @@ def run_status(explicit_root: Optional[PathLike] = None) -> Dict[str, Any]:
                     "userVersion": idx["userVersion"],
                     "isOutdated": idx["isOutdated"],
                     "isBuilding": idx["isBuilding"],
+                    "lastUpdatedAt": idx["lastUpdatedAt"],
                     "indexReadiness": compute_index_readiness(
                         db_path, source_path_exists=src_exists
                     ),

@@ -125,7 +125,7 @@ Portable root (после `build_all.bat`):
 - `PRAGMA user_version`, маркеры `.building` / `.tmp`
 - кэш SQLite в процессе MCP
 
-**Export-only в fragment:** `indexStatus` (userVersion, isOutdated, isBuilding) — observational metadata.
+**Export-only в fragment:** `indexStatus` (userVersion, isOutdated, isBuilding, lastUpdatedAt) — observational metadata. В `status --json` у каждой базы также поле `lastUpdatedAt` (mtime `.db`, ISO-8601 UTC).
 
 **ID mapping:** `projects[].id` → `projectId`, `databases[].id` → `infobaseId` в registry fragment; локальный json может сохранять поле `id` для обратной совместимости при чтении. Семантика `infobaseId` — id **выгрузки** (`ConfigurationExport`), не подключения к инфобазе 1С; см. § «Согласованный mapping».
 

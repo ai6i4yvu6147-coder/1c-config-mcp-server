@@ -15,8 +15,7 @@
 | [`protocol-v1.0.1-addendum.md`](protocol-v1.0.1-addendum.md) | все модули экосистемы | JSON-схемы, discovery, exit codes, sync |
 | [`protocol-v1.0.2-addendum.md`](protocol-v1.0.2-addendum.md) | все модули экосистемы | Phase 2/3: reconcile, sourcePath, IDs, followUpOperations (приоритет над v1.0.1) |
 | [`protocol-v1.0.3-addendum.md`](protocol-v1.0.3-addendum.md) | все модули экосистемы | UTF-8 JSON I/O для CLI stdout/input (приоритет над v1.0.2) |
-
-Mapping Hub ↔ config-mcp — в [`integration.md`](integration.md) § «Согласованный mapping»; канонический addendum в репозитории Hub (`1c-admin-tool`).
+| [`registry-mapping.md`](registry-mapping.md) | Hub ↔ config-mcp | указатель на канон в `protocol-ref/epoch0/` |
 
 ### Порядок чтения
 

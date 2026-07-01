@@ -1,0 +1,11 @@
+id: 1c-config-mcp
+
+group:
+  id: 1c-cursor
+  canon_version: "2.2.0"
+
+role: subordinate
+
+head:
+  id: 1c-admin-tool
+  path: C:/projects/1c-admin-tool

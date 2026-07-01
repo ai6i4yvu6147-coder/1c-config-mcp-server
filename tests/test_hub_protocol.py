@@ -1,9 +1,11 @@
 """Tests for Admin Hub protocol (Phase 1 read-only)."""
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -80,6 +82,8 @@ def _create_db(path: Path, user_version: int):
     conn.execute(f"PRAGMA user_version = {user_version}")
     conn.commit()
     conn.close()
+    fixed_ts = datetime(2026, 6, 20, 8, 15, 30, tzinfo=timezone.utc).timestamp()
+    os.utime(path, (fixed_ts, fixed_ts))
 
 
 def test_inventory_absolute_paths(portable_root):
@@ -103,6 +107,7 @@ def test_status_warnings_outdated_db(portable_root):
     assert result["details"]["configReadable"] is True
     assert any("outdated" in w.lower() for w in result["warnings"])
     assert result["projects"][0]["databases"][0]["isOutdated"] is True
+    assert result["projects"][0]["databases"][0]["lastUpdatedAt"] == "2026-06-20T08:15:30Z"
 
 
 def test_status_build_lock(portable_root):
@@ -133,8 +138,15 @@ def test_export_registry_fragment(portable_root):
     assert "sourceXml" not in db
     assert "indexStatus" in db
     assert db["indexStatus"]["expectedVersion"] >= 10
+    assert db["indexStatus"]["lastUpdatedAt"] == "2026-06-20T08:15:30Z"
     assert "db_file" not in db
     assert "dbFile" not in db
+
+
+def test_status_last_updated_at_missing_db(portable_root):
+    result = run_status(portable_root)
+    db = result["projects"][0]["databases"][0]
+    assert db["lastUpdatedAt"] is None
 
 
 def test_cli_status_json(portable_root):
