@@ -6,11 +6,13 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 **Do not include** operational steps (portable rebuild, manual `databases/*.db` recreation by user, MCP setup in IDE) — those are not tool improvements.
 
+## Hub pending
+
+_(none — populated by skill `sync` when the Head hub has threads awaiting this sub)_
+
 ## Admin Hub / group integration
 
 - **Status:** `stable`, epoch 0 (see [`group/integration.md`](group/integration.md))
-- **Layout 2.4.0:** 1 subagent (`.cursor/agents/`: `doc-librarian`); 4 skills — `normalize-project`, `canon-align`, `maintain-docs`, `sync`
-- **Inbox:** before a session check `docs/group/inbox/`; if packets — skill **`sync`** (outbox→inbox delivery — [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md)), delete after processing
 - Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — backlog
 
 ## How to use
@@ -36,7 +38,7 @@ When done, the item is **removed** from the list (or moved to CHANGELOG — by a
 On request "check todo" or "can we do X from the list":
 
 1. Read this file.
-2. For the relevant item — is there code/docs/tests in the repo; for parser — is a real export needed (see `agent-onboarding.md`).
+2. For the relevant item — is there code/docs/tests in the repo; for parser — is a real export needed (see `agent-map.md`).
 3. Answer: what is ready, what is missing, what blocks start.
 
 Do not start implementation from the list without explicit user request.
@@ -53,7 +55,7 @@ Do not start implementation from the list without explicit user request.
 | **`find_referencing_objects`** (reverse search by slots) | **done** (see CHANGELOG) |
 | Scheduled job search by `MethodName` | **no** — see `scheduled-job-search` |
 | Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
-| Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub/integration.md`](admin-hub/integration.md) |
+| Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **done**; Phase 3 rebuild CLI **done**; `operations.log` — backlog; see `integration.md` |
 | Admin GUI: build stage log / timings | **no** — see `gui-build-log-timings` |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |

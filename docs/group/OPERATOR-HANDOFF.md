@@ -1,52 +1,41 @@
-# Operator handoff — групповая синхронизация
+# Operator handoff — учётные данные и деплой
 
-Агенты пишут пакеты в **outbox**; оператор копирует в **inbox** соседнего репозитория и сообщает агенту: «inbox готов» / «обработай inbox».
-
----
-
-## Пути
-
-| Роль | Репозиторий |
-|------|-------------|
-| Head | `C:/projects/1c-admin-tool` |
-| Sub `1c-config-mcp` | `C:/projects/1c-config-mcp` |
+Human-tier — русский OK. В хаб-модели (canon 2.5.0) синхронизация протокола идёт через `GROUP-HUB.md` — оператор **не копирует пакеты** между репозиториями. За оператором остаются только вещи вне контекста агента: учётные данные и деплой.
 
 ---
 
-## Копирование
+## Репозитории группы
 
-### Head → Sub
+| Роль | Репозиторий | Путь |
+|------|-------------|------|
+| Head | `1c-admin-tool` | `C:/projects/1c-admin-tool` |
+| Sub `1c-config-mcp` | `1c-config-mcp` | `C:/projects/1c-config-mcp` |
 
-| Откуда | Куда |
-|--------|------|
-| `Head/docs/group/outbox/1c-config-mcp/*.md` | `Sub/docs/group/inbox/` |
-| `Head/docs/group/outbox/1c-config-mcp/protocol-snapshot-*` | `Sub/docs/group/inbox/` |
-| `Head/docs/group/outbox/1c-config-mcp/review-snapshot-*` | `Sub/docs/group/inbox/` |
-
-### Sub → Head
-
-| Откуда | Куда |
-|--------|------|
-| `Sub/docs/group/outbox/*.md` | `Head/docs/group/inbox/1c-config-mcp/` |
-| `Sub/docs/group/outbox/protocol-snapshot-*` | `Head/docs/group/inbox/1c-config-mcp/` |
+Хаб: `C:/projects/1c-admin-tool/GROUP-HUB.md`. Sub обращается к нему по `head.path` из `group.manifest.yaml`.
 
 ---
 
-## Чеклист цикла согласования
+## Учётные данные (не в контексте агента)
 
-1. Head: `/sync-base 1c-config-mcp` или `/sync 1c-config-mcp <topic>` → файлы в outbox Head.
-2. Оператор: копия в Sub inbox.
-3. Sub: «обработай inbox» (skill `sync`) → dispute или ack в outbox Sub.
-4. Оператор: копия в Head inbox.
-5. Head: «обработай inbox» → merge или закрытие ack.
-6. Повторять 2–5 до `protocol_ack` и stable.
-7. После ack: удалить обработанные файлы из inbox; убрать устаревшие пакеты из outbox отправителя.
-8. Inbox/outbox **не коммитить** в git.
+| Что | Где хранится | Кто выдаёт |
+|-----|--------------|-----------|
+| Transport / deploy creds | secrets store (operator) | оператор |
+
+Агент работает только с локальными хранилищами; секреты в контекст агента не попадают.
+
+---
+
+## Деплой / релиз
+
+| Шаг | Команда / действие | Ответственный |
+|-----|--------------------|---------------|
+| Portable build | `build_all.bat` | оператор / разработчик |
+| MCP reconnect | обновить путь к exe в конфиге IDE после переноса portable | оператор |
 
 ---
 
 ## Подсказка
 
 ```powershell
-python scripts/sync-status.py --operator-check --repo .
+python scripts/sync-status.py --repo .
 ```

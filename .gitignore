@@ -27,13 +27,13 @@ projects.json
 # Планы / заметки (служебные)
 plans/
 scratch/
+.tasks/
 
 # Одноразовые handoff-отчёты для других команд (не коммитить)
 /HANDOFF-*.md
 
-# Транспорт группы (ephemeral)
-docs/group/inbox/
-docs/group/outbox/
+# Group sync exports (ephemeral)
+docs/group/exports/
 
 # Claude Code (локальные worktrees, не в репозиторий)
 .claude/
@@ -44,6 +44,9 @@ docs/group/outbox/
 # VS Code
 .vscode/
 *.code-workspace
+
+# Cursor — только локальные настройки
+.cursor/settings.local.json
 
 # Временные файлы
 *.log

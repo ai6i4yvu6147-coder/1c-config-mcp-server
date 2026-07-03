@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Protocol snapshot export/install for Head -> Sub baseline sync.
+Protocol snapshot export/install for Head -> Sub sync (hub model, canon 2.5.0).
+
+Head exports a snapshot into docs/group/exports/<sub-id>/ (ephemeral, gitignored);
+the GROUP-HUB.md thread references that path. The Sub installs it from the Head
+path (via head.path) into its own docs/group/protocol-ref/epoch<N>/.
 
 Usage:
   python protocol-snapshot.py --export --repo <head> --sub <sub-id> [--epoch N]
   python protocol-snapshot.py --attach-review --repo <head> --sub <sub-id> --files <path> [<path> ...]
-  python protocol-snapshot.py --install --repo <sub>
+  python protocol-snapshot.py --install --repo <sub> --from <snapshot-dir>
   python protocol-snapshot.py --status --repo <path>
 """
 
@@ -24,6 +28,7 @@ except ImportError:
     yaml = None
 
 GROUP = Path("docs/group")
+EXPORTS = GROUP / "exports"
 SHARED_CANDIDATES = (
     GROUP / "shared",
     Path("docs/admin-hub"),
@@ -41,8 +46,8 @@ def _sha256(path: Path) -> str:
 
 def _find_shared(repo: Path) -> Path | None:
     for cand in SHARED_CANDIDATES:
-        if cand.is_dir() and any(cand.glob("protocol*.md")):
-            return cand
+        if (repo / cand).is_dir() and any((repo / cand).glob("protocol*.md")):
+            return repo / cand
     return None
 
 
@@ -54,10 +59,9 @@ def _collect_protocol_files(shared: Path) -> list[Path]:
 
 
 def _read_epoch(repo: Path) -> int:
-    readme = GROUP / "README.md"
-    if readme.is_file() and yaml is not None:
-        text = readme.read_text(encoding="utf-8", errors="replace")
-        for line in text.splitlines():
+    readme = repo / GROUP / "README.md"
+    if readme.is_file():
+        for line in readme.read_text(encoding="utf-8", errors="replace").splitlines():
             if "protocol_epoch" in line and "|" in line:
                 parts = [p.strip() for p in line.split("|") if p.strip()]
                 if parts and parts[-1].isdigit():
@@ -82,14 +86,13 @@ def _utc_ts() -> str:
 def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
     shared = _find_shared(repo)
     if not shared:
-        print(f"No protocol source in {repo} (expected docs/group/shared or docs/admin-hub)", file=sys.stderr)
+        print(f"No protocol source in {repo} (expected docs/group/shared)", file=sys.stderr)
         return 2
 
     ep = epoch if epoch is not None else _read_epoch(repo)
     ts = _utc_ts()
-    dest_name = f"protocol-snapshot-epoch{ep}-{ts}"
-    outbox = repo / GROUP / "outbox" / sub_id / dest_name
-    outbox.mkdir(parents=True, exist_ok=True)
+    dest = repo / EXPORTS / sub_id / f"protocol-snapshot-epoch{ep}-{ts}"
+    dest.mkdir(parents=True, exist_ok=True)
 
     files = _collect_protocol_files(shared)
     if not files:
@@ -101,11 +104,13 @@ def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
 
     entries = []
     for src in files:
-        rel = src.name
-        dst = outbox / rel
+        dst = dest / src.name
         shutil.copy2(src, dst)
-        entries.append({"path": rel, "sha256": _sha256(dst)})
+        entries.append({"path": src.name, "sha256": _sha256(dst)})
 
+    if yaml is None:
+        print("PyYAML required for SNAPSHOT.yaml", file=sys.stderr)
+        return 2
     snap = {
         "snapshot_version": 1,
         "epoch": ep,
@@ -114,14 +119,11 @@ def cmd_export(repo: Path, sub_id: str, epoch: int | None) -> int:
         "created": ts,
         "files": entries,
     }
-    snap_path = outbox / "SNAPSHOT.yaml"
-    if yaml is None:
-        print("PyYAML required for SNAPSHOT.yaml", file=sys.stderr)
-        return 2
-    with snap_path.open("w", encoding="utf-8") as f:
+    with (dest / "SNAPSHOT.yaml").open("w", encoding="utf-8") as f:
         yaml.dump(snap, f, allow_unicode=True, default_flow_style=False)
 
-    print(f"Exported {len(entries)} file(s) to {outbox}")
+    print(f"Exported {len(entries)} file(s) to {dest}")
+    print("Reference this path in the GROUP-HUB.md thread head_proposal.")
     return 0
 
 
@@ -130,10 +132,8 @@ def cmd_attach_review(repo: Path, sub_id: str, file_paths: list[str]) -> int:
         print("--files required for attach-review", file=sys.stderr)
         return 2
 
-    ts = _utc_ts()
-    dest_name = f"review-snapshot-{ts}"
-    outbox = repo / GROUP / "outbox" / sub_id / dest_name
-    outbox.mkdir(parents=True, exist_ok=True)
+    dest = repo / EXPORTS / sub_id / f"review-snapshot-{_utc_ts()}"
+    dest.mkdir(parents=True, exist_ok=True)
 
     copied = 0
     for rel in file_paths:
@@ -146,33 +146,21 @@ def cmd_attach_review(repo: Path, sub_id: str, file_paths: list[str]) -> int:
         except ValueError:
             print(f"[SKIP] outside repo: {rel}", file=sys.stderr)
             continue
-        dst = outbox / src.name
-        shutil.copy2(src, dst)
+        shutil.copy2(src, dest / src.name)
         copied += 1
 
     if copied == 0:
         print("No files copied", file=sys.stderr)
         return 2
 
-    print(f"Attached {copied} file(s) to {outbox}")
+    print(f"Attached {copied} file(s) to {dest}")
     return 0
 
 
-def _find_inbox_snapshot(repo: Path) -> Path | None:
-    inbox = repo / GROUP / "inbox"
-    if not inbox.is_dir():
-        return None
-    candidates = sorted(
-        (p for p in inbox.iterdir() if p.is_dir() and p.name.startswith("protocol-snapshot-")),
-        key=lambda p: p.name,
-    )
-    return candidates[-1] if candidates else None
-
-
-def cmd_install(repo: Path) -> int:
-    snap_dir = _find_inbox_snapshot(repo)
-    if not snap_dir:
-        print("No protocol-snapshot-* directory in docs/group/inbox/", file=sys.stderr)
+def cmd_install(repo: Path, source: str) -> int:
+    snap_dir = Path(source).expanduser().resolve()
+    if not snap_dir.is_dir():
+        print(f"Snapshot dir not found: {snap_dir} (path from the hub thread)", file=sys.stderr)
         return 2
 
     snap_file = snap_dir / "SNAPSHOT.yaml"
@@ -191,12 +179,10 @@ def cmd_install(repo: Path) -> int:
 
     count = 0
     for item in snap_dir.iterdir():
-        if item.name == "SNAPSHOT.yaml":
-            shutil.copy2(item, dest_root / item.name)
-            continue
         if item.is_file():
             shutil.copy2(item, dest_root / item.name)
-            count += 1
+            if item.name != "SNAPSHOT.yaml":
+                count += 1
 
     print(f"Installed {count} protocol file(s) to {dest_root}")
     return 0
@@ -207,6 +193,12 @@ def cmd_status(repo: Path) -> int:
     shared = _find_shared(repo)
     print(f"  shared source: {shared or '(none)'}")
 
+    exports = repo / EXPORTS
+    if exports.is_dir():
+        for sub_dir in sorted(p for p in exports.iterdir() if p.is_dir()):
+            snaps = [d.name for d in sorted(sub_dir.iterdir()) if d.is_dir()]
+            print(f"  exports/{sub_dir.name}: {len(snaps)} snapshot(s)")
+
     ref = repo / GROUP / "protocol-ref"
     if ref.is_dir():
         for d in sorted(ref.iterdir()):
@@ -215,19 +207,16 @@ def cmd_status(repo: Path) -> int:
                 print(f"  protocol-ref/{d.name}: {n} file(s)")
     else:
         print("  protocol-ref: (none)")
-
-    snap = _find_inbox_snapshot(repo)
-    if snap:
-        print(f"  inbox pending: {snap.name}")
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Protocol snapshot export/install")
+    parser = argparse.ArgumentParser(description="Protocol snapshot export/install (hub model)")
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--sub", help="Sub module id (export / attach-review)")
     parser.add_argument("--epoch", type=int)
-    parser.add_argument("--files", nargs="+", help="Paths to copy into review-snapshot (attach-review)")
+    parser.add_argument("--files", nargs="+", help="Paths to copy into a review snapshot (attach-review)")
+    parser.add_argument("--from", dest="source", help="Snapshot dir to install (path from the hub thread)")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--export", action="store_true")
     group.add_argument("--attach-review", action="store_true")
@@ -251,7 +240,10 @@ def main() -> int:
             return 2
         return cmd_attach_review(repo, args.sub, args.files or [])
     if args.install:
-        return cmd_install(repo)
+        if not args.source:
+            print("--from <snapshot-dir> required for install", file=sys.stderr)
+            return 2
+        return cmd_install(repo, args.source)
     return cmd_status(repo)
 
 

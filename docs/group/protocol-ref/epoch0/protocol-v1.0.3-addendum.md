@@ -1,95 +1,95 @@
 # Unified 1C AI Admin Hub — Protocol v1.0.3 Addendum
 
-## Статус документа
+## Document status
 
-Дополнение к [`protocol-v1.md`](protocol-v1.md), [`protocol-v1.0.1-addendum.md`](protocol-v1.0.1-addendum.md) и [`protocol-v1.0.2-addendum.md`](protocol-v1.0.2-addendum.md).
+Addendum to [`protocol-v1.md`](protocol-v1.md), [`protocol-v1.0.1-addendum.md`](protocol-v1.0.1-addendum.md) and [`protocol-v1.0.2-addendum.md`](protocol-v1.0.2-addendum.md).
 
-**Цель:** устранить неоднозначность кодировки JSON в headless CLI managed tools. Без этого Hub-клиенты (ConfigAdmin, CI, automation) получают некорректные Unicode-строки при чтении stdout subprocess на Windows.
+**Goal:** remove ambiguity in JSON encoding for headless CLI of managed tools. Without this, Hub clients (ConfigAdmin, CI, automation) get incorrect Unicode strings when reading subprocess stdout on Windows.
 
-При конфликте с более ранними версиями приоритет имеет v1.0.3 как более поздняя нормативная версия.
-
----
-
-## 1. Проблема (observed behavior)
-
-При интеграции ConfigAdmin ↔ config-mcp (Phase 2) выявлено расхождение:
-
-| Канал | Ожидаемое | Фактически (Windows, до fix) |
-|-------|-----------|------------------------------|
-| `projects.json` на диске | UTF-8 | UTF-8 |
-| `apply-registry --input <file>` | UTF-8 без BOM | UTF-8 без BOM |
-| `status --json` / `inventory --json` stdout | UTF-8 | CP1251 (консольная кодировка Windows) |
-
-**Симптом:** кириллические `name` в JSON превращаются в U+FFFD при декодировании stdout как UTF-8.
-
-**Причина:** Python CLI на Windows пишет в stdout через text stream с системной кодировкой (часто CP1251), а не UTF-8. Для frozen/PyInstaller-сборок переменные `PYTHONIOENCODING=utf-8` и `PYTHONUTF8=1` **не гарантируют** UTF-8 на stdout.
-
-**Вывод:** managed tool обязан выдавать нормативный UTF-8 JSON; Hub-клиент не должен «угадывать» локаль.
+On conflict with earlier versions, v1.0.3 takes priority as the later normative version.
 
 ---
 
-## 2. Нормативное требование: UTF-8 для всех JSON I/O
+## 1. Problem (observed behavior)
 
-### 2.1. Область действия
+During ConfigAdmin ↔ config-mcp integration (Phase 2) a mismatch was found:
 
-Требование распространяется на **все managed tools** (`config-mcp`, `help-mcp`, `data-mcp`, `config-admin`):
+| Channel | Expected | Actual (Windows, before fix) |
+|---------|----------|------------------------------|
+| `projects.json` on disk | UTF-8 | UTF-8 |
+| `apply-registry --input <file>` | UTF-8 without BOM | UTF-8 without BOM |
+| `status --json` / `inventory --json` stdout | UTF-8 | CP1251 (Windows console encoding) |
 
-- любой вызов с флагом `--json`;
-- любой `--input` / `--output` файл, содержащий JSON payload (в т.ч. `apply-registry`, `export-registry`).
+**Symptom:** Cyrillic `name` in JSON becomes U+FFFD when decoding stdout as UTF-8.
+
+**Cause:** Python CLI on Windows writes to stdout via text stream with system encoding (often CP1251), not UTF-8. For frozen/PyInstaller builds `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1` **do not guarantee** UTF-8 on stdout.
+
+**Conclusion:** managed tool must emit normative UTF-8 JSON; Hub client must not "guess" locale.
+
+---
+
+## 2. Normative requirement: UTF-8 for all JSON I/O
+
+### 2.1. Scope
+
+Requirement applies to **all managed tools** (`config-mcp`, `help-mcp`, `data-mcp`, `config-admin`):
+
+- any call with `--json` flag;
+- any `--input` / `--output` file containing JSON payload (incl. `apply-registry`, `export-registry`).
 
 ### 2.2. stdout (`--json`)
 
-При `--json`:
+With `--json`:
 
-- **stdout** содержит **только один JSON-документ** (как в v1 §8.1);
-- кодировка stdout: **UTF-8**;
-- **без BOM** (byte order mark запрещён);
-- JSON: Unicode-символы передаются literally (не `\uXXXX` escape), `ensure_ascii=false` для Python;
-- перевод строки в конце документа допустим (`\n`), но не обязателен.
+- **stdout** contains **only one JSON document** (as in v1 §8.1);
+- stdout encoding: **UTF-8**;
+- **no BOM** (byte order mark forbidden);
+- JSON: Unicode characters passed literally (not `\uXXXX` escape), `ensure_ascii=false` for Python;
+- trailing newline allowed (`\n`), not required.
 
 ### 2.3. stderr
 
 - **stderr** — human-readable diagnostics;
-- рекомендуется UTF-8;
-- stderr **не является** каналом JSON.
+- UTF-8 recommended;
+- stderr **is not** a JSON channel.
 
-### 2.4. Файловый ввод/вывод
+### 2.4. File I/O
 
-| Операция | Кодировка | BOM |
-|----------|-----------|-----|
-| `--input <file.json>` | UTF-8 | запрещён |
-| atomic write registry/config files | UTF-8 | запрещён |
-| чтение существующих config-файлов | UTF-8 (primary); допустим fallback CP1251 **только при read** legacy-файлов, с записью обратно в UTF-8 | — |
+| Operation | Encoding | BOM |
+|-----------|----------|-----|
+| `--input <file.json>` | UTF-8 | forbidden |
+| atomic write registry/config files | UTF-8 | forbidden |
+| read existing config files | UTF-8 (primary); CP1251 fallback **only on read** for legacy files, write back as UTF-8 | — |
 
-**Симметрия:** если `apply-registry --input` требует UTF-8 без BOM, то и `status --json` stdout обязан быть UTF-8 без BOM.
+**Symmetry:** if `apply-registry --input` requires UTF-8 without BOM, then `status --json` stdout must be UTF-8 without BOM.
 
-### 2.5. Связь с RFC 8259
+### 2.5. Relation to RFC 8259
 
-Machine-readable JSON в Admin Hub — **UTF-8 JSON** по RFC 8259. Locale-dependent кодировка (CP1251, CP866) на stdout **несовместима** с протоколом v1.0.3+.
-
----
-
-## 3. Изменения в Protocol v1 §8.1 (формулировка для merge)
-
-**Было (v1 §8.1):**
-
-> stdout: только machine-readable JSON.
-
-**Стало (v1.0.3 §8.1):**
-
-> stdout: только machine-readable JSON в кодировке **UTF-8 без BOM**.  
-> stderr: diagnostics/log hints; рекомендуется UTF-8.  
-> JSON input files (`--input`): UTF-8 без BOM.
+Machine-readable JSON in Admin Hub — **UTF-8 JSON** per RFC 8259. Locale-dependent encoding (CP1251, CP866) on stdout is **incompatible** with protocol v1.0.3+.
 
 ---
 
-## 4. Требования к реализации (config-mcp / Python CLI)
+## 3. Changes to Protocol v1 §8.1 (wording for merge)
 
-### 4.1. Обязательно (MUST)
+**Was (v1 §8.1):**
 
-Перед выводом JSON в stdout CLI **не должен** полагаться на `sys.stdout.encoding` / кодовую страницу консоли Windows.
+> stdout: only machine-readable JSON.
 
-**Рекомендуемый паттерн:**
+**Now (v1.0.3 §8.1):**
+
+> stdout: only machine-readable JSON in **UTF-8 without BOM**.  
+> stderr: diagnostics/log hints; UTF-8 recommended.  
+> JSON input files (`--input`): UTF-8 without BOM.
+
+---
+
+## 4. Implementation requirements (config-mcp / Python CLI)
+
+### 4.1. Required (MUST)
+
+Before emitting JSON to stdout, CLI **must not** rely on `sys.stdout.encoding` / Windows console code page.
+
+**Recommended pattern:**
 
 ```python
 import json
@@ -102,7 +102,7 @@ def write_json_stdout(payload: object) -> None:
     sys.stdout.buffer.flush()
 ```
 
-**Альтернатива (Python 3.7+):**
+**Alternative (Python 3.7+):**
 
 ```python
 if hasattr(sys.stdout, "reconfigure"):
@@ -110,9 +110,9 @@ if hasattr(sys.stdout, "reconfigure"):
 print(json.dumps(payload, ensure_ascii=False, indent=2))
 ```
 
-Предпочтителен вариант через `sys.stdout.buffer` — он не зависит от text wrapper и PyInstaller.
+Prefer `sys.stdout.buffer` — independent of text wrapper and PyInstaller.
 
-### 4.2. Чтение `--input`
+### 4.2. Reading `--input`
 
 ```python
 def read_json_file(path: Path) -> object:
@@ -122,15 +122,15 @@ def read_json_file(path: Path) -> object:
     return json.loads(raw.decode("utf-8"))
 ```
 
-### 4.3. Запрещено (MUST NOT)
+### 4.3. Forbidden (MUST NOT)
 
-- полагаться на `PYTHONIOENCODING` / `PYTHONUTF8` как единственный механизм для portable-сборки;
-- писать JSON через `print()` без принудительного UTF-8 на Windows;
-- emit JSON в CP1251/CP866 даже «для удобства консоли».
+- rely on `PYTHONIOENCODING` / `PYTHONUTF8` as the only mechanism for portable builds;
+- write JSON via `print()` without forced UTF-8 on Windows;
+- emit JSON in CP1251/CP866 even "for console convenience".
 
 ### 4.4. Portable / PyInstaller
 
-В `module.manifest.json` (optional discovery):
+In `module.manifest.json` (optional discovery):
 
 ```json
 "cliContract": {
@@ -141,58 +141,58 @@ def read_json_file(path: Path) -> object:
 
 ---
 
-## 5. Верификация (acceptance criteria)
+## 5. Verification (acceptance criteria)
 
-### 5.1. Автотест CLI
+### 5.1. CLI autotest
 
 ```bash
 <cli> --root "<portable>" status --json > out.bin
 ```
 
-Проверки:
+Checks:
 
-1. Первые 3 байта **не** `EF BB BF` (no BOM).
-2. `out.bin` декодируется как UTF-8 **без** U+FFFD.
-3. Поле `"name"` с кириллицей совпадает с `projects.json` на диске.
+1. First 3 bytes are **not** `EF BB BF` (no BOM).
+2. `out.bin` decodes as UTF-8 **without** U+FFFD.
+3. `"name"` field with Cyrillic matches `projects.json` on disk.
 
 ### 5.2. Cross-platform
 
-Один и тот же portable + тест проходит на Windows 10/11 (ru-RU locale) и Linux (UTF-8 locale).
+Same portable + test passes on Windows 10/11 (ru-RU locale) and Linux (UTF-8 locale).
 
 ### 5.3. Regression
 
-- `apply-registry --input fragment.json --json` продолжает работать с UTF-8 без BOM;
-- BOM во input отклоняется с понятной ошибкой.
+- `apply-registry --input fragment.json --json` continues to work with UTF-8 without BOM;
+- BOM in input rejected with clear error.
 
 ---
 
-## 6. Влияние на Hub-клиентов
+## 6. Impact on Hub clients
 
-ConfigAdmin Phase 2 использовал временный workaround: UTF-8 first, fallback CP1251 при U+FFFD на Windows. После исправления config-mcp workaround можно удалить или оставить за feature flag `legacyCliEncoding` на 1–2 релиза.
+ConfigAdmin Phase 2 used temporary workaround: UTF-8 first, fallback CP1251 on U+FFFD on Windows. After config-mcp fix workaround can be removed or kept behind feature flag `legacyCliEncoding` for 1–2 releases.
 
 ---
 
-## 7. Scope и приоритет
+## 7. Scope and priority
 
-| Модуль | Приоритет | Команды |
-|--------|-----------|---------|
+| Module | Priority | Commands |
+|--------|----------|----------|
 | **config-mcp** | **P0** | `inventory`, `status`, `export-registry`, `apply-registry` |
-| help-mcp | P1 | все `--json` |
-| data-mcp | P1 | все `--json` |
+| help-mcp | P1 | all `--json` |
+| data-mcp | P1 | all `--json` |
 | config-admin | P1 | protocol CLI |
 
 ---
 
 ## 8. config-mcp implementation status
 
-**Реализовано** в `shared/cli_json.py` + `admin_tool/cli.py`:
+**Implemented** in `shared/cli_json.py` + `admin_tool/cli.py`:
 
-- `write_json_stdout()` через `sys.stdout.buffer` + UTF-8;
-- `read_json_file()` с reject BOM;
-- тесты `tests/test_cli_json_encoding.py`.
+- `write_json_stdout()` via `sys.stdout.buffer` + UTF-8;
+- `read_json_file()` with BOM reject;
+- tests `tests/test_cli_json_encoding.py`.
 
-После пересборки portable (`build_all.bat`) deviation «stdout CP1251 on Windows» **снимается**.
+After portable rebuild (`build_all.bat`) deviation "stdout CP1251 on Windows" is **closed**.
 
 ---
 
-*Protocol v1.0.3 — подготовлено ConfigAdmin team, 2026-06-28. Контекст: интеграция Phase 2, portable `1c_config_mcp_server_Portable`.*
+*Protocol v1.0.3 — prepared by ConfigAdmin team, 2026-06-28. Context: Phase 2 integration, portable `1c_config_mcp_server_Portable`.*

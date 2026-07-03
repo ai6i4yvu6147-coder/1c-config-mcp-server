@@ -1,26 +1,26 @@
 # Unified 1C AI Admin Hub — Protocol v1.0.2 Addendum
 
-## Статус документа
+## Document status
 
-Этот документ является дополнением к `Unified 1C AI Admin Hub — Consolidated Protocol v1` и `Protocol v1.0.1 Addendum`. Версия 1.0.2 закрывает оставшиеся архитектурные и operational gaps, необходимые для уверенной реализации `Phase 2` и подготовки к `Phase 3`: Hub persistence и reconcile, строгие правила идентификаторов, scoping для `platformPath`, семантику `sourcePath`, schema для `followUpOperations`, а также retention policy для orphaned данных.[file:169][file:167][file:168]
+This document is an addendum to `Unified 1C AI Admin Hub — Consolidated Protocol v1` and `Protocol v1.0.1 Addendum`. Version 1.0.2 closes remaining architectural and operational gaps needed for confident `Phase 2` implementation and preparation for `Phase 3`: Hub persistence and reconcile, strict identifier rules, scoping for `platformPath`, `sourcePath` semantics, schema for `followUpOperations`, and retention policy for orphaned data.[file:169][file:167][file:168]
 
-Если между v1/v1.0.1 и этим документом возникает конфликт, приоритет имеет v1.0.2 как более поздняя нормативная версия.[file:169][file:167][file:168]
+On conflict between v1/v1.0.1 and this document, v1.0.2 takes priority as the later normative version.[file:169][file:167][file:168]
 
 ## 1. Admin Hub implementation
 
-В этой системе `Admin Hub` реализован через **ConfigAdmin**. Canonical Hub model физически хранится в SQLite-базе `configadmin.db`, а ConfigAdmin выступает одновременно как:
+In this system `Admin Hub` is implemented via **ConfigAdmin**. The canonical Hub model is physically stored in SQLite database `configadmin.db`, and ConfigAdmin acts simultaneously as:
 - canonical registry storage;
 - orchestration layer;
 - UI host shell;
-- control plane для managed tools.
+- control plane for managed tools.
 
-Это означает, что отдельный `hub.db` или отдельный внешний Hub-компонент в протоколе v1.x не вводится. Все canonical сущности и связи должны персиститься в storage ConfigAdmin, расширенном под Hub-модель.
+This means a separate `hub.db` or separate external Hub component is not introduced in protocol v1.x. All canonical entities and links must persist in ConfigAdmin storage extended for the Hub model.
 
 ## 2. Hub persistence and reconcile
 
 ### 2.1. Canonical storage
 
-Canonical Hub model хранится в `configadmin.db` и является authoritative source of truth для:
+Canonical Hub model is stored in `configadmin.db` and is the authoritative source of truth for:
 - `clients`;
 - `projects`;
 - `infobases`;
@@ -29,34 +29,34 @@ Canonical Hub model хранится в `configadmin.db` и является aut
 
 ### 2.2. Reconcile direction
 
-Нормативное направление sync следующее:
+Normative sync direction:
 
-1. **Hub -> tools** через `apply-registry` является основным control-plane каналом.[file:169][file:167][file:168]
-2. **Tools -> Hub** через `export-registry` используется для:
-   - inventory и inspection;[file:169][file:167][file:168]
+1. **Hub -> tools** via `apply-registry` is the primary control-plane channel.[file:169][file:167][file:168]
+2. **Tools -> Hub** via `export-registry` is used for:
+   - inventory and inspection;[file:169][file:167][file:168]
    - read-back observational state;[file:169][file:167][file:168]
-   - reconcile локально вычисляемых/наблюдаемых полей;[file:169][file:167][file:168]
+   - reconcile of locally computed/observed fields;[file:169][file:167][file:168]
    - drift detection.[file:169][file:167][file:168]
 
 ### 2.3. Conflict resolution
 
-При расхождении между canonical Hub model и fragment, экспортированным модулем, действуют следующие правила:
+When canonical Hub model and fragment exported by a module diverge:
 
-- Для **master-owned** полей authoritative является Hub.[file:169][file:167][file:168]
-- Для **local-owned** полей authoritative является managed tool.[file:169][file:167][file:168]
-- Для **observational/export-only** полей Hub может хранить их как read-back metadata, но не должен использовать их как основание для silent overwrite master-owned полей.[file:170]
+- For **master-owned** fields Hub is authoritative.[file:169][file:167][file:168]
+- For **local-owned** fields the managed tool is authoritative.[file:169][file:167][file:168]
+- For **observational/export-only** fields Hub may store them as read-back metadata but must not use them as basis for silent overwrite of master-owned fields.[file:170]
 
 ### 2.4. Reconcile modes
 
-В v1.0.2 вводятся два логических reconcile режима:
-- `authoritative-apply`: Hub materializes canonical state вниз в managed tool.[file:169][file:167][file:168]
-- `observational-reconcile`: Hub читает fragment и обновляет только разрешённые read-back поля (`lastExportAt`, `lastExportStatus`, `indexStatus`, health metadata и т.п.).[file:169][file:167][file:168]
+v1.0.2 introduces two logical reconcile modes:
+- `authoritative-apply`: Hub materializes canonical state down into managed tool.[file:169][file:167][file:168]
+- `observational-reconcile`: Hub reads fragment and updates only permitted read-back fields (`lastExportAt`, `lastExportStatus`, `indexStatus`, health metadata, etc.).[file:169][file:167][file:168]
 
 ## 3. Identifier rules
 
 ### 3.1. Hub-owned IDs
 
-Следующие ID должны быть **strict UUID v4**, lowercase, с дефисами:
+The following IDs must be **strict UUID v4**, lowercase, with hyphens:
 - `clientId`
 - `projectId`
 - `infobaseId`
@@ -64,7 +64,7 @@ Canonical Hub model хранится в `configadmin.db` и является aut
 - `dataConnectionId`
 - `operationRunId`[file:169][file:168]
 
-Нормативный regex:
+Normative regex:
 
 ```text
 ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
@@ -72,58 +72,58 @@ Canonical Hub model хранится в `configadmin.db` и является aut
 
 ### 3.2. Domain-specific slugs
 
-Следующие поля могут использовать **domain slug**, а не UUID:
+The following fields may use **domain slug**, not UUID:
 - `helpCatalogId`
 
-Нормативный regex для help catalog slug:
+Normative regex for help catalog slug:
 
 ```text
 ^help-\d+-\d+-\d+$
 ```
 
-Пример допустимого значения:
+Example valid value:
 - `help-8-3-27`
 
 ### 3.3. ID generation rules
 
-- Hub-owned IDs генерируются в ConfigAdmin как в Admin Hub implementation.
-- Managed tools не должны самовольно заменять canonical IDs своими локальными ID.[file:169][file:168]
-- Локальные operational IDs допускаются только как secondary mapping fields. Для `data-mcp` это относится к `databaseid`, который не заменяет `dataConnectionId` и `infobaseId`.
+- Hub-owned IDs are generated in ConfigAdmin as Admin Hub implementation.
+- Managed tools must not unilaterally replace canonical IDs with their local IDs.[file:169][file:168]
+- Local operational IDs are allowed only as secondary mapping fields. For `data-mcp` this applies to `databaseid`, which does not replace `dataConnectionId` and `infobaseId`.
 
 ## 4. `platformVersion` and `platformPath`
 
 ### 4.1. Canonical rule
 
-`platformVersion` является canonical Hub field на уровне `infobase`.[file:167]
+`platformVersion` is a canonical Hub field at `infobase` level.[file:167]
 
-`platformPath` является **per-infobase operational property**, используемой ConfigAdmin для запуска платформы, экспорта и connection tests.
+`platformPath` is a **per-infobase operational property** used by ConfigAdmin to launch platform, export, and connection tests.
 
 ### 4.2. Ownership rule
 
-- `platformVersion` — master-owned canonical поле Hub.[file:167]
-- `platformPath` — ConfigAdmin-owned infobase setting, materialized и используемое в ConfigAdmin.
+- `platformVersion` — master-owned canonical Hub field.[file:167]
+- `platformPath` — ConfigAdmin-owned infobase setting, materialized and used in ConfigAdmin.
 
 ### 4.3. Scope rule
 
-В рамках v1.0.2 `platformPath` считается свойством конкретной `infobase` в ConfigAdmin storage, а не глобальным путём уровня machine registry. Это отражает реальный сценарий, где разные базы в системе могут использовать разные платформы 1С.
+Within v1.0.2 `platformPath` is considered a property of a specific `infobase` in ConfigAdmin storage, not a machine-global path in machine registry. This reflects the real scenario where different infobases may use different 1C platforms.
 
-Это поле может экспортироваться ConfigAdmin fragment’ом, но не должно трактоваться как machine-global property для всех tool instances сразу.
+This field may be exported in ConfigAdmin fragment but must not be treated as machine-global property for all tool instances at once.
 
 ## 5. `sourcePath` semantics for configuration exports
 
 ### 5.1. Canonical replacement
 
-Поле `sourceXml` из ранних черновиков заменяется на **`sourcePath`** как более точное и общее.[file:170]
+Field `sourceXml` from early drafts is replaced by **`sourcePath`** as more precise and general.[file:170]
 
-### 5.2. Допустимые значения
+### 5.2. Allowed values
 
-`sourcePath` может указывать на:
-- каталог с иерархической XML-выгрузкой конфигурации;[file:170]
-- архивный файл, содержащий выгрузку конфигурации.
+`sourcePath` may point to:
+- directory with hierarchical XML configuration export;[file:170]
+- archive file containing configuration export.
 
 ### 5.3. Source kind rule
 
-В v1.0.2 вводится обязательное поле:
+v1.0.2 introduces required field:
 
 ```json
 {
@@ -132,38 +132,38 @@ Canonical Hub model хранится в `configadmin.db` и является aut
 }
 ```
 
-Допустимые значения `sourceKind`:
+Allowed `sourceKind` values:
 - `directory`
 - `archive`[file:170]
 
 ### 5.4. Processing rule
 
-- Если `sourceKind=directory`, `config-mcp` должен индексировать выгрузку из каталога.
-- Если `sourceKind=archive`, `config-mcp` должен использовать архивный input workflow, определённый его реализацией.[file:170]
+- If `sourceKind=directory`, `config-mcp` must index export from directory.
+- If `sourceKind=archive`, `config-mcp` must use archive input workflow defined by its implementation.[file:170]
 
 ## 6. ConfigAdmin role and in-process rule
 
-ConfigAdmin выполняет **двойную роль**:
-- как managed tool (`inventory/status/export-registry/apply-registry/list-bases/export/...`);
-- как concrete Admin Hub implementation.
+ConfigAdmin performs **dual role**:
+- as managed tool (`inventory/status/export-registry/apply-registry/list-bases/export/...`);
+- as concrete Admin Hub implementation.
 
 ### 6.1. In-process execution rule
 
-Если Hub orchestration инициирует операцию самого ConfigAdmin, допустимо **in-process** выполнение через внутренние application services ConfigAdmin, без self-subprocess запуска `configadmin.exe`.
+If Hub orchestration initiates ConfigAdmin's own operation, **in-process** execution via internal ConfigAdmin application services is allowed, without self-subprocess launch of `configadmin.exe`.
 
 ### 6.2. External module execution rule
 
-Для всех остальных managed tools (`config-mcp`, `help-mcp`, `data-mcp`) orchestration должна выполняться через manifest-resolved CLI subprocess contract.[file:169][file:167][file:168]
+For all other managed tools (`config-mcp`, `help-mcp`, `data-mcp`) orchestration must run via manifest-resolved CLI subprocess contract.[file:169][file:167][file:168]
 
-Это правило вводится, чтобы избежать бессмысленного self-subprocess pattern для ConfigAdmin и одновременно сохранить единый headless protocol для внешних модулей.
+This rule avoids meaningless self-subprocess pattern for ConfigAdmin while preserving unified headless protocol for external modules.
 
 ## 7. `followUpOperations` schema
 
-### 7.1. Назначение
+### 7.1. Purpose
 
-`followUpOperations` используется для того, чтобы `apply-registry` или другая control-plane операция могла вернуть Hub структурированный список рекомендуемых последующих действий. Это особенно важно для `config-mcp` rebuild-сценариев и для последующих orchestration workflows.[file:167][file:170]
+`followUpOperations` lets `apply-registry` or another control-plane operation return Hub a structured list of recommended follow-up actions. Especially important for `config-mcp` rebuild scenarios and subsequent orchestration workflows.[file:167][file:170]
 
-### 7.2. Нормативная схема
+### 7.2. Normative schema
 
 ```json
 {
@@ -177,24 +177,24 @@ ConfigAdmin выполняет **двойную роль**:
 }
 ```
 
-### 7.3. Правила
+### 7.3. Rules
 
-- `moduleId` — module target, к которому относится операция.[file:169][file:167][file:168]
-- `command` — CLI-команда, понятная module contract.[file:169][file:167][file:168]
-- `args` — flat JSON object с аргументами команды.[file:169][file:167][file:168]
-- `reason` — человекочитаемое пояснение причины follow-up.[file:169][file:167][file:168]
-- `blocking` — если `true`, Hub должен считать операцию обязательной для приведения состояния в согласованный вид.[file:169][file:167][file:168]
+- `moduleId` — module target for the operation.[file:169][file:167][file:168]
+- `command` — CLI command per module contract.[file:169][file:167][file:168]
+- `args` — flat JSON object with command arguments.[file:169][file:167][file:168]
+- `reason` — human-readable explanation for follow-up.[file:169][file:167][file:168]
+- `blocking` — if `true`, Hub must treat operation as mandatory to bring state into consistent form.[file:169][file:167][file:168]
 
 ### 7.4. Hub handling
 
-Hub может:
-- выполнить `followUpOperations` автоматически по policy;[file:169][file:167][file:168]
-- показать их пользователю на подтверждение;[file:169][file:167][file:168]
-- отложить их, сохранив как pending admin actions.[file:169][file:167][file:168]
+Hub may:
+- execute `followUpOperations` automatically per policy;[file:169][file:167][file:168]
+- show them to user for confirmation;[file:169][file:167][file:168]
+- defer them, saving as pending admin actions.[file:169][file:167][file:168]
 
 ## 8. Stale lock thresholds
 
-В v1.0.2 вводится рекомендованный, но нормативно допустимый уровень stale thresholds по умолчанию. Это нужно, потому что ConfigAdmin export, Help import и Config MCP rebuild могут работать долго, а без порогов Hub не сможет корректно интерпретировать stale markers.[file:169][file:167]
+v1.0.2 introduces recommended but normatively acceptable default stale thresholds. ConfigAdmin export, Help import, and Config MCP rebuild can run long; without thresholds Hub cannot correctly interpret stale markers.[file:169][file:167]
 
 ### 8.1. Default thresholds
 
@@ -207,11 +207,11 @@ Hub может:
 | `apply-registry` | 900000 |
 | `config-write` | 900000 |
 
-Значения выше означают 1 час для одиночного rebuild и 4 часа для тяжёлых import/export batch операций. Это согласуется с тем, что Help import и ConfigAdmin export уже рассматриваются как потенциально долгие операции.[file:170][file:169]
+Values above mean 1 hour for single rebuild and 4 hours for heavy import/export batch operations. Aligns with Help import and ConfigAdmin export being potentially long operations.[file:170][file:169]
 
 ### 8.2. Lock payload extension
 
-Рекомендуемое расширение lock entry:
+Recommended lock entry extension:
 
 ```json
 {
@@ -230,40 +230,40 @@ Hub может:
 
 ### 9.1. Logical delete only
 
-`apply-registry` в v1.0.2 выполняет **только логическое изменение** canonical/admin state. Он не должен автоматически удалять физические артефакты, такие как:
-- XML/архивы выгрузок;[file:169]
-- `.db` индексы config/help;[file:167]
+`apply-registry` in v1.0.2 performs **only logical change** of canonical/admin state. It must not automatically delete physical artifacts such as:
+- XML/export archives;[file:169]
+- config/help `.db` indexes;[file:167]
 - run history;
-- локальные кэши и временные файлы.[file:169][file:167][file:168]
+- local caches and temp files.[file:169][file:167][file:168]
 
 ### 9.2. Orphan retention
 
-После логического удаления данные считаются **orphaned**, но сохраняются до отдельной cleanup operation.[file:169]
+After logical delete data is considered **orphaned** but retained until separate cleanup operation.[file:169]
 
 ### 9.3. Cleanup commands
 
-Физическая очистка должна выполняться отдельными командами, например:
+Physical cleanup must run via separate commands, e.g.:
 - `cleanup-orphans`
 - `prune-exports`
 - `prune-indexes`
 - `cleanup-runs`[file:169]
 
-Конкретный набор команд зависит от модуля, но их semantics должны быть explicit и не должны смешиваться с `apply-registry`.[file:169][file:167][file:168]
+Specific command set depends on module, but semantics must be explicit and not mixed with `apply-registry`.[file:169][file:167][file:168]
 
 ## 10. ConfigAdmin and project authority
 
-`project` является **Hub-only canonical entity**.[file:169]
+`project` is a **Hub-only canonical entity**.[file:169]
 
-Это означает:
-- ConfigAdmin fragment не обязан экспортировать `projects[]` как первичную сущность.
-- ConfigAdmin может ссылаться на project через `links.configMcpProjectId` и `projectId`-related fields, если они есть.[file:169]
-- authoritative создание и lifecycle `projectId` выполняется в ConfigAdmin как Admin Hub implementation.[file:169]
+This means:
+- ConfigAdmin fragment need not export `projects[]` as primary entity.
+- ConfigAdmin may reference project via `links.configMcpProjectId` and `projectId`-related fields if present.[file:169]
+- Authoritative creation and lifecycle of `projectId` runs in ConfigAdmin as Admin Hub implementation.[file:169]
 
 ## 11. JSON Schema deliverables
 
-v1.0.2 вводит требование наличия machine-validatable JSON Schema артефактов как части протокольного пакета. Эти схемы должны существовать как отдельные файлы в пакете спецификации или в репозитории Admin Hub.[file:169][file:167][file:168]
+v1.0.2 requires machine-validatable JSON Schema artifacts as part of the protocol package. These schemas must exist as separate files in the specification package or Admin Hub repository.[file:169][file:167][file:168]
 
-Минимальный набор:
+Minimum set:
 - `schemas/manifest-v1.schema.json`
 - `schemas/inventory-v1.schema.json`
 - `schemas/status-v1.schema.json`
@@ -273,52 +273,52 @@ v1.0.2 вводит требование наличия machine-validatable JSON
 - `schemas/registry-fragment-data-mcp-v1.schema.json`
 - `schemas/registry-fragment-config-admin-v1.schema.json`[file:169][file:167][file:168]
 
-Содержимое схем в этом документе не встраивается полностью, но их наличие становится нормативным требованием.[file:169][file:167][file:168]
+Schema contents are not embedded fully in this document, but their presence becomes a normative requirement.[file:169][file:167][file:168]
 
 ## 12. Environment variable naming
 
-Для ConfigAdmin закрепляется нормативное имя env variable:
+For ConfigAdmin the normative env variable name is:
 
 ```text
 CONFIGADMIN_DATA_DIR
 ```
 
-`CONFIGADMINDATADIR` допускается только как legacy alias на переходный период и должен документироваться как deprecated alias. Это закрывает inconsistency между ранними текстами и делает naming предсказуемым.
+`CONFIGADMINDATADIR` is allowed only as legacy alias during transition and must be documented as deprecated alias. This closes inconsistency between early texts and makes naming predictable.
 
 ## 13. Reference workflow
 
 ### 13.1. Export -> Config sync -> Rebuild
 
-Нормативный reference workflow для связки ConfigAdmin и Config MCP:
+Normative reference workflow for ConfigAdmin and Config MCP:
 
-1. ConfigAdmin выполняет экспорт конфигурации базы.
-2. ConfigAdmin обновляет canonical infobase metadata, включая `sourcePath` и `sourceKind`, если это требуется workflow’ем.[file:169]
-3. ConfigAdmin materializes fragment для `config-mcp` и вызывает `apply-registry`.[file:169]
-4. `config-mcp` обновляет `projects.json` и возвращает `followUpOperations` с `rebuild-index` при необходимости.
-5. Hub/ConfigAdmin выполняет `rebuild-index` либо автоматически, либо после подтверждения пользователя.[file:169]
+1. ConfigAdmin exports infobase configuration.
+2. ConfigAdmin updates canonical infobase metadata, including `sourcePath` and `sourceKind` if workflow requires.[file:169]
+3. ConfigAdmin materializes fragment for `config-mcp` and calls `apply-registry`.[file:169]
+4. `config-mcp` updates `projects.json` and returns `followUpOperations` with `rebuild-index` if needed.
+5. Hub/ConfigAdmin runs `rebuild-index` automatically or after user confirmation.[file:169]
 
 ### 13.2. Help binding update
 
-1. Hub обновляет `platformVersion` или `defaultHelpVersion` на уровне `infobase`.
-2. ConfigAdmin materializes fragment для `help-mcp` и вызывает `apply-registry`.[file:167]
-3. `help-mcp` обновляет config и может вернуть `restartRequired=true` или `followUpOperations` для import/refresh scenario.
+1. Hub updates `platformVersion` or `defaultHelpVersion` at `infobase` level.
+2. ConfigAdmin materializes fragment for `help-mcp` and calls `apply-registry`.[file:167]
+3. `help-mcp` updates config and may return `restartRequired=true` or `followUpOperations` for import/refresh scenario.
 
 ### 13.3. Data connection reconcile
 
-1. Hub/ConfigAdmin обновляет `infobaseId <-> dataConnectionId <-> databaseid` mapping или S3 metadata.
-2. ConfigAdmin вызывает `apply-registry` для `data-mcp`.[file:168]
-3. `data-mcp` применяет `config.local.json` и Hub может выполнить `validate-config` или `ping --database-id ...` как post-apply verification.
+1. Hub/ConfigAdmin updates `infobaseId <-> dataConnectionId <-> databaseid` mapping or S3 metadata.
+2. ConfigAdmin calls `apply-registry` for `data-mcp`.[file:168]
+3. `data-mcp` applies `config.local.json` and Hub may run `validate-config` or `ping --database-id ...` as post-apply verification.
 
 ## 14. Implementation directive
 
-С этого момента протокол v1.x считается достаточно определённым для:
-- немедленной реализации `Phase 1`;
-- controlled реализации `Phase 2`;[file:169][file:167][file:168]
-- подготовки orchestration сценариев `Phase 3`.[file:169][file:167][file:168]
+From this point protocol v1.x is sufficiently defined for:
+- immediate `Phase 1` implementation;
+- controlled `Phase 2` implementation;[file:169][file:167][file:168]
+- preparation of `Phase 3` orchestration scenarios.[file:169][file:167][file:168]
 
-Каждый агент, реализующий поддержку протокола, должен опираться на:
+Each agent implementing protocol support must rely on:
 - v1;
 - v1.0.1 addendum;
-- этот v1.0.2 addendum.[file:169][file:167][file:168]
+- this v1.0.2 addendum.[file:169][file:167][file:168]
 
-Если модуль не может сразу выполнить часть требований v1.0.2, необходимо вернуть explicit `protocol deviation` с планом закрытия.[file:169][file:167][file:168]
+If a module cannot immediately meet part of v1.0.2 requirements, return explicit `protocol deviation` with closure plan.[file:169][file:167][file:168]

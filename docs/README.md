@@ -4,11 +4,11 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 
 **Role:** Sub · group `1c-cursor` · Head `1c-admin-tool`.
 
-### Reading order (canon `canons/documentation.md`)
+### Reading order
 
-1. [`agent-onboarding.md`](agent-onboarding.md) — project type, policies, group-sync
-2. [`todo.md`](todo.md) — backlog; **check unprocessed packets in** `group/inbox/`
-3. [`architecture.md`](architecture.md) — data flow and components
+1. [`agent-map.md`](agent-map.md) — entry: directory map, delegation, sync triggers
+2. [`todo.md`](todo.md) — backlog; **`## Hub pending`** for group sync
+3. [`architecture.md`](architecture.md) — data flow, components, product policies
 4. Domain specs (below)
 5. [`group/integration.md`](group/integration.md) — Head link, protocol state
 
@@ -23,28 +23,21 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 | [`form-type-system.md`](form-type-system.md) | Form type system |
 | [`testing-protocol.md`](testing-protocol.md) | Verification on connected MCP |
 | [`performance.md`](performance.md) | Performance notes |
+| [`admin-hub-integration.md`](admin-hub-integration.md) | Admin Hub module roadmap, Phase 3 CLI |
 
-### Admin Hub
-
-| Document | Contents |
-|----------|----------|
-| [`admin-hub/README.md`](admin-hub/README.md) | Section index |
-| [`admin-hub/integration.md`](admin-hub/integration.md) | Module roadmap, Phase 3 CLI |
-| [`admin-hub/protocol-v1.md`](admin-hub/protocol-v1.md) + addendum v1.0.1–v1.0.3 | Ecosystem protocol |
-
-### Group and normalization
+### Group and protocol
 
 | Document | Contents |
 |----------|----------|
-| [`group/integration.md`](group/integration.md) | Head, protocol state, inbox/outbox |
-| [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md) | Manual packet delivery between repos |
-| [`group/templates/`](group/templates/) | Sync packet templates |
+| [`group/integration.md`](group/integration.md) | Head hub link, protocol state, local deviations |
+| [`group/protocol-ref/epoch0/`](group/protocol-ref/epoch0/) | Stable protocol snapshot (v1 + addenda v1.0.1–v1.0.3) |
+| [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md) | Operator credentials/deploy (human tier) |
 | [`canons/`](canons/) | Local WI canon copy |
 | [`normalize-record.md`](normalize-record.md) | Last normalize metadata |
 
-**Subagent and skills (canon 2.4.0):** `.cursor/agents/` — 1 (`doc-librarian`); `.cursor/skills/` — 4 (`normalize-project`, `canon-align`, `maintain-docs`, `sync`).
+**Subagents and skills (canon 2.5.0):** `.cursor/agents/` — 5 (`doc-librarian` + dev pipeline); `.cursor/skills/` — 4 (`normalize-project`, `canon-align`, `maintain-docs`, `sync`).
 
-### docs/group-sync tools
+### Group sync tools
 
 ```powershell
 python scripts/project-doctor.py --type Sub
@@ -52,4 +45,4 @@ python scripts/sync-status.py --repo .
 python scripts/protocol-snapshot.py --status --repo .
 ```
 
-Sync packets in `group/inbox/` and `group/outbox/` are ephemeral (in `.gitignore`); delivery — operator per [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md); processing — skill **`sync`**; delete after processing.
+Hub state: `C:/projects/1c-admin-tool/GROUP-HUB.md`. Sync — skill **`sync`** when `## Hub pending` is non-empty.

@@ -1,18 +1,26 @@
-created: 20260630T062240
+created: 20260702T153311
 epoch: 0
 files:
 - path: protocol-v1.0.1-addendum.md
-  sha256: 139f33598a92c735
+  sha256: 695bd84f55e8642d
 - path: protocol-v1.0.2-addendum.md
-  sha256: c97b39e25b83c95d
+  sha256: 2e0f34147e2f5b5e
 - path: protocol-v1.0.3-addendum.md
-  sha256: c9beef0eec38c6a0
+  sha256: 262d24513e817c03
+- path: protocol-v1.0.4-addendum.md
+  sha256: 9fd753e0839eb181
+- path: protocol-v1.0.5-addendum.md
+  sha256: 0a6b97c7146ef43f
+- path: protocol-v1.0.6-addendum.md
+  sha256: 46a43624b7121e95
 - path: protocol-v1.md
-  sha256: cb9909ee8467f8d0
+  sha256: 61232301e4a2bee9
 - path: README.md
-  sha256: f712d47b3a3d37ca
+  sha256: 8d8f06536e43fc0c
+- path: registry-mapping-data-mcp.md
+  sha256: 573fab424fd7ae87
 - path: registry-mapping.md
-  sha256: 089d27b4be2771ad
+  sha256: fa5abfab911e4743
 from: 1c-cursor
 snapshot_version: 1
 to: 1c-config-mcp

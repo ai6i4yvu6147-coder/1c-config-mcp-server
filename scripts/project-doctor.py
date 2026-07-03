@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка репозитория на соответствие канонам (2.4.0). Типы: S, H, Sub.
+Проверка репозитория на соответствие канонам (2.5.0). Типы: S, H, Sub.
 
 Usage:
   python project-doctor.py
@@ -25,7 +25,7 @@ BASE = [
     "AGENTS.md",
     "CHANGELOG.md",
     "docs/README.md",
-    "docs/agent-onboarding.md",
+    "docs/agent-map.md",
     "docs/architecture.md",
     "docs/todo.md",
 ]
@@ -35,6 +35,7 @@ REQUIRED: dict[str, list[str]] = {
     "H": BASE
     + [
         "group.manifest.yaml",
+        "GROUP-HUB.md",
         "docs/group/README.md",
         "docs/group/shared",
     ],
@@ -111,9 +112,10 @@ def check_repo(repo: Path, repo_type: str) -> tuple[list[str], list[str]]:
         for script in GROUP_SCRIPTS:
             if not (repo / "scripts" / script).is_file():
                 warnings.append(f"WARN: missing scripts/{script} (copy during normalize H/Sub)")
-        gi = repo / ".gitignore"
-        if gi.is_file() and "group/inbox" not in gi.read_text(encoding="utf-8", errors="replace"):
-            warnings.append("WARN: add docs/group/inbox/ and outbox/ to .gitignore")
+
+    gi = repo / ".gitignore"
+    if gi.is_file() and ".tasks/" not in gi.read_text(encoding="utf-8", errors="replace"):
+        warnings.append("WARN: add .tasks/ to .gitignore (subagent handoff artifacts)")
 
     if repo_type == "Sub":
         if not (repo / "group.manifest.yaml").exists():
@@ -140,7 +142,7 @@ def main() -> int:
     repo_type = args.type or detect_type(repo)
 
     print(f"project-doctor: {repo}")
-    print(f"  type: {repo_type} (canon 2.4.0)")
+    print(f"  type: {repo_type} (canon 2.5.0)")
 
     errors, warnings = check_repo(repo, repo_type)
 

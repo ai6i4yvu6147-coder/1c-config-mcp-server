@@ -1,20 +1,19 @@
 # Canon: group documentation sync
 
-Version: **2.3.0**
+Version: **2.5.0**
 
-Packet sync **Head ↔ Sub** (star topology). Protocol baseline + deltas after `stable`. Operator manually copies files between repositories.
+Star topology **Head ↔ Sub**. Group sync state lives in a single **`GROUP-HUB.md`** at the Head repo root; contract bodies live in git and are referenced from the hub by path + commit. The operator handles credentials and deploy only — no packet copying.
 
 ---
 
 ## Principles
 
-1. **Head** — canon keeper (`docs/group/shared/`).
-2. **Sub** — local specs + `integration.md` + `protocol-ref/epoch<N>/`.
-3. **Sub ↔ Sub** — only via Head.
-4. **Inbox/outbox** — ephemeral, not in git; operator copies sender outbox → recipient inbox.
-5. **Review-snapshot** — on contract proposals, `review-snapshot-<ts>/` next to packet with doc copies for review.
-6. **Durable canon** — `shared/`, `protocol-ref/epoch<N>/`, `docs/group/archive/` after ack.
-7. **Mapping** — integration contracts in `docs/group/shared/` (e.g. `registry-mapping.md` in config-mcp).
+1. **Head** — owns `docs/group/shared/` (shared canon) and `GROUP-HUB.md`.
+2. **Sub** — owns `integration.md` + `protocol-ref/epoch<N>/`; reads/writes the hub at `<head.path>/GROUP-HUB.md` in its own `sub_id` sections only.
+3. **Sub ↔ Sub** — only through Head.
+4. **Hub** — carries threads + registry (status metadata), **not** agent-cache tier; read when `docs/todo.md` has `## Hub pending` or the user invokes sync.
+5. **Contracts** — committed under `docs/group/shared/` (Head) or `protocol-ref/epoch<N>/` (Sub); the hub links them, never inlines them.
+6. **Todo queue** — `## Hub pending` in `docs/todo.md` is the ~50-token signal the orchestrator checks before reading the full hub.
 
 ---
 
@@ -22,12 +21,10 @@ Packet sync **Head ↔ Sub** (star topology). Protocol baseline + deltas after `
 
 | Skill | Role | Purpose |
 |-------|------|---------|
-| `sync-base` | Head | Sub onboarding: full snapshot + `protocol_offer` in outbox |
-| `sync` | Head, Sub | Negotiation cycle + inbox processing |
+| `sync-base` | Head | Onboard a Sub: snapshot export + `protocol_offer` thread |
+| `sync` | Head, Sub | Negotiation cycle via hub threads |
 
-Packet templates: `docs/group/templates/` (after normalize) or `../../templates/` in WI.
-
-Operator: `docs/group/OPERATOR-HANDOFF.md` — copy paths (filled on normalize). Human-tier — Russian OK.
+Group sync is a **skill**, not a subagent. `doc-librarian` edits doc files *after* a step is decided.
 
 ---
 
@@ -35,110 +32,80 @@ Operator: `docs/group/OPERATOR-HANDOFF.md` — copy paths (filled on normalize).
 
 | state | Meaning |
 |-------|---------|
-| `negotiating` | offer / dispute / merge in progress |
-| `stable` | Sub accepted current `protocol_epoch` |
-| `stale` | Head raised epoch; Sub has not accepted ripple yet |
+| `negotiating` | A thread is in progress |
+| `stable` | Sub accepted the current `protocol_epoch` |
+| `stale` | Head bumped the epoch; Sub has not accepted the ripple yet |
 
-Fields: `protocol_epoch`, `protocol_sync_state`, `stable_at`, `open_disputes`, `dispute_round` (max 3 → `defer_manual`).
-
-Head maintains Sub table in `docs/group/README.md`: `sub_id | epoch | state | last_ack`.
+Fields: `protocol_epoch`, `dispute_round` (max 3 → `defer_manual`). Head keeps the registry table in `GROUP-HUB.md` and mirrors the sub summary in `docs/group/README.md`.
 
 ---
 
-## Sync modes
-
-| Mode | When | Skill |
-|------|------|-------|
-| **Baseline** | First alignment, new Sub | `sync-base` |
-| **`sync_delta`** | Contract / delta after `stable` | `sync` |
-| **Ripple** | Epoch bump in `shared/` | `sync` + snapshot (see below) |
-
-### Negotiation cascade
+## Thread lifecycle
 
 ```
-sync_delta (proposal) → protocol_dispute → protocol_merge → protocol_ack → stable
+sync_delta → (dispute) → merge → ack → closed → archive
+protocol_offer → ack → stable      (onboarding)
+protocol_ripple → ack → stable     (epoch bump)
 ```
 
-or on onboarding:
+Thread status: `awaiting_sub` | `awaiting_head` | `closed`.
 
-```
-protocol_offer → protocol_ack → stable
-```
-
-Critical change from Sub A reaches Sub B **only through Head**.
+Kinds (`kind`): `protocol_offer` | `protocol_dispute` | `protocol_merge` | `protocol_ack` | `protocol_ripple` | `sync_delta`.
 
 ---
 
-## Head: when to ripple
+## Who decides when
 
-| Situation | Action |
-|-----------|--------|
-| **Epoch bump** in `shared/`, affects all Subs | `protocol_ripple` + snapshot in outbox of each lagging Sub (`sync-base` style) |
-| **Single Sub contract** (mapping, addendum) | `sync` / `sync_delta` only to that Sub; no ripple if epoch unchanged |
-| **One Sub ack changed shared norm** others already installed | Optional ripple to affected Subs |
+- **Orchestrator** — recognizes triggers (todo Hub pending, user `/sync`, registry `stale`, contract edit in `shared/`) and invokes the skill.
+- **Skill `sync` / `sync-base`** — runs the protocol steps and thread state.
+- **`doc-librarian`** — edits doc files after a step is decided.
 
 ---
 
-## Packet types (`kind`)
+## GROUP-HUB.md
 
-| kind | direction | Content |
-|------|-----------|---------|
-| `protocol_offer` | H→Sub | Snapshot catalog + summary |
-| `protocol_dispute` | Sub→H | Accepted without dispute + gaps (D1, D2, …) |
-| `protocol_merge` | H→Sub | Verdict table by ID + shared changes |
-| `protocol_ack` | Sub→H | epoch accepted → stable |
-| `protocol_ripple` | H→Sub | Canon changed; new offer |
-| `sync_delta` | H→Sub | Delta / contract after stable |
+Committed at the Head repo root. Frontmatter carries `hub_version`, `group_id`, `protocol_epoch`. Body sections:
 
-Dispute template: `protocol-dispute.example.md`  
-Delta template: `sync-packet.example.md`
-
-After processing: delete packet from inbox.
+- **Registry** — `sub_id | state | epoch | dispute_round | last_event`
+- **Active threads** — one block per open thread (see skill `sync` for the block shape)
+- **Thread rules** — `THR-<NNN>` monotonic; a Sub edits only threads matching its manifest `id`; Head owns epoch bumps, verdicts, and new proposals; on `closed`, move the summary to `docs/group/archive/<sub-id>/` and clear the Active threads block.
 
 ---
 
-## Topology and directories
+## `## Hub pending` (todo signal)
+
+A `## Hub pending` section in `docs/todo.md` lists open threads that need this repo's attention — the cheap signal read before the full hub. One line per open thread:
+
+```
+- [ ] THR-<id> <status> — <sub_id> — <topic> (<who> <date>)
+```
+
+`status` is `awaiting_sub` or `awaiting_head` (never `closed` — the line is deleted instead). Head writes a line for a proposal it opens; a Sub writes one when it replies (`awaiting_head`); the `sync` skill clears the line when its thread closes. `sync-status.py` parses these lines.
+
+---
+
+## Layout
 
 ### Head
 
 ```
-docs/group/outbox/<sub-id>/<packet>.md
-docs/group/outbox/<sub-id>/protocol-snapshot-epoch<N>-<ts>/
-docs/group/outbox/<sub-id>/review-snapshot-<ts>/
-docs/group/inbox/<sub-id>/<packet>.md
-docs/group/archive/<sub-id>/          # committed, after ack
+GROUP-HUB.md                 # committed; registry + threads
+docs/group/shared/           # shared canon (edited only here)
+docs/group/README.md         # sub registry mirror
+docs/group/exports/<sub-id>/ # snapshot staging (ephemeral, gitignored)
+docs/group/archive/<sub-id>/ # closed-thread summaries
 ```
+
+A snapshot the hub thread references lives under `exports/<sub-id>/`; the Sub reads it via `head.path` and installs into its own `protocol-ref/`.
 
 ### Sub
 
 ```
-docs/group/inbox/<packet>.md
-docs/group/inbox/protocol-snapshot-epoch<N>-<ts>/
-docs/group/inbox/review-snapshot-<ts>/
-docs/group/outbox/<packet>.md
-docs/group/protocol-ref/epoch<N>/    # stable copy, in git
-docs/group/templates/                 # packet templates
+docs/group/integration.md        # protocol state fields, link to Head
+docs/group/protocol-ref/epoch<N>/ # stable snapshot, in git
 ```
 
----
-
-## Packet format (common)
-
-```yaml
----
-packet_version: 1
-kind: sync_delta
-from: <module-id>
-to: <module-id>
-direction: head_to_sub | sub_to_head
-severity: critical | info
-protocol_epoch: <N>
-affects:
-  - docs/group/integration.md
-summary: |
-  ...
----
-```
+Hub access: `group.manifest.yaml` → `head.path` + `/GROUP-HUB.md`.
 
 ---
 
@@ -149,11 +116,11 @@ summary: |
 ```yaml
 group:
   id: <group-id>
-  canon_version: "2.4.0"
+  canon_version: "2.5.0"
 role: head
 subordinates:
   - id: <sub-id>
-    path: C:/projects/<sub-repo>   # for OPERATOR-HANDOFF.md
+    path: C:/projects/<sub-repo>   # for hub-path resolution
 ```
 
 ### Sub
@@ -162,11 +129,32 @@ subordinates:
 id: <sub-module-id>
 group:
   id: <group-id>
+  canon_version: "2.5.0"
 role: subordinate
 head:
   id: <head-id>
-  path: C:/projects/<head-repo>    # for OPERATOR-HANDOFF.md
+  path: C:/projects/<head-repo>    # hub lives at head.path/GROUP-HUB.md
 ```
+
+---
+
+## Migrating 2.4 → 2.5 (packet → hub)
+
+The 2.5 deprecations remove inbox/outbox and packet templates. Cut a live group over only when it is **stable** (no open disputes) — finish any in-flight packet negotiation under the old model first.
+
+**Order — Head first.** The hub file lives at the Head; a Sub's `sync` skill targets `<head.path>/GROUP-HUB.md`. Normalize the Head to 2.5 (creating `GROUP-HUB.md`) before the Subs, or a Sub's sync points at a file that does not exist.
+
+**Seed the hub from current state** — no thread-history reconstruction:
+
+1. Create `GROUP-HUB.md` from `templates/head/GROUP-HUB.md`; set frontmatter `protocol_epoch` from `docs/group/README.md`.
+2. Add one Registry row per Sub from the `docs/group/README.md` sub table: `state`, `epoch`, `dispute_round: 0`, `last_event` = last ack date. A stable group starts with **no Active threads**.
+3. Leave `docs/group/archive/` and `protocol-ref/` as they are — closed packet-era negotiations stay archived, not re-threaded.
+
+**Operator runbook:** its packet-copy content is obsolete under the hub — refresh `docs/group/OPERATOR-HANDOFF.md` from `templates/operator/group-handoff-runbook.md` (credentials/deploy only), preserving any project-specific entries. It stays human-tier (Russian OK, not auto-translated).
+
+**Sub `integration.md`:** re-template to the hub form; packet-era fields (`last_offer_from_head`, `last_merge_from_head`, `disputes_resolved`, sync-version table) are dropped — keep any you still need under **Local deviations**.
+
+After cutover, future changes flow through hub threads via `sync`.
 
 ---
 
@@ -175,22 +163,9 @@ head:
 ```powershell
 python scripts/protocol-snapshot.py --export --repo . --sub <id>
 python scripts/protocol-snapshot.py --attach-review --repo . --sub <id> --files <paths...>
-python scripts/protocol-snapshot.py --install --repo .
+python scripts/protocol-snapshot.py --install --repo . --from <head.path>/docs/group/exports/<sub-id>/<snapshot-dir>
 python scripts/sync-status.py --repo .
-python scripts/sync-status.py --operator-check --repo .
 ```
-
----
-
-## Subagents
-
-| Agent | Roles |
-|-------|-------|
-| `doc-librarian` | S, H, Sub — bulk doc edits (`maintain-docs`) |
-
-Group sync — skill `sync` / `sync-base`, not a separate subagent.
-
-Templates: `../../templates/skills/`, `../../templates/agents/`
 
 ---
 

@@ -1,6 +1,6 @@
 # Merge policy for normalization
 
-Version: **2.3.0** (canon 2.4.0)
+Version: **2.4.0** (canon 2.5.0)
 
 Normalization is **merge** with an existing repository, not replacement. The agent follows canon and role checklist while preserving project value.
 
@@ -34,13 +34,13 @@ On each WI release with new `canon_version`, **append** a new block — do not e
 
 ## `project-local:` marker
 
-At file start — signal that file is outside normalization scope and **outside** deprecations:
+A deliberate, **reasoned** opt-out for a single file that intentionally deviates from canon:
 
 ```markdown
-<!-- project-local: -->
+<!-- project-local: <why> -->
 ```
 
-Also excludes the file from language migration (agent-cache translation).
+It keeps that file out of normalization scope, deprecations, and language migration. It is **not** a blanket shield for accumulated ad-hoc documentation — files an agent created without a deliberate deviation are consolidated to canonical structure (see `documentation.md` → *Extended documentation & backlog*), not marked project-local. Use it sparingly, with a stated reason.
 
 ---
 

@@ -1,15 +1,18 @@
 ---
 name: sync
 description: >-
-  Group sync for Head and Sub: proposals, inbox processing, dispute, merge,
-  ack. Use for /sync <sub-id> <topic> or when operator says inbox is ready.
+  Group sync via GROUP-HUB.md at Head root — proposals, dispute, merge, ack for
+  Head or Sub. Use for /sync <sub-id> <topic> or when todo has Hub pending.
 ---
 
-# Sync — negotiation and inbox
+# Sync — negotiation via GROUP-HUB.md
 
-**Head or Sub.** Invoke: `/sync <sub-id> <topic>` or "process inbox".
+**Head or Sub.** State lives in `GROUP-HUB.md` at the Head repo root; the hub carries thread status and the registry, while contract bodies live in git and are referenced by path + commit.
 
-Operator copies outbox → neighbor repo inbox; paths — `docs/group/OPERATOR-HANDOFF.md`.
+Hub path:
+
+- **Head:** `GROUP-HUB.md` (repo root)
+- **Sub:** `<head.path>/GROUP-HUB.md` from `group.manifest.yaml` — your `sub_id` sections only
 
 ---
 
@@ -17,68 +20,75 @@ Operator copies outbox → neighbor repo inbox; paths — `docs/group/OPERATOR-H
 
 | Situation | Role | Action |
 |-----------|------|--------|
-| User describes new contract / plans | Head | Outgoing proposal (`sync_delta`) |
-| Inbox has packet from Head | Sub | Dispute or ack |
-| Inbox has `protocol_dispute` | Head | Merge |
-| Inbox has `protocol_ack` | Head | Close cycle |
+| User describes a new contract | Head | New thread `sync_delta` or `protocol_offer` |
+| Thread `awaiting_sub` for this sub | Sub | Compare refs; ack or dispute in the thread |
+| Thread `awaiting_head` with a dispute | Head | Verdict in the thread; update `shared/` if needed |
+| Thread ready for ack | Sub | Set `protocol_ack`; install `protocol-ref/` |
+| Epoch bump in `shared/` | Head | `protocol_ripple` thread per lagging sub |
 
-Read frontmatter `kind` in inbox. Process packets one at a time, oldest first.
+Process one thread at a time, oldest `awaiting_*` first.
 
 ---
 
 ## Head — outgoing proposal
 
-1. Prepare or update documents (contracts — in `docs/group/shared/`).
-2. Pre-flight for contract:
-   - transport credentials not exposed to agent;
-   - context tools read only local stores;
-   - mapping in `shared/` if normative.
-3. Create `sync_delta` in `docs/group/outbox/<sub-id>/<ts>-<head-id>.md` (template: `docs/group/templates/sync-packet.example.md` or `templates/sync-packet.example.md`).
-4. Copy files for review into `review-snapshot-<ts>/`:
+1. Prepare the contract in `docs/group/shared/` and commit; the hub links it by path + commit.
+2. Pre-flight: transport credentials stay out of agent context; normative mapping lives in `shared/`.
+3. Append a thread to `GROUP-HUB.md` → `Active threads`:
 
-```powershell
-python scripts/protocol-snapshot.py --attach-review --repo . --sub <sub-id> --files docs/group/shared/registry-mapping-foo.md ...
+```markdown
+### THR-<NNN> — sync_delta — <sub-id>
+- **status:** awaiting_sub
+- **severity:** critical | info
+- **affects:** paths
+- **head_proposal:** summary + `docs/group/shared/...` @ commit
+- **dispute_round:** 0/3
 ```
 
-5. List outbox files for operator.
+4. Set the registry row → `negotiating`.
+5. Add a line to this repo `docs/todo.md` → `## Hub pending`.
+6. Optional review snapshot: `protocol-snapshot.py --attach-review` — referenced by path in the thread.
 
 ---
 
-## Sub — inbox (offer / merge / sync_delta)
+## Sub — response (awaiting_sub)
 
-1. Read `docs/group/inbox/` — packet and `review-snapshot-*` / `protocol-snapshot-*` if present.
-2. Compare with `docs/group/protocol-ref/epoch<N>/`, `integration.md`, local specs.
-3. **After merge / aligned offer:**
-   - install files in `protocol-ref/` (`protocol-snapshot.py --install` for snapshot);
-   - update `integration.md` → `stable`, `dispute_round`, `open_disputes`;
-   - `protocol_ack` in outbox.
-4. **On discrepancies:**
-   - `protocol_dispute` per template — first "Accepted without dispute", then D1, D2, …;
-   - `integration.md` → `negotiating`, increment `dispute_round` (max 3 → `defer_manual` in summary).
-5. Delete processed packet from inbox.
-6. List outbox files for operator.
+1. Read the thread and the referenced files from Head `shared/` or local `protocol-ref/epoch<N>/`. A snapshot path in the thread resolves under `<head.path>/docs/group/exports/<sub-id>/`.
+2. **Aligned:** install the snapshot if the thread points to one (`protocol-snapshot.py --install --from <that path>`); update `integration.md`; set the thread → `protocol_ack` / `closed`; registry → `stable`.
+3. **Gaps:** fill `sub_response` with accepted items + D1, D2…; `status` → `awaiting_head`; increment `dispute_round` (max 3 → `defer_manual` in summary).
+4. Update Sub `docs/todo.md` Hub pending → `awaiting_head` where applicable.
+5. Doc file edits go through `doc-librarian` with explicit scope.
 
 ---
 
-## Head — inbox (dispute)
+## Head — merge (awaiting_head)
 
-1. Read dispute; update `docs/group/shared/` per agreement.
-2. `protocol_merge` in `outbox/<sub-id>/` — verdict table by same IDs (D1, D2, …).
-3. Optional: archive in `docs/group/archive/<sub-id>/<date>-<topic>.md` (template `negotiation-archive.example.md`).
-4. Delete dispute from inbox.
-5. List outbox for operator.
-
----
-
-## Head — inbox (ack)
-
-1. Update `docs/group/README.md` (`last_ack`, state).
-2. Append **Merge record** to mapping doc if needed.
-3. Delete ack from inbox.
+1. Read the `sub_response` disputes.
+2. Update `docs/group/shared/` per agreement.
+3. Fill `verdict`; set `status` → `awaiting_sub` (for the Sub to ack) or `closed` if resolved.
+4. On ack: update `docs/group/README.md` sub table; archive the thread summary to `docs/group/archive/<sub-id>/`.
+5. Remove the Hub pending line from both repos' `todo.md` when `closed`.
 
 ---
 
-## Packet naming
+## Ripple (epoch bump)
 
-- Head → Sub: `docs/group/outbox/<sub-id>/<YYYYMMDDTHHMMSS>-<from-id>.md`
-- Sub → Head: `docs/group/outbox/<YYYYMMDDTHHMMSS>-<from-id>.md`
+1. Bump `protocol_epoch` in the hub frontmatter.
+2. For each Sub off the epoch: a new `protocol_ripple` thread + snapshot refs (as in `sync-base`).
+3. Registry rows → `stale` until ack.
+
+---
+
+## Delegate doc edits
+
+Once a step is decided, invoke `maintain-docs` → `doc-librarian` with task (one sentence), scope (explicit file list), and StateFields for `integration.md` / group README. The librarian edits files; timing stays here.
+
+The hub holds pointers and status; contract bodies stay in git, and each sub edits only its own threads.
+
+## Tools
+
+```powershell
+python scripts/sync-status.py --repo .
+python scripts/protocol-snapshot.py --install --repo . --from <head.path>/docs/group/exports/<sub-id>/<snapshot-dir>
+python scripts/protocol-snapshot.py --status --repo .
+```

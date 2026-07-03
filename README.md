@@ -1,6 +1,6 @@
 # 1C Config MCP Server
 
-For AI and developers: see [`docs/`](docs/) (start with [`docs/agent-onboarding.md`](docs/agent-onboarding.md)). Admin Hub: [`docs/admin-hub/integration.md`](docs/admin-hub/integration.md). Brief AI context: [`README_AI.md`](README_AI.md).
+For AI and developers: see [`docs/`](docs/) (start with [`docs/agent-map.md`](docs/agent-map.md)). Admin Hub: [`docs/admin-hub-integration.md`](docs/admin-hub-integration.md).
 
 Tool for working with 1C configurations via an AI assistant with MCP support: code analysis, object search, metadata structure.
 
@@ -20,7 +20,7 @@ Tool for working with 1C configurations via an AI assistant with MCP support: co
 | `admin_tool/` | GUI and CLI (`admin_tool/cli.py`, Hub protocol) |
 | `server/` | MCP server |
 | `shared/` | XML parser, ProjectManager, hub_protocol |
-| `docs/admin-hub/` | managed tool integration with Admin Hub |
+| `docs/admin-hub-integration.md` | managed tool integration with Admin Hub |
 | `docs/group/` | sync with group `1c-cursor` (Sub) |
 | `projects.example.json` | example portable runtime config |
 
@@ -28,10 +28,8 @@ Tool for working with 1C configurations via an AI assistant with MCP support: co
 
 - **Role:** Sub · group `1c-cursor` · Head: `1c-admin-tool`
 - **Integration:** [`docs/group/integration.md`](docs/group/integration.md)
-- **Hub CLI:** `rebuild-index`, `apply-registry`, `status` — see [`docs/admin-hub/integration.md`](docs/admin-hub/integration.md)
+- **Hub CLI:** `rebuild-index`, `apply-registry`, `status` — see [`docs/admin-hub-integration.md`](docs/admin-hub-integration.md)
 
 ## Portability
 
 The portable build can be moved. After moving, update the exe path in the MCP client config and restart the AI application.
-
-Detailed steps (MCP config, troubleshooting) — in [`docs/agent-onboarding.md`](docs/agent-onboarding.md) and historically in git history of `readme.txt` (removed during Sub normalize 2.2.0).
