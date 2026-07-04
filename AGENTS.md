@@ -15,7 +15,7 @@ Full context — in `docs/`:
 
 If `docs/todo.md` has `## Hub pending` → skill **`sync`** before other work.
 
-On SQLite schema or data format changes — see `.cursor/rules/bump-indexer-version.md` (manual bump of `INDEXER_VERSION` in `shared/indexer_version.py`).
+On SQLite schema or data format changes — see `.cursor/rules/bump-indexer-version.mdc` (manual bump of `INDEXER_VERSION` in `shared/indexer_version.py`).
 
 For admin/CLI work under Admin Hub — follow `docs/admin-hub-integration.md` and protocol-ref addenda; MCP tools remain the read-only query plane.
 

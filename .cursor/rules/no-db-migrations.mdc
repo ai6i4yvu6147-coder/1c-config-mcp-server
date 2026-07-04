@@ -1,0 +1,13 @@
+---
+description: No SQLite schema migrations — databases are a derived artifact, recreated from source
+alwaysApply: true
+---
+
+# Rule: no SQLite migrations
+
+In this repository, do **not**:
+
+- propose/write schema migrations for existing `databases/*.db` files;
+- propose converting data from old databases into new ones.
+
+Databases are a derived artifact of the 1C configuration export, and after any import/schema change they are **recreated** via `admin_tool`.

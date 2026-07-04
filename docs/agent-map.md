@@ -78,7 +78,7 @@ build_all.bat   # portable: Admin/, Server/, Tools/
 ## Key policies (do not violate)
 
 - **NO_DB_MIGRATIONS** — recreate databases via `admin_tool`, never migrate existing SQLite in `databases/`.
-- **`INDEXER_VERSION`** — bump in `shared/indexer_version.py` on incompatible schema changes (`.cursor/rules/bump-indexer-version.md`).
+- **`INDEXER_VERSION`** — bump in `shared/indexer_version.py` on incompatible schema changes (`.cursor/rules/bump-indexer-version.mdc`).
 - **Testing** — verify only on the connected MCP via tool calls; start with `active_databases` (see `testing-protocol.md`).
 - **Parser** — extend from real export XML/BSL, not guesses; ask for export paths when missing.
 - **Ephemeral handoffs** — `HANDOFF-*.md` in repo root (gitignored); integration canon in `admin-hub-integration.md`.

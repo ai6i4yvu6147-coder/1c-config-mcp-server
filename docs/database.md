@@ -15,7 +15,7 @@
 - Константа: `shared/indexer_version.py` → `INDEXER_VERSION` (целое число).
 - При успешном создании/обновлении базы через `admin_tool` в файл `.db` записывается **`PRAGMA user_version = INDEXER_VERSION`** (см. `DatabaseManager.create_database` в `admin_tool/db_manager.py`).
 - Это **не миграция**: только маркер «под какой формат собрана база». Старые базы с меньшим `user_version` или с `0` считаются устаревшими для текущего сервера; их нужно пересобрать через админку (как и при любых несовместимых изменениях схемы).
-- **Когда увеличивать `INDEXER_VERSION`** (вручную, в том же коммите, что и изменение): см. `.cursor/rules/bump-indexer-version.md` и docstring в `shared/indexer_version.py`.
+- **Когда увеличивать `INDEXER_VERSION`** (вручную, в том же коммите, что и изменение): см. `.cursor/rules/bump-indexer-version.mdc` и docstring в `shared/indexer_version.py`.
 - В GUI админки и в ответе MCP `active_databases` показывается, что база устарела (сравнение с текущим `INDEXER_VERSION`).
 
 ### Сборка и блокировка MCP

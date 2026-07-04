@@ -1,0 +1,14 @@
+---
+description: Language policy for agent-facing documentation
+alwaysApply: true
+---
+
+# Agent-facing docs are English
+
+Write documentation that agents read repeatedly — `README.md`, `AGENTS.md`,
+`docs/agent-map.md`, `architecture.md`, `docs/canons/**`, group specs, `.cursor/**`
+— in **English**, from the start. It is cached every session; one language keeps
+the cache tight and cheap.
+
+Russian stays fine for human-tier files (`CHANGELOG.md`, operator runbook) and
+product UI strings under `src/`.

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import copy
 import re
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from shared.operations_log import log_operation_result
 from shared.project_manager import ProjectManager
 from shared.registry_ids import validate_hub_id
 from shared.runtime_paths import get_paths
@@ -397,4 +400,10 @@ def run_apply_registry_from_data(
 ) -> Dict[str, Any]:
     paths = get_paths(explicit_root)
     pm = ProjectManager(str(paths.config), str(paths.data_dir))
-    return apply_registry_fragment(input_data, pm, apply_mode=apply_mode)
+    operation_run_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    result = apply_registry_fragment(input_data, pm, apply_mode=apply_mode)
+    result["operationRunId"] = operation_run_id
+    result["durationMs"] = int((time.perf_counter() - started) * 1000)
+    log_operation_result(paths.operations_log, result)
+    return result

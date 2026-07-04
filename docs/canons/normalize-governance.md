@@ -1,6 +1,6 @@
 # Canon: normalization
 
-Version: **1.7.0** (canon 2.5.0)
+Version: **1.11.0** (canon 2.5.3)
 
 Normalization brings a repository to the **role structure** (S / H / Sub) per Workspace improve canons.
 
@@ -21,7 +21,7 @@ Performed by the **target repository agent** (initiator or skill `normalize-proj
 6. Templates from `<WI>/templates/` (read and materialize, not a full mirror).
 7. **Documentation:** materialize successors and align entry-point docs via **`maintain-docs`** → **`doc-librarian`**; fold surviving content from any deferred deprecated file into its successor, then remove that file. No bulk doc edits in the parent chat.
 8. **Language** (legacy non-English repos only — see *Language policy* below).
-9. `docs/normalize-record.md`, `project-doctor`, report (including removed deprecations section).
+9. **Verify:** run `project-doctor --repo . --wi <WI> --heal` — it checks structure and the frontmatter of every materialized `.cursor/` agent/skill (parses, `name`, non-empty `description`, clean `model` slug), and runs the healing checks below. Then write `docs/normalize-record.md` and the report (including the removed-deprecations section).
 
 When ambiguous — ask.
 
@@ -56,13 +56,21 @@ Agent-facing docs are authored in **English** (cached every session; one languag
 
 Skills and agents per role list in `normalize.bundle.yaml`. Adapt to repo: module id, head paths, local links.
 
-Copy agents **only** from `<WI>/templates/agents/<name>.md` → `.cursor/agents/<name>.md` (full file). Use the templates, not stub files from WI `.cursor/agents/`.
+Materialize agents by a **file copy**, not by re-emitting them through the model. An LLM told to "copy" a file regenerates the text and drifts — that is how frontmatter gets corrupted (prose before `name`, emptied `description`, `[]` on the slug). The agent templates are fully generic (all per-repo detail lives in `agent-map.md`), so copy them as bytes:
+
+```
+cp <WI>/templates/agents/*.md .cursor/agents/
+```
+
+Use the templates, not the WI `.cursor/agents/` stubs. `project-doctor` (step 9) then confirms each materialized agent/skill: frontmatter parses, `name` first, non-empty `description`, `model` a canonical Cursor slug (`model-selection.md`) with no suffix. Never rewrite the `model:` slug by hand — it already matches Cursor.
 
 `doc-librarian` is materialized in every repo. The dev-pipeline agents (`code-explorer`, `task-planner`, `implementer`, `verifier`) go only into large product repos, per `cursor_agents_dev` in `normalize.bundle.yaml`.
 
 Remove deprecated skills/agents from deprecations **before** copying new templates.
 
-Project-local Cursor features — `.cursor/commands/` and any repo-specific `.cursor/rules/` — are left untouched. WI's optional convention rules live in `templates/cursor-rules/` (install when wanted).
+**`.cursor/commands/re-normalize.md` is WI-templated**, per role (`cursor_commands` in `normalize.bundle.yaml`: `templates/standalone|head|subordinate/commands-re-normalize.md`) — same byte-copy discipline as agents. It is the one command materialized by normalize; everything else in `.cursor/commands/` is project-local and left untouched.
+
+**The three rules in `templates/cursor-rules/` are WI-templated too**, identical across every role (`cursor_rules` in `normalize.bundle.yaml`, listed once under `standalone` and inherited by H/Sub) — same byte-copy discipline. Any other `.cursor/rules/*` a repo has on top of these is project-local and left untouched.
 
 ---
 
@@ -88,9 +96,25 @@ Run normalize in **one pass**, then start a **fresh session** for real work — 
 
 ---
 
+## Healing (`project-doctor --heal`)
+
+Canon drift between full normalize passes is expected — WI keeps moving after a repo's last normalize, and nothing previously caught the gap. `project-doctor --wi <WI> --heal` closes the two mechanical cases automatically (single correct answer, no judgment call, never commits):
+
+- **Stale `docs/canons/*.md`** — content differs from `<WI>/docs/canons/`. Healed by byte-copy from WI, same discipline as materializing agents (§ *Materializing `.cursor/`*): overwrite, don't hand-edit or regenerate through the model.
+- **Stale/missing `.cursor/commands/re-normalize.md`** — content differs from the repo's role-specific WI template (`templates/<role>/commands-re-normalize.md`). Healed the same way, using the template that matches the repo's detected role.
+- **Stale/missing universal `.cursor/rules/*`** — the 3 rules in `templates/cursor-rules/` (identical across roles). Healed the same way; any other rule file in the repo is untouched.
+- **Untracked `.cursor/`** — the directory has files but git tracks none of them. Healed with `git add .cursor` (staged only; committing is still the operator's call).
+
+Everything else the doctor finds is **flag-only, by design** — fixing it requires a judgment call, not a lookup:
+
+- **Rule hygiene (project-local rules only)** — `.cursor/rules/*` outside the 3 universal ones that isn't `.mdc`, has invalid/missing frontmatter, or has a non-descriptive name (Cursor likely won't load it as a rule, or a future normalize pass won't recognize it as intentional). Whether to reformat, rename, or retire the rule is a per-repo decision.
+- **Dirty canon-managed paths** — uncommitted changes under `docs/canons/`, `group.manifest.yaml`, `docs/group/protocol-ref/`, `docs/group/shared/`, `GROUP-HUB.md`. This means the Hub registry's `stable`/`negotiating`/`stale` label may not match what's actually in git history for that repo yet. When to commit is the operator's call (see `WORKFLOW.md`), not something normalize should force.
+
+Running `--heal` is safe to do **outside** a full re-normalize pass too — it's cheap enough to run any time canon drift is suspected, not just at role-checklist time.
+
 ## Re-normalization
 
-Same cycle: current WI canons → deprecations by version → update local copy in repo → language migration when needed.
+Same cycle: current WI canons → deprecations by version → update local copy in repo → language migration when needed. Run `project-doctor --heal` first — it removes the mechanical drift so the re-normalize pass only has to reason about actual structural/role changes.
 
 ---
 

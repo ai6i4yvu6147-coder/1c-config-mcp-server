@@ -4,7 +4,7 @@
 
 - **Протокол:** v1 + addendum v1.0.1 + v1.0.2 + v1.0.3 (при конфликте — приоритет у **v1.0.3**).
 - **Phase 1 (read-only):** **реализован** — manifest example, `runtime_paths`, `hub_protocol`, CLI (`inventory`, `status`, `export-registry`), сборка `Tools/1c-config-cli.exe`.
-- **Phase 2 (registry sync):** **реализован (core)** — `apply-registry`, `sourcePath`/`sourceKind`, UUID v4, atomic write; `operations.log` — backlog.
+- **Phase 2 (registry sync):** **реализован** — `apply-registry`, `sourcePath`/`sourceKind`, UUID v4, atomic write, `operations.log` (JSONL audit).
 - **Phase 3 (headless rebuild):** **реализован** — `rebuild-index`, `rebuild-all`, `reconcile-markers`, `--trigger-rebuild`; `indexReadiness` в status.
 - **Режим по умолчанию:** `standalone` portable; hub optional.
 
@@ -89,7 +89,7 @@ Admin Hub владеет canonical registry (клиенты, выгрузки, �
 | `shared/cli_json.py` | **готово** (UTF-8 stdout/input, v1.0.3) |
 | `shared/source_path.py` | **готово** |
 | `rebuild-index` / `rebuild-all` / `reconcile-markers` | **готово** (`shared/hub_rebuild`, `admin_tool/cli`) |
-| `operations.log` | backlog (Phase 2 ops) |
+| `operations.log` | **готово** (`shared/operations_log.py`; apply-registry, rebuild-index, rebuild-all) |
 
 Portable root (после `build_all.bat`):
 
@@ -217,8 +217,6 @@ Portable root (после `build_all.bat`):
 
 **Критерий:** hub apply + MCP `active_databases` согласованы по mtime `projects.json`.
 
-**Осталось в backlog:** `operations.log` (append-only audit trail).
-
 #### Phase 3 — headless operations — **готово**
 
 - `shared/hub_rebuild.py`, команды в `admin_tool/cli.py`
@@ -232,7 +230,7 @@ Portable root (после `build_all.bat`):
 
 См. § **Phase 3 CLI** ниже.
 
-**Осталось в backlog:** `gui-bulk-update` (общий code path с `rebuild-all`), `operations.log`.
+**Осталось в backlog:** `gui-bulk-update` (общий code path с `rebuild-all`).
 
 ### Phase 3 CLI (контракт для Hub)
 
@@ -284,6 +282,20 @@ rebuild-index --db-id <args.db-id> --json
 ```
 
 `--db-id` = `infobaseId` = `ConfigurationExport.id` = `databases[].id`.
+
+### Operations log (Phase 2 ops)
+
+Путь: manifest `paths.operationsLog` (по умолчанию `logs/operations.log`). Формат — JSONL, одна запись на строку (protocol v1 §11.1).
+
+Записывается после: `apply-registry`, `rebuild-index`, `rebuild-all` (не `reconcile-markers`).
+
+Пример строки:
+
+```json
+{"timestamp":"2026-06-28T10:00:00Z","operation":"rebuild-index","targetId":"<infobaseId>","operationRunId":"<uuid>","result":"success","message":"Index rebuilt","durationMs":4200}
+```
+
+Hub может tail-ить файл для event feed и audit; `operationRunId` совпадает с полем в JSON-ответе CLI.
 
 **`status --json` — `indexReadiness` на database:**
 

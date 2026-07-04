@@ -1,0 +1,14 @@
+---
+description: Bump INDEXER_VERSION on incompatible database changes
+alwaysApply: true
+---
+
+# Rule: bump INDEXER_VERSION on incompatible DB changes
+
+If a change alters the **schema** in `admin_tool/db_manager.py` (tables, indexes, FTS) or **what gets written** to the DB from `shared/xml_parser.py` / `_insert_configuration`, such that existing `databases/*.db` files become incomplete or invalid for the current MCP — bump `INDEXER_VERSION` in `shared/indexer_version.py` **in the same commit**.
+
+If it's unclear whether a bump is needed — **ask the user**.
+
+Do not bump for changes confined to `server/`, to `admin_tool/gui_v2.py`, or for refactors that don't change DB content.
+
+See also: `docs/database.md` (`INDEXER_VERSION` section), `NO_DB_MIGRATIONS` in `.cursor/rules/no-db-migrations.mdc`.

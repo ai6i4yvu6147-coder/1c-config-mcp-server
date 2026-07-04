@@ -8,12 +8,12 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 ## Hub pending
 
-_(none — populated by skill `sync` when the Head hub has threads awaiting this sub)_
+- [ ] THR-008 awaiting_head — 1c-config-mcp — operations.log phase-2-ops (sub 2026-07-04)
 
 ## Admin Hub / group integration
 
 - **Status:** `stable`, epoch 0 (see [`group/integration.md`](group/integration.md))
-- Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — backlog
+- Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — **done**
 
 ## How to use
 
@@ -56,7 +56,7 @@ Do not start implementation from the list without explicit user request.
 | Scheduled job search by `MethodName` | **no** — see `scheduled-job-search` |
 | Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
-| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | Phase 2 **done**; Phase 3 rebuild CLI **done**; `operations.log` — backlog; see `integration.md` |
+| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
 | Admin GUI: build stage log / timings | **no** — see `gui-build-log-timings` |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |
 | Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 10; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
@@ -78,14 +78,6 @@ Do not start implementation from the list without explicit user request.
 
   - **Not in current iteration** — separate backlog item after v10
 
-- **hub-protocol-phase-2-ops** · `idea` · Admin Hub: operations.log append-only
-
-  - **Scope:** append audit trail on apply-registry / rebuild (path from manifest `operationsLog`)
-
-  - **Criterion:** hub sees control-plane operation history in JSONL
-
-  - **Related:** Phase 2–3 core (**done** — apply-registry, rebuild CLI)
-
 - **gui-bulk-update** · `ready` · Bulk update all configurations + progress indicator
 
   - **Task:** update all databases of all projects (or selected project) in one command, with saved `source_xml` paths
@@ -104,7 +96,7 @@ Do not start implementation from the list without explicit user request.
 
   - **Options:** extend `find_object` for ScheduledJob type · JOIN with `scheduled_jobs.method_name` · separate MCP tool
 
-  - **Materials:** `scheduled_jobs` table; on schema change — `bump-indexer-version.md`
+  - **Materials:** `scheduled_jobs` table; on schema change — `bump-indexer-version.mdc`
 
   - **Not to confuse with** dependency layer (`dependency-layer.md`) — separate axis (handler, not metadata ref)
 

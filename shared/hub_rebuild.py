@@ -18,6 +18,7 @@ from shared.db_build_state import (
 )
 from shared.index_status import build_index_status, read_db_user_version
 from shared.indexer_version import INDEXER_VERSION
+from shared.operations_log import log_operation_result
 from shared.project_manager import ProjectManager
 from shared.runtime_paths import get_paths
 from shared.source_path import get_effective_config_xml, source_exists
@@ -77,17 +78,20 @@ def run_rebuild_index(
     found = pm.find_database_by_id(db_id)
     if found is None:
         result["errors"].append(f"infobaseId not found: {db_id}")
+        log_operation_result(paths.operations_log, result)
         return result
 
     _project, db = found
     db_path, config_xml, resolve_errors = _resolve_rebuild_target(paths.data_dir, db)
     if resolve_errors:
         result["errors"].extend(resolve_errors)
+        log_operation_result(paths.operations_log, result)
         return result
 
     if is_building(db_path) and not is_stale_building(db_path):
         result["errors"].append(f"rebuild already in progress for infobaseId {db_id}")
         result["result"] = "busy"
+        log_operation_result(paths.operations_log, result)
         return result
 
     result["dbFile"] = db.get("db_file")
@@ -97,9 +101,11 @@ def run_rebuild_index(
         ok = DatabaseManager.build_from_xml_atomic(db_path, config_xml)
         if not ok:
             result["errors"].append("build_from_xml_atomic returned false")
+            log_operation_result(paths.operations_log, result)
             return result
     except Exception as exc:
         result["errors"].append(format_build_error(exc))
+        log_operation_result(paths.operations_log, result)
         return result
     finally:
         result["durationMs"] = int((time.perf_counter() - started) * 1000)
@@ -110,6 +116,7 @@ def run_rebuild_index(
     result["result"] = "success"
     result["userVersion"] = user_version
     result["expectedVersion"] = INDEXER_VERSION
+    log_operation_result(paths.operations_log, result)
     return result
 
 
@@ -154,7 +161,7 @@ def run_rebuild_all(explicit_root: Optional[PathLike] = None) -> Dict[str, Any]:
     skipped = sum(1 for r in results if r.get("result") == "skipped")
     failed = sum(1 for r in results if r.get("result") not in ("success", "skipped"))
 
-    return {
+    payload = {
         "success": not any_failed,
         "operation": "rebuild-all",
         "operationRunId": operation_run_id,
@@ -170,6 +177,8 @@ def run_rebuild_all(explicit_root: Optional[PathLike] = None) -> Dict[str, Any]:
         "warnings": warnings,
         "errors": [] if not any_failed else [f"{failed} database(s) failed to rebuild"],
     }
+    log_operation_result(paths.operations_log, payload)
+    return payload
 
 
 def _list_marker_paths(data_dir: Path) -> List[str]:

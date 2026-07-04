@@ -1,6 +1,6 @@
 # Canon: group documentation sync
 
-Version: **2.5.0**
+Version: **2.5.1**
 
 Star topology **Head ↔ Sub**. Group sync state lives in a single **`GROUP-HUB.md`** at the Head repo root; contract bodies live in git and are referenced from the hub by path + commit. The operator handles credentials and deploy only — no packet copying.
 
@@ -11,9 +11,10 @@ Star topology **Head ↔ Sub**. Group sync state lives in a single **`GROUP-HUB.
 1. **Head** — owns `docs/group/shared/` (shared canon) and `GROUP-HUB.md`.
 2. **Sub** — owns `integration.md` + `protocol-ref/epoch<N>/`; reads/writes the hub at `<head.path>/GROUP-HUB.md` in its own `sub_id` sections only.
 3. **Sub ↔ Sub** — only through Head.
-4. **Hub** — carries threads + registry (status metadata), **not** agent-cache tier; read when `docs/todo.md` has `## Hub pending` or the user invokes sync.
-5. **Contracts** — committed under `docs/group/shared/` (Head) or `protocol-ref/epoch<N>/` (Sub); the hub links them, never inlines them.
-6. **Todo queue** — `## Hub pending` in `docs/todo.md` is the ~50-token signal the orchestrator checks before reading the full hub.
+4. **Each session acts in its own repo and does its own step.** From a Sub session the one file written in the Head repo is `GROUP-HUB.md` — the Sub's own registry row and its own thread; the Sub sets the thread's status to whoever acts next, and that completes its step. Head's other docs (`docs/todo.md`, `shared/`, `archive/`) are updated by the Head session when it later picks up the thread — a thread's `affects:` field is that to-do list for Head. (A Head session writes in a Sub only to install a snapshot a thread calls for.)
+5. **Hub** — carries threads + registry (status metadata), **not** agent-cache tier; read when `docs/todo.md` has `## Hub pending` or the user invokes sync.
+6. **Contracts** — committed under `docs/group/shared/` (Head) or `protocol-ref/epoch<N>/` (Sub); the hub links them, never inlines them.
+7. **Todo queue** — `## Hub pending` in `docs/todo.md` is the ~50-token signal the orchestrator checks before reading the full hub.
 
 ---
 
@@ -38,17 +39,22 @@ Group sync is a **skill**, not a subagent. `doc-librarian` edits doc files *afte
 
 Fields: `protocol_epoch`, `dispute_round` (max 3 → `defer_manual`). Head keeps the registry table in `GROUP-HUB.md` and mirrors the sub summary in `docs/group/README.md`.
 
+A **delivery notice** (Sub reporting tracked implementation work, no `shared/` contract change) does not renegotiate the protocol: the registry `state` stays `stable`, only `last_event` moves. Reserve `negotiating` for an actual contract change in flight.
+
 ---
 
 ## Thread lifecycle
 
 ```
-sync_delta → (dispute) → merge → ack → closed → archive
+sync_delta → (dispute) → merge → ack → closed → archive           (contract change)
+sync_delta severity: info → awaiting_head → closed → archive      (Sub delivery notice)
 protocol_offer → ack → stable      (onboarding)
 protocol_ripple → ack → stable     (epoch bump)
 ```
 
 Thread status: `awaiting_sub` | `awaiting_head` | `closed`.
+
+**When a hub thread is needed:** a `shared/` contract change always opens one (Head-initiated). Sub-side implementation of an already-specified protocol needs Sub-local docs only — open a delivery-notice thread (`severity: info`) only if Head's own backlog needs to be told and cleared. A one-off cross-team note that isn't group protocol state belongs in an ephemeral handoff file, not the hub.
 
 Kinds (`kind`): `protocol_offer` | `protocol_dispute` | `protocol_merge` | `protocol_ack` | `protocol_ripple` | `sync_delta`.
 

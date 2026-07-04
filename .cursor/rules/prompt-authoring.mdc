@@ -1,0 +1,12 @@
+---
+description: How to write prompts for subagents, skills, and agent docs
+alwaysApply: true
+---
+
+# Prompt authoring: describe the flow, not prohibitions
+
+When writing prompts for subagents, skills, or agent docs, describe the **order of actions** — the positive flow — and leave judgment to the agent.
+
+- Do not fill prompts with defensive guardrails ("Do not…", "Never…", "Does not…"). If the pipeline is well specified, restated prohibitions add noise and context cost without adding information.
+- Keep only constraints that carry real information — a read-only role, one step per invocation, passing paths instead of file contents — and phrase them as **what the agent does**: "Reads and reports; code changes go to the implementer" rather than "Do not edit files".
+- Trust the agent to make reasonable choices inside the flow you define.

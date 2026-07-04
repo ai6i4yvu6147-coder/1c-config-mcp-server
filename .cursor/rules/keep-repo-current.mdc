@@ -1,0 +1,12 @@
+---
+description: Keep the working tree current; git holds history
+alwaysApply: true
+---
+
+# Keep the repo current; git holds history
+
+The working tree reflects the **current** state only. Do not accumulate legacy or historical records — old approval reports, dated session write-ups, superseded snapshots, obsolete templates or skills.
+
+- When a change supersedes something, delete the old material in the same pass. Git history is the archive; anything worth recovering is a `git log` away.
+- The one sanctioned forward log is `CHANGELOG.md` (human-tier). Everything else should describe how things work now, not how they used to.
+- Stale files cost agent context and invite drift between "documented" and "actual". Removing them is a feature, not data loss.

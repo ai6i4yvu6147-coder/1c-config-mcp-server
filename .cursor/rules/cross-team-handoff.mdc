@@ -1,13 +1,13 @@
 ---
-description: Эпиhemeral handoff-отчёты для других команд; канон только в docs/
+description: Ephemeral handoff reports for other teams; canon lives only in docs/
 globs:
 alwaysApply: true
 ---
 
 # Cross-team handoff reports
 
-- Отчёты и переписка **для других команд** (Admin Hub, ConfigAdmin и т.п.) — **эпиhemeral**: файл в корне `HANDOFF-*.md` или вне git; **не коммитить** (см. `.gitignore`).
-- После передачи отчёт удаляется; в репозитории на него **ничего не ссылается**.
-- Вся операционная информация для интеграции дублируется в канон: `docs/admin-hub-integration.md` и при необходимости addendum в `docs/group/protocol-ref/`.
-- В `docs/`, `AGENTS.md`, `CHANGELOG.md`, cursor rules — **запрещены ссылки** на `HANDOFF-*.md` и на одноразовые архивы переписки.
-- В корне репозитория не хранить постоянную документацию — только `docs/`, `AGENTS.md`, `CHANGELOG.md`.
+- Reports and correspondence **for other teams** (Admin Hub, ConfigAdmin, etc.) are **ephemeral**: a `HANDOFF-*.md` file at repo root or outside git; **do not commit** (see `.gitignore`).
+- Once handed off, the report is deleted; nothing in the repository **references** it.
+- All operational integration information is duplicated into canon: `docs/admin-hub-integration.md` and, if needed, an addendum in `docs/group/protocol-ref/`.
+- In `docs/`, `AGENTS.md`, `CHANGELOG.md`, and Cursor rules — **links to** `HANDOFF-*.md` or one-off correspondence archives are **forbidden**.
+- Do not keep permanent documentation at repo root — only `docs/`, `AGENTS.md`, `CHANGELOG.md`.

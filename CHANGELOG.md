@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-07-03
+
+- **Admin Hub Phase 2 ops (`operations.log`):** append-only JSONL audit trail на `apply-registry`, `rebuild-index`, `rebuild-all`; путь из manifest `paths.operationsLog`; `shared/operations_log.py`; тесты `tests/test_operations_log.py`.
+
 ## 2026-07-02
 
 - **Re-normalize 2.4.0 (Sub):** agent-cache tier на English (`agent_docs_lang: en`); каноны WI 2.4.0; skills/agents обновлены из WI templates; deprecations 2.3.0 подтверждены удалёнными; `project-doctor` 2.4.0. Состояние протокола без изменений.

@@ -28,15 +28,17 @@ An error at one hop multiplies down the chain: a weak `code-explorer` feeds a wr
 
 ## Role → tier
 
-| Agent | Tier | Why | Current pick |
-|-------|------|-----|--------------|
-| `code-explorer` | Frontier reasoning | First hop — its map gates everything downstream | Gemini 3.1 Pro |
-| `task-planner` | Frontier reasoning | Plan quality makes or breaks the pipeline | GPT-5.5 |
-| `implementer` | Code specialist | Focused code changes to a named step | Codex 5.3 |
-| `verifier` | Frontier reasoning | Final gate — a weak critic rubber-stamps | Sonnet 5 |
-| `doc-librarian` | Fast / cheap | Mechanical doc edits from an explicit scope | Haiku 4.5 |
+| Agent | Tier | Why | `model:` (Cursor slug) |
+|-------|------|-----|------------------------|
+| `code-explorer` | Frontier reasoning | First hop — its map gates everything downstream | `gemini-3.1-pro` |
+| `task-planner` | Frontier reasoning | Plan quality makes or breaks the pipeline | `gpt-5.5` |
+| `implementer` | Code specialist | Focused code changes to a named step | `gpt-5.3-codex` |
+| `verifier` | Frontier reasoning | Final gate — a weak critic rubber-stamps | `claude-sonnet-5` |
+| `doc-librarian` | Fast / cheap | Mechanical doc edits from an explicit scope | `claude-haiku-4-5` |
 
 Orchestrator: **Auto** (it triages, delegates, and reviews the plan — variety of turn types suits Auto).
+
+The `model:` value is the **exact Cursor picker slug** — this table is its single source of truth. Cursor's naming is not uniform (`gemini-3.1-pro`, `gpt-5.5`, but `gpt-5.3-codex`, `claude-sonnet-5`, `claude-haiku-4-5`); use it verbatim, no shorthand and no suffix. A shorthand slug forces the materializing agent to hand-edit frontmatter, which is where corruption creeps in — so the slug here must match what the template ships, and templates are copied byte-for-byte.
 
 ---
 
@@ -44,4 +46,4 @@ Orchestrator: **Auto** (it triages, delegates, and reviews the plan — variety 
 
 - Built-in Explore / Bash handle trivial lookups without a subagent at all.
 - Raise a tier when a repo is large or unusually subtle; drop one when tasks are routine and cost matters.
-- When Cursor renames or retires a model, update the frontmatter slug and the "current pick" column here — the tier mapping stays.
+- When Cursor renames or retires a model, update the slug column here **and** the `model:` field in the matching `templates/agents/*.md` in the same pass, so template and canon never drift — the tier mapping stays.

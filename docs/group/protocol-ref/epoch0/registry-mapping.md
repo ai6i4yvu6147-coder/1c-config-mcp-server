@@ -171,7 +171,7 @@ Backlog: [`../todo.md`](../todo.md).
 |----------|------|--------|
 | **P0** | CLI `rebuild-index`, `rebuild-all`, `reconcile-markers` | **done** (2026-06-29) |
 | **P1** | `status --json` readiness (`indexReadiness`) per database | **done** (2026-06-29) |
-| — | `operations.log` (append-only audit) | config-mcp backlog |
+| — | `operations.log` (append-only audit) | **done** (`shared/operations_log.py`) |
 | — | Multi-database fragment from Hub (apply already ready) | — |
 
 ---
