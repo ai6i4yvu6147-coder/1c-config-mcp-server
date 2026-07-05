@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-07-05
+
+- **Refactor: decompose god modules (`refactor-god-modules`, backlog):** `shared/xml_parser.py`, `admin_tool/db_manager.py`, `server/tools.py`, `server/server.py` (~1.5–2.2k lines each) split into packages of cohesive mixins/modules, no public API/behavior change (same imports, same MCP tool list/schemas, same DB schema); `server/server.py` additionally split into `server/tool_schemas.py` (Tool definitions) + `server/dispatch/` (per-domain response formatting), server.py itself now thin. Full test suite unchanged (102 passed, 9 skipped) throughout.
+
 ## 2026-07-03
 
 - **Admin Hub Phase 2 ops (`operations.log`):** append-only JSONL audit trail на `apply-registry`, `rebuild-index`, `rebuild-all`; путь из manifest `paths.operationsLog`; `shared/operations_log.py`; тесты `tests/test_operations_log.py`.

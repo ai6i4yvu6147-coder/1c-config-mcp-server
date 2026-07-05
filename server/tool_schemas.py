@@ -1,0 +1,468 @@
+from mcp.types import Tool
+
+TOOL_SCHEMAS = [
+    Tool(
+        name="active_databases",
+        description=(
+            "Список проектов и список баз данных. Получить список проектов, перечень проектов, какие проекты доступны, доступные базы. "
+            "Узнать какой project_filter указать для search_code, find_object, get_module_code, get_procedure_code. "
+            "Первый шаг при работе с конфигурацией 1С: с чего начать, начало работы. Возвращает имена проектов и имён баз (основная конфигурация и расширения). "
+            "Без вызова этого инструмента нельзя узнать допустимые значения project_filter. Вызывайте перед search_code и другими инструментами. "
+            "Передавайте возвращённые имена в project_filter и extension_filter без изменений (точное совпадение)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "placeholder": {
+                    "type": "string",
+                    "description": "Не используется; параметр опционален. Вызовите инструмент без аргументов для получения списка проектов и баз."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="search_code",
+        description="Поиск по коду конфигурации. project_filter обязателен; extension_filter опционален. Используйте active_databases для списка проектов и баз.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Поисковый запрос"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно). Например: 'ТГ'"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "object_name": {
+                    "type": "string",
+                    "description": "Фильтр по имени объекта (опционально, можно частичное). Например: 'ФТ_Конвертации'"
+                },
+                "module_type": {
+                    "type": "string",
+                    "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule, CommandModule"
+                },
+                "max_results": {
+                    "type": "number",
+                    "description": "Максимум результатов на базу (по умолчанию 10)",
+                    "default": 10
+                }
+            },
+            "required": ["query", "project_filter"]
+        }
+    ),
+    Tool(
+        name="find_object",
+        description="Найти объект метаданных по имени или синониму. project_filter обязателен. Для расширений в ответе возвращается object_belonging (Own/Adopted).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Имя или синоним объекта (можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="list_objects",
+        description="Список объектов метаданных. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). В ответе по каждой базе: total_count, returned_count, is_truncated; при is_truncated: true увеличьте limit или сообщите пользователю о неполном списке.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_type": {
+                    "type": "string",
+                    "description": "Тип объекта (опционально): CommonModule, Catalog, Document и т.д."
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Максимум объектов на базу (по умолчанию 50)",
+                    "default": 50
+                }
+            },
+            "required": ["project_filter"]
+        }
+    ),
+    Tool(
+        name="get_module_code",
+        description=(
+            "Получить код модуля объекта, модуля формы или CommandModule (команда объекта / общая команда). "
+            "project_filter обязателен. Для module_type='CommandModule': укажите command_name для модуля команды объекта; "
+            "без command_name — модуль общей команды (объект типа CommonCommand)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта"
+                },
+                "module_type": {
+                    "type": "string",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "default": "Module"
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы (обязательно для module_type='FormModule')"
+                },
+                "command_name": {
+                    "type": "string",
+                    "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["object_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_module_procedures",
+        description=(
+            "Получить список процедур и функций модуля (сигнатуры и контекст выполнения Клиент/Сервер). project_filter обязателен. "
+            "Поддержка CommandModule: command_name для команды объекта; без command_name — общая команда (CommonCommand)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта"
+                },
+                "module_type": {
+                    "type": "string",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "default": "Module"
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы (обязательно для module_type='FormModule')"
+                },
+                "command_name": {
+                    "type": "string",
+                    "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["object_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_procedure_code",
+        description=(
+            "Получить код конкретной процедуры или функции (включая директиву &НаКлиенте/&НаСервере). project_filter обязателен. "
+            "CommandModule: command_name для команды объекта; без command_name — общая команда."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта"
+                },
+                "procedure_name": {
+                    "type": "string",
+                    "description": "Имя процедуры или функции"
+                },
+                "module_type": {
+                    "type": "string",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "default": "Module"
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы (обязательно для module_type='FormModule')"
+                },
+                "command_name": {
+                    "type": "string",
+                    "description": "Имя команды объекта (только для module_type='CommandModule'; взаимоисключение с form_name)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["object_name", "procedure_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="find_form",
+        description="Поиск форм по имени объекта и/или формы. project_filter обязателен. В ответе: form_kind (List/Choice/Element), для расширений — object_belonging.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта (опционально, можно частичное)"
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы (опционально, можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["project_filter"]
+        }
+    ),
+    Tool(
+        name="find_form_element",
+        description="Найти формы, содержащие элемент по имени элемента или по связи с данными — ПутьКДанным (data_path). project_filter обязателен. В ответе: visible, enabled, data_path.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "element_name": {
+                    "type": "string",
+                    "description": "Имя элемента формы (можно частичное). Задайте его или data_path."
+                },
+                "data_path": {
+                    "type": "string",
+                    "description": "Путь к данным (реквизит): поиск по полю DataPath/ПутьКДанным (можно частичное). Задайте его или element_name."
+                },
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта для фильтрации (опционально, можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["project_filter"]
+        }
+    ),
+    Tool(
+        name="get_form_structure",
+        description=(
+            "Полная структура формы: реквизиты, команды, элементы UI (visible, enabled), события. project_filter обязателен. "
+            "У элементов items: command_name (сырое значение из Form.xml) и command_source (Form | Object | Common — по префиксу command_name). "
+            "form_kind и object_belonging для расширений."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта"
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["object_name", "form_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="search_form_properties",
+        description="Поиск элементов форм по свойствам Visible и Enabled. Поддерживаются только эти два свойства. project_filter обязателен.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "property_name": {
+                    "type": "string",
+                    "description": "Имя свойства: только Visible или Enabled"
+                },
+                "property_value": {
+                    "type": "string",
+                    "description": "Значение (опционально): true, false, 1, 0"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["property_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_object_structure",
+        description=(
+            "Полная структура метаданных объекта 1С. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). "
+            "Поле modules — только модули объекта (без CommandModule команд). Команды объекта — в массиве commands: name, synonym, has_module. "
+            "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст. "
+            "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов. "
+            "ScheduledJob: method_name, use, predefined, restart_count_on_failure, restart_interval_on_failure."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта (можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                }
+            },
+            "required": ["object_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="find_referencing_objects",
+        description=(
+            "Обратный поиск: кто ссылается на объект метаданных через типы полей "
+            "(metadata_type_slots) и структурные связи (metadata_relations). "
+            "project_filter обязателен. "
+            "via: attribute | tabular_section_column | form_attribute | form_attribute_column | "
+            "subsystem_member (подсистема в Content)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя или синоним целевого объекта (можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Максимум записей на базу (по умолчанию 100)"
+                },
+                "relation_kinds": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Фильтр relation_kind в metadata_relations "
+                        "(например subsystem_member). Пусто — все виды связей."
+                    )
+                }
+            },
+            "required": ["object_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_functional_options",
+        description="Функциональные опции для объекта или элемента формы. Вызывать при вопросах: почему объект/документ недоступен; почему поле/кнопка на форме не отображается. Один tool: только object_name — в каких ФО задействован объект; object_name + form_name + element_type + element_name — от каких ФО зависит элемент формы. project_filter обязателен.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта (документ, справочник и т.д.) — обязательно."
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)."
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из active_databases (опционально)."
+                },
+                "form_name": {
+                    "type": "string",
+                    "description": "Имя формы — для запроса по элементу формы (вместе с element_type и element_name)."
+                },
+                "element_type": {
+                    "type": "string",
+                    "description": "FormAttribute | FormCommand | FormItem — для элемента формы."
+                },
+                "element_name": {
+                    "type": "string",
+                    "description": "Имя реквизита/команды/элемента формы."
+                }
+            },
+            "required": ["object_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="find_attribute",
+        description="Поиск реквизита по имени. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "attribute_name": {
+                    "type": "string",
+                    "description": "Имя реквизита (можно частичное)"
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "max_results": {
+                    "type": "number",
+                    "description": "Максимум результатов на базу (по умолчанию 20)",
+                    "default": 20
+                }
+            },
+            "required": ["attribute_name", "project_filter"]
+        }
+    )
+]

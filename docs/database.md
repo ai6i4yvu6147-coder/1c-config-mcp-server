@@ -26,7 +26,7 @@
 
 ### Как БД создаётся
 
-Файл: `admin_tool/db_manager.py`
+Модуль: `admin_tool/db_manager/` (пакет: `core.py` — жизненный цикл соединения и атомарная сборка, `schema.py` — DDL, `insert_objects.py`/`insert_forms.py` — вставка, `relations.py` — `metadata_relations`)
 
 - `build_from_xml_atomic` — маркер → сборка в `.db.tmp` → подмена целевого `.db`;
 - создаётся схема таблиц;

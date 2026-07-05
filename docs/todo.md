@@ -8,7 +8,7 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 ## Hub pending
 
-- [ ] THR-008 awaiting_head — 1c-config-mcp — operations.log phase-2-ops (sub 2026-07-04)
+(none — THR-008 resolved; Head registry shows `stable`, no active thread)
 
 ## Admin Hub / group integration
 
@@ -109,14 +109,6 @@ Do not start implementation from the list without explicit user request.
 - **relations-phase-5** · `blocked` · `EventSubscription`
 
   - **Spec:** [`dependency-layer.md`](dependency-layer.md) — phase 5; **blocked** without real export
-
-- **refactor-god-modules** · `idea` · Decompose large modules before dependency-layer phase 4
-
-  - **Why:** `server/tools.py`, `admin_tool/db_manager.py`, `shared/xml_parser.py`, `server/server.py` — ~1.5–2.2k lines each; regression risk on Role/EventSubscription
-
-  - **Scope (draft):** extract domain packages (forms, relations, code search) without changing public MCP API
-
-  - **When:** before `relations-phase-4`, does not block current operations
 
 ---
 

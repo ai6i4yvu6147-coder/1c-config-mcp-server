@@ -35,20 +35,20 @@ Details: [`admin-hub-integration.md`](admin-hub-integration.md).
 
 ### Main components
 
-- **1C export parser**: `shared/xml_parser.py`
+- **1C export parser**: `shared/xml_parser/` (package: `core.py` dispatch, `forms.py`, `sections.py`, `flowchart.py`, `modules.py`, `types.py`, `xml_helpers.py` — mixins composed into `ConfigurationParser`)
   - Input: path to `Configuration.xml` in the export directory.
   - Output: `data` structure (configuration, object list, properties/forms/modules).
   - Important: metadata type handling is limited to the `object_types` whitelist.
 
-- **SQLite DB builder**: `admin_tool/db_manager.py`
+- **SQLite DB builder**: `admin_tool/db_manager/` (package: `core.py`, `schema.py`, `insert_objects.py`, `insert_forms.py`, `relations.py`, `file_ops.py`, `bsl.py` — mixins composed into `DatabaseManager`)
   - Creates table schema and loads data.
   - Indexes module code in FTS5 (`code_search`) and procedures/functions (`module_procedures`).
   - Important: no migrations — only DB recreation on changes (see `docs/database.md`).
 
-- **MCP server**: `server/server.py`
+- **MCP server**: `server/server.py` (thin: tool registration + dispatch wiring) + `server/tool_schemas.py` (Tool schemas) + `server/dispatch/` (per-domain response formatting)
   - Registers tools and exposes them to the MCP client.
 
-- **MCP tools (SQLite queries)**: `server/tools.py`
+- **MCP tools (SQLite queries)**: `server/tools/` (package: `base.py`, `objects.py`, `code.py`, `forms.py`, `relations.py`, `formatting.py` — mixins composed into `ConfigurationTools`)
   - Reads active databases/projects via `shared/project_manager.py` and runtime config `projects.json` (lives next to the portable instance, not in sources).
   - Uses SQLite connection cache, invalidating the connection when the DB file `mtime` changes.
 
