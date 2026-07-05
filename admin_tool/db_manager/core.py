@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from pathlib import Path
 
 from shared.xml_parser import ConfigurationParser
@@ -6,6 +7,16 @@ from shared.indexer_version import INDEXER_VERSION
 from shared.db_build_state import mark_building, clear_building, tmp_db_path
 
 from .file_ops import _remove_db_file, _remove_sqlite_sidecars, _replace_file_with_retry
+
+_STAGE_LABELS = {
+    'properties': 'Метаданные (свойства/реквизиты)',
+    'modules': 'Модули (BSL)',
+    'forms': 'Формы',
+    'sections': 'Табличные части/регистры/перечисления',
+    'flowchart': 'Маршруты БП (Flowchart)',
+    'commands': 'Команды объектов',
+    'subsystems': 'Подсистемы',
+}
 
 
 class DatabaseManagerCore:
@@ -101,22 +112,29 @@ class DatabaseManagerCore:
             config_xml_path: Путь к Configuration.xml
             progress_callback: Функция для отчета о прогрессе (current, total, message)
         """
+        t_start = time.perf_counter()
+
         # Парсим конфигурацию
         if progress_callback:
             progress_callback(0, 100, "Парсинг Configuration.xml...")
 
+        t0 = time.perf_counter()
         parser = ConfigurationParser(config_xml_path)
         data = parser.parse()
 
         # Создаем структуру БД
         if progress_callback:
-            progress_callback(10, 100, "Создание структуры БД...")
+            progress_callback(10, 100, f"XML parse — {time.perf_counter() - t0:.1f} c — создание структуры БД...")
+            for stage_name, seconds in sorted(parser.stage_seconds.items(), key=lambda kv: -kv[1]):
+                label = _STAGE_LABELS.get(stage_name, stage_name)
+                progress_callback(10, 100, f"    - {label}: {seconds:.1f} c")
 
+        t0 = time.perf_counter()
         self._create_schema()
 
         # Заполняем данными
         if progress_callback:
-            progress_callback(20, 100, "Загрузка объектов...")
+            progress_callback(20, 100, f"Структура БД — {time.perf_counter() - t0:.1f} c — загрузка объектов...")
 
         self._insert_configuration(data, progress_callback)
 
@@ -125,7 +143,7 @@ class DatabaseManagerCore:
         self.conn.commit()
 
         if progress_callback:
-            progress_callback(100, 100, "Готово!")
+            progress_callback(100, 100, f"Готово! Всего: {time.perf_counter() - t_start:.1f} c")
 
         return True
 

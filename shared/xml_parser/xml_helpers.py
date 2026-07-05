@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -7,6 +8,23 @@ def _local_tag(tag):
     if not tag:
         return ''
     return tag.split('}')[-1] if '}' in tag else tag
+
+
+def _winlong(path):
+    """
+    Windows extended-length ('\\\\?\\') path form.
+
+    Deeply nested real exports (many nested Subsystems, long Cyrillic form/object names)
+    can exceed the 260-char MAX_PATH limit; without this, os.path.exists()/open()/ET.parse()
+    silently report "file not found" even though the file exists. No-op on non-Windows.
+    """
+    s = str(path)
+    if os.name != 'nt' or s.startswith('\\\\?\\'):
+        return s
+    s = os.path.abspath(s)
+    if s.startswith('\\\\'):
+        return '\\\\?\\UNC\\' + s[2:]
+    return '\\\\?\\' + s
 
 
 class XmlHelpersMixin:
@@ -51,10 +69,10 @@ def get_configuration_name(config_path):
     Используется для подстановки имени базы в GUI при выборе выгрузки.
     """
     path = Path(config_path)
-    if not path.exists() or path.suffix.lower() != '.xml':
+    if not os.path.exists(_winlong(path)) or path.suffix.lower() != '.xml':
         return ''
     try:
-        tree = ET.parse(path)
+        tree = ET.parse(_winlong(path))
         root = tree.getroot()
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         config = root.find(f'{{{md_ns}}}Configuration')
@@ -81,10 +99,10 @@ def get_configuration_type(config_path):
     Расширение определяется по наличию ConfigurationExtensionPurpose в Configuration.xml.
     """
     path = Path(config_path)
-    if not path.exists() or path.suffix.lower() != '.xml':
+    if not os.path.exists(_winlong(path)) or path.suffix.lower() != '.xml':
         return 'base'
     try:
-        tree = ET.parse(path)
+        tree = ET.parse(_winlong(path))
         root = tree.getroot()
         ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
         config = root.find('md:Configuration', ns)

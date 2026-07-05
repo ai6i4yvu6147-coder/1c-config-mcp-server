@@ -1,4 +1,7 @@
+import os
 import xml.etree.ElementTree as ET
+
+from .xml_helpers import _winlong
 
 
 class FormsMixin:
@@ -10,7 +13,7 @@ class FormsMixin:
         forms_dir = self.root_dir / folder_name / obj_name / 'Forms'
         default_forms = default_forms or {}
 
-        if not forms_dir.exists():
+        if not os.path.exists(_winlong(forms_dir)):
             return forms
 
         for form_dir in forms_dir.iterdir():
@@ -42,7 +45,7 @@ class FormsMixin:
         """Парсит одну форму. uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml)."""
         form_xml = form_dir / 'Ext' / 'Form.xml'
 
-        if not form_xml.exists():
+        if not os.path.exists(_winlong(form_xml)):
             return None
 
         try:
@@ -51,9 +54,9 @@ class FormsMixin:
                 # UUID из файла метаданных формы (ИмяФормы.xml в каталоге формы объекта)
                 form_meta_xml = form_dir / f'{form_name}.xml'
                 uuid = ''
-                if form_meta_xml.exists():
+                if os.path.exists(_winlong(form_meta_xml)):
                     try:
-                        meta_tree = ET.parse(form_meta_xml)
+                        meta_tree = ET.parse(_winlong(form_meta_xml))
                         meta_root = meta_tree.getroot()
                         form_elem = meta_root.find('.//{http://v8.1c.ru/8.3/MDClasses}Form')
                         if form_elem is not None:
@@ -62,7 +65,7 @@ class FormsMixin:
                         pass
 
             # Парсим структуру формы из Form.xml
-            tree = ET.parse(form_xml)
+            tree = ET.parse(_winlong(form_xml))
             root = tree.getroot()
 
             # Namespace для форм
@@ -282,11 +285,11 @@ class FormsMixin:
         """Извлекает модуль формы"""
         module_path = form_dir / 'Ext' / 'Form' / 'Module.bsl'
 
-        if not module_path.exists():
+        if not os.path.exists(_winlong(module_path)):
             return None
 
         try:
-            with open(module_path, 'r', encoding='utf-8-sig') as f:
+            with open(_winlong(module_path), 'r', encoding='utf-8-sig') as f:
                 code = f.read()
             return code
         except:

@@ -1,4 +1,7 @@
+import os
 import xml.etree.ElementTree as ET
+
+from .xml_helpers import _winlong
 
 
 class FlowchartMixin:
@@ -8,11 +11,11 @@ class FlowchartMixin:
         """Точки маршрута и переходы бизнес-процесса из Ext/Flowchart.xml."""
         flowchart_path = self.root_dir / folder_name / name / 'Ext' / 'Flowchart.xml'
         empty = {'route_points': [], 'route_transitions': []}
-        if not flowchart_path.exists():
+        if not os.path.exists(_winlong(flowchart_path)):
             return empty
 
         sch_ns = 'http://v8.1c.ru/8.3/xcf/scheme'
-        tree = ET.parse(flowchart_path)
+        tree = ET.parse(_winlong(flowchart_path))
         root = tree.getroot()
         items = root.find(f'{{{sch_ns}}}Items')
         if items is None:

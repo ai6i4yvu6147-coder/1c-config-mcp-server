@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
+from tkinter.scrolledtext import ScrolledText
 import sys
+from datetime import datetime
 from pathlib import Path
 import threading
 
@@ -20,6 +22,22 @@ from shared.db_build_state import (
     clear_building,
     tmp_db_path,
 )
+
+
+def _add_build_log_widget(window, height=8):
+    """Read-only лог стадий сборки БД (append-only, автоскролл)."""
+    log_widget = ScrolledText(window, height=height, state=tk.DISABLED, font=("Consolas", 9), wrap=tk.WORD)
+    log_widget.pack(padx=20, pady=(5, 10), fill=tk.BOTH, expand=True)
+    return log_widget
+
+
+def _append_build_log_line(log_widget, message):
+    """Добавляет строку с меткой времени в лог сборки. Вызывать только из главного потока tkinter."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    log_widget.config(state=tk.NORMAL)
+    log_widget.insert(tk.END, f"{timestamp} — {message}\n")
+    log_widget.see(tk.END)
+    log_widget.config(state=tk.DISABLED)
 
 
 class AdminAppV2:
@@ -428,7 +446,7 @@ class AddDatabaseWindow:
         self.project = project
         self.window = tk.Toplevel(parent)
         self.window.title("Добавление базы данных")
-        self.window.geometry("550x350")
+        self.window.geometry("550x480")
         self.window.grab_set()
         
         self.xml_path = None
@@ -463,9 +481,11 @@ class AddDatabaseWindow:
         
         self.create_button = tk.Button(button_frame, text="Добавить", command=self.add, width=15, bg="#4CAF50", fg="white")
         self.create_button.pack(side=tk.LEFT, padx=5)
-        
+
         tk.Button(button_frame, text="Отмена", command=self.window.destroy, width=15).pack(side=tk.LEFT, padx=5)
-    
+
+        self.log_widget = _add_build_log_widget(self.window)
+
     def browse_xml(self):
         filename = filedialog.askopenfilename(
             title="Выберите Configuration.xml",
@@ -512,8 +532,11 @@ class AddDatabaseWindow:
         thread.start()
     
     def _create_database_thread(self, name, db_type, db_filename, db_path):
+        def on_progress(current, total, message):
+            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+
         try:
-            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
+            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path), progress_callback=on_progress)
 
             if success:
                 db_id = self.main_app.pm.add_database(self.project["id"], name, db_type, db_filename)
@@ -544,7 +567,7 @@ class QuickUpdateDialog:
         
         self.window = tk.Toplevel(parent)
         self.window.title("Обновить базу данных")
-        self.window.geometry("600x250")
+        self.window.geometry("600x400")
         self.window.grab_set()
         
         self._create_widgets()
@@ -622,7 +645,9 @@ class QuickUpdateDialog:
             command=self.window.destroy,
             width=15
         ).pack(side=tk.LEFT, padx=5)
-    
+
+        self.log_widget = _add_build_log_widget(self.window)
+
     def quick_update(self):
         """Быстрое обновление из сохранённого файла"""
         if not messagebox.askyesno("Подтверждение",
@@ -648,8 +673,11 @@ class QuickUpdateDialog:
         UpdateDatabaseWindow(self.main_app.root, self.main_app, self.project, self.database)
     
     def _update_database_thread(self, db_path, xml_path):
+        def on_progress(current, total, message):
+            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+
         try:
-            success = DatabaseManager.build_from_xml_atomic(db_path, xml_path)
+            success = DatabaseManager.build_from_xml_atomic(db_path, xml_path, progress_callback=on_progress)
 
             if success:
                 def on_success():
@@ -675,7 +703,7 @@ class UpdateDatabaseWindow:
         self.database = database
         self.window = tk.Toplevel(parent)
         self.window.title("Обновление базы данных")
-        self.window.geometry("550x250")
+        self.window.geometry("550x420")
         self.window.grab_set()
         
         self.xml_path = None
@@ -701,9 +729,11 @@ class UpdateDatabaseWindow:
         
         self.update_button = tk.Button(button_frame, text="Обновить", command=self.update, width=15, bg="#2196F3", fg="white")
         self.update_button.pack(side=tk.LEFT, padx=5)
-        
+
         tk.Button(button_frame, text="Отмена", command=self.window.destroy, width=15).pack(side=tk.LEFT, padx=5)
-    
+
+        self.log_widget = _add_build_log_widget(self.window)
+
     def browse_xml(self):
         filename = filedialog.askopenfilename(
             title="Выберите Configuration.xml",
@@ -734,8 +764,11 @@ class UpdateDatabaseWindow:
         thread.start()
     
     def _update_database_thread(self, db_path):
+        def on_progress(current, total, message):
+            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+
         try:
-            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path))
+            success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path), progress_callback=on_progress)
 
             if success:
                 self.main_app.pm.update_source_xml(

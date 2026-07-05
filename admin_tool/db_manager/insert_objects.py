@@ -1,3 +1,5 @@
+import time
+
 from .bsl import _parse_module_procedures
 from shared.metadata_type_resolver import MetadataTypeResolver
 
@@ -13,6 +15,8 @@ class ObjectInsertionMixin:
         cursor.execute('PRAGMA temp_store=MEMORY')
         total_objects = len(data['objects'])
         pending_type_slots = []
+
+        t_phase1_start = time.perf_counter()
 
         # Проход 1: объекты без форм (чтобы ФО были в БД до вставки fo_form_usage и fo_content_ref)
         for idx, obj in enumerate(data['objects']):
@@ -144,6 +148,11 @@ class ObjectInsertionMixin:
                 progress = 20 + int((idx / total_objects) * 40)
                 progress_callback(progress, 100, f"Объекты {idx + 1}/{total_objects}")
 
+        if progress_callback:
+            progress_callback(60, 100, f"Объекты ({total_objects}) — {time.perf_counter() - t_phase1_start:.1f} c")
+
+        t_relations_start = time.perf_counter()
+
         # Справочник ФО для разрешения UUID / "FunctionalOption.Имя" -> id
         cursor.execute('SELECT id, name, uuid FROM metadata_objects WHERE object_type = ?', ('FunctionalOption',))
         fo_resolver = {}
@@ -193,6 +202,11 @@ class ObjectInsertionMixin:
 
         self._link_scheduled_job_procedures(cursor)
 
+        if progress_callback:
+            progress_callback(65, 100, f"Связи (типы, подсистемы, ФО, регл. задания) — {time.perf_counter() - t_relations_start:.1f} c")
+
+        t_phase2_start = time.perf_counter()
+
         # Проход 2: формы и fo_form_usage
         pending_form_type_slots = []
         for idx, obj in enumerate(data['objects']):
@@ -210,6 +224,9 @@ class ObjectInsertionMixin:
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 60 + int((idx / total_objects) * 40)
                 progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}")
+
+        if progress_callback:
+            progress_callback(95, 100, f"Формы — {time.perf_counter() - t_phase2_start:.1f} c")
 
         if pending_form_type_slots:
             type_resolver.insert_slots(cursor, pending_form_type_slots, type_name_to_id)

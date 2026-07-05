@@ -1,5 +1,10 @@
+import os
+import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
+
+from .xml_helpers import _winlong
 
 
 class ConfigurationParserCore:
@@ -12,10 +17,22 @@ class ConfigurationParserCore:
         """
         self.config_path = Path(config_path)
         self.root_dir = self.config_path.parent
+        # Накопленное время по категориям парсинга (заполняется во время parse()),
+        # используется вызывающей стороной (db_manager) для разбивки в progress_callback.
+        self.stage_seconds = {}
+
+    @contextmanager
+    def _accumulate(self, stage_name):
+        """Копит время выполнения блока в self.stage_seconds[stage_name] (суммарно за весь parse())."""
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.stage_seconds[stage_name] = self.stage_seconds.get(stage_name, 0.0) + (time.perf_counter() - t0)
 
     def parse(self):
         """Парсит конфигурацию и возвращает структуру данных"""
-        tree = ET.parse(self.config_path)
+        tree = ET.parse(_winlong(self.config_path))
         root = tree.getroot()
 
         ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
@@ -35,7 +52,8 @@ class ConfigurationParserCore:
                 config_name = name_elem.text.strip()
 
         objects = self._parse_child_objects(config, ns)
-        objects.extend(self._parse_subsystems())
+        with self._accumulate('subsystems'):
+            objects.extend(self._parse_subsystems())
 
         return {
             'name': config_name,
@@ -106,8 +124,10 @@ class ConfigurationParserCore:
             if 'Ext' in xml_file.parts:
                 continue
             try:
-                root = ET.parse(xml_file).getroot()
-            except ET.ParseError:
+                root = ET.parse(_winlong(xml_file)).getroot()
+            except (ET.ParseError, OSError):
+                # OSError includes FileNotFoundError from Windows MAX_PATH (260 char)
+                # limitations on very deeply nested Subsystems trees.
                 continue
             if self._get_object_element(root, 'Subsystem', md_ns) is None:
                 continue
@@ -155,10 +175,10 @@ class ConfigurationParserCore:
         """Парсит отдельный объект метаданных"""
         xml_file = self.root_dir / folder_name / f"{name}.xml"
 
-        if not xml_file.exists():
+        if not os.path.exists(_winlong(xml_file)):
             return None
 
-        tree = ET.parse(xml_file)
+        tree = ET.parse(_winlong(xml_file))
         root = tree.getroot()
 
         # Получаем UUID
@@ -167,22 +187,25 @@ class ConfigurationParserCore:
         uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
 
         # Получаем свойства
-        properties = self._parse_properties(root, obj_type)
+        with self._accumulate('properties'):
+            properties = self._parse_properties(root, obj_type)
 
         # Получаем модули и формы
         if obj_type == 'CommonForm':
             modules = []
-            forms = self._parse_common_form(name, folder_name, uuid)
+            with self._accumulate('forms'):
+                forms = self._parse_common_form(name, folder_name, uuid)
         elif obj_type == 'ScheduledJob':
             modules = []
             forms = []
         else:
-            modules = self._parse_modules(name, folder_name)
-            if obj_type == 'CommonCommand':
-                cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
-                if cmd_path.exists():
-                    with open(cmd_path, 'r', encoding='utf-8-sig') as f:
-                        modules.append({'type': 'CommandModule', 'code': f.read()})
+            with self._accumulate('modules'):
+                modules = self._parse_modules(name, folder_name)
+                if obj_type == 'CommonCommand':
+                    cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
+                    if os.path.exists(_winlong(cmd_path)):
+                        with open(_winlong(cmd_path), 'r', encoding='utf-8-sig') as f:
+                            modules.append({'type': 'CommandModule', 'code': f.read()})
 
             # Имена форм по умолчанию для определения form_kind
             default_forms = {
@@ -190,7 +213,8 @@ class ConfigurationParserCore:
                 'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
                 'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
             }
-            forms = self._parse_forms(name, folder_name, default_forms)
+            with self._accumulate('forms'):
+                forms = self._parse_forms(name, folder_name, default_forms)
 
         # Парсим дополнительные структуры по типу объекта
         register_types = ('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')
@@ -201,17 +225,20 @@ class ConfigurationParserCore:
             enum_values = []
         elif obj_type in register_types:
             tabular_sections = []
-            dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
-            resources = self._parse_register_section(root, 'Resources', obj_type)
-            attributes = self._parse_register_section(root, 'Attributes', obj_type)
+            with self._accumulate('sections'):
+                dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
+                resources = self._parse_register_section(root, 'Resources', obj_type)
+                attributes = self._parse_register_section(root, 'Attributes', obj_type)
             enum_values = []
         elif obj_type == 'Enum':
             tabular_sections = []
             dimensions = []
             resources = []
-            enum_values = self._parse_enum_values(root)
+            with self._accumulate('sections'):
+                enum_values = self._parse_enum_values(root)
         else:
-            tabular_sections = self._parse_tabular_sections(root, obj_type)
+            with self._accumulate('sections'):
+                tabular_sections = self._parse_tabular_sections(root, obj_type)
             dimensions = []
             resources = []
             enum_values = []
@@ -219,11 +246,13 @@ class ConfigurationParserCore:
         route_points = []
         route_transitions = []
         if obj_type == 'BusinessProcess':
-            flowchart = self._parse_flowchart(name, folder_name)
+            with self._accumulate('flowchart'):
+                flowchart = self._parse_flowchart(name, folder_name)
             route_points = flowchart['route_points']
             route_transitions = flowchart['route_transitions']
 
-        commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob') else self._parse_object_commands(root, name, folder_name, obj_type)
+        with self._accumulate('commands'):
+            commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob') else self._parse_object_commands(root, name, folder_name, obj_type)
 
         result = {
             'name': name,

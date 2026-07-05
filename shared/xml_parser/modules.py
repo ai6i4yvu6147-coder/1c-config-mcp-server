@@ -1,3 +1,8 @@
+import os
+
+from .xml_helpers import _winlong
+
+
 class ModulesMixin:
     """BSL module code loading: object modules and object commands (which also load a module)."""
 
@@ -39,8 +44,8 @@ class ModulesMixin:
                     eco = eco_elem.text.strip()
             module_path = self.root_dir / folder_name / obj_name / 'Commands' / cmd_name / 'Ext' / 'CommandModule.bsl'
             module_code = None
-            if module_path.exists():
-                with open(module_path, 'r', encoding='utf-8-sig') as f:
+            if os.path.exists(_winlong(module_path)):
+                with open(_winlong(module_path), 'r', encoding='utf-8-sig') as f:
                     module_code = f.read()
             result.append({
                 'name': cmd_name,
@@ -57,7 +62,7 @@ class ModulesMixin:
         modules = []
         obj_dir = self.root_dir / folder_name / obj_name / 'Ext'
 
-        if not obj_dir.exists():
+        if not os.path.exists(_winlong(obj_dir)):
             return modules
 
         # Типы модулей
@@ -69,8 +74,8 @@ class ModulesMixin:
 
         for file_name, module_type in module_files.items():
             module_path = obj_dir / file_name
-            if module_path.exists():
-                with open(module_path, 'r', encoding='utf-8-sig') as f:
+            if os.path.exists(_winlong(module_path)):
+                with open(_winlong(module_path), 'r', encoding='utf-8-sig') as f:
                     code = f.read()
                 modules.append({
                     'type': module_type,

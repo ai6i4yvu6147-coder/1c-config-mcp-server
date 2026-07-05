@@ -57,7 +57,7 @@ Do not start implementation from the list without explicit user request.
 | Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
-| Admin GUI: build stage log / timings | **no** — see `gui-build-log-timings` |
+| Admin GUI: build stage log / timings | **done, validated on real exports (Фитэра, АСБ 5.8 GB)** — see `gui-build-log-timings`; pending: a manual check that the GUI log widget itself renders correctly during a real multi-minute build |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |
 | Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 10; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
 | `metadata_relations` (subsystems, roles, …) | **partial** — subsystems (phase 3, v10); roles/subscriptions — phases 4–5 |
@@ -116,22 +116,21 @@ Do not start implementation from the list without explicit user request.
 
 <!-- status: idea — no fixed scope -->
 
-- **gui-build-log-timings** · `idea` · DB build stage log and timings on update form
+- **gui-build-log-timings** · `in-progress` · DB build stage log and timings on update form
 
   - **Task:** on create/update DB form — scrollable list (like a log): lines as stages complete, with duration, e.g. `12:01:05 — XML parse — 412 s`, `12:07:12 — Objects (N) — …`, `12:14:03 — Forms — …`, `12:14:10 — fo_content_ref / scheduled job linking — 0.4 s`, `Done`
 
   - **Why:** on large exports (Logist main) unclear if "hung" or long stage; timings show bottlenecks (parser vs forms vs other)
 
-  - **Side:** `admin_tool/db_manager.py` (stage breakdown + `time.perf_counter()`), `admin_tool/gui_v2.py` (log widget)
+  - **Done (2026-07-05):**
+    - `admin_tool/db_manager/core.py` + `insert_objects.py` — stage boundaries (parse, schema, objects, relations/fo_content_ref/scheduled-job linking, forms, done) timed via `time.perf_counter()`, folded into the existing `progress_callback(current, total, message)` messages — no signature/return-type changes
+    - `shared/xml_parser/core.py` — finer per-stage breakdown *within* XML parse itself (modules/forms/properties/sections/flowchart/commands/subsystems), via `self.stage_seconds` + `_accumulate()` context manager; surfaced as an indented breakdown under the "XML parse" line
+    - `admin_tool/gui_v2.py` — `AddDatabaseWindow`, `QuickUpdateDialog`, `UpdateDatabaseWindow` now pass a `progress_callback` into `build_from_xml_atomic` (previously omitted entirely — the actual root cause of "UI silent for minutes"); each dialog got a small `ScrolledText` log widget, appended via the existing `AdminAppV2.schedule_on_main()` (`root.after(0, fn)`) — no queue needed, per-stage call volume is low
+    - `scripts/parse-benchmark.py` (new) — standalone CLI to run the parser/builder against a real export outside the GUI/exe, for timing measurement without touching `projects.json`/`databases/`
+    - **Validated against real exports:** Фитэра/Задачник (631 MB, 2151 objects, 11.4 s) and АСБ/Бухгалтерия (5.8 GB, 11114 objects, 148.5 s) — both parse+build cleanly end to end
+    - **Bug found + fixed along the way:** Windows `MAX_PATH` (260 char) silently broke/crashed on the АСБ export's deeply nested Subsystems tree (a 261-char path) — `ET.parse()`/`.exists()`/`open()` across the whole `shared/xml_parser/` package now go through a `_winlong()` (`\\?\` extended-length prefix) helper in `xml_helpers.py`. Also fixed a console-encoding crash in the benchmark script itself (a box-drawing character wasn't encodable in the Windows console codepage)
 
-  - **Why progress bar failed before (account for in implementation):**
-    - `DatabaseManager.create_database` already accepts `progress_callback`, but **GUI does not pass it** — all threads call `create_database(xml)` without callback (`CreateDatabaseWindow`, `QuickUpdateDialog`, `UpdateDatabaseWindow`)
-    - update runs in **background `threading.Thread`**; in tkinter **cannot** touch widgets from worker thread — only via `queue.Queue` + `root.after()` (or `after` with queue polling)
-    - current callbacks in `_insert_configuration` — only "Objects" / "Forms" every 10 objects; **no** messages for XML parse, `fo_content_ref`, `_link_scheduled_job_procedures`, commit — UI "silent" for minutes
-
-  - **Recommended MVP (simpler than progress bar):** append-only `ScrolledText` / `Listbox` + event queue; do not try smooth `%` first — discrete lines on **stage completion** enough. Progress bar — optional later if same `after` mechanism works
-
-  - **tkinter constraint:** dynamic updates **possible**, but only with correct thread → queue → main loop; otherwise UI looks "dead". If `after` queue unreliable on long builds — document in item and consider UI alternative (`gui-redesign`)
+  - **Pending:** a manual check that the GUI log widget renders correctly during a real multi-minute build in the actual admin GUI (tkinter rendering can't be verified headlessly) — this is the last part of the "done when" bar below
 
   - **Related:** `gui-bulk-update` (same log on bulk update)
 
