@@ -146,7 +146,7 @@ class ObjectInsertionMixin:
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 20 + int((idx / total_objects) * 40)
-                progress_callback(progress, 100, f"Объекты {idx + 1}/{total_objects}")
+                progress_callback(progress, 100, f"Объекты {idx + 1}/{total_objects}", replace_last=True)
 
         if progress_callback:
             progress_callback(60, 100, f"Объекты ({total_objects}) — {time.perf_counter() - t_phase1_start:.1f} c")
@@ -223,7 +223,7 @@ class ObjectInsertionMixin:
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 60 + int((idx / total_objects) * 40)
-                progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}")
+                progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}", replace_last=True)
 
         if progress_callback:
             progress_callback(95, 100, f"Формы — {time.perf_counter() - t_phase2_start:.1f} c")

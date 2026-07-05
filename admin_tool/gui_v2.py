@@ -31,13 +31,22 @@ def _add_build_log_widget(window, height=8):
     return log_widget
 
 
-def _append_build_log_line(log_widget, message):
-    """Добавляет строку с меткой времени в лог сборки. Вызывать только из главного потока tkinter."""
+def _append_build_log_line(log_widget, message, replace_last=False):
+    """Добавляет строку с меткой времени в лог сборки. Вызывать только из главного потока tkinter.
+
+    replace_last=True (частый счётчик вида "Объекты N/M") заменяет предыдущую строку вместо
+    добавления новой — но только если предыдущая строка тоже была replace_last (иначе постоянные
+    строки стадий не затираются)."""
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_widget.config(state=tk.NORMAL)
+    if replace_last and getattr(log_widget, '_last_line_transient', False):
+        # Tk Text always keeps a trailing blank row after 'end'; the last real
+        # content line is 'end-2l'..'end-1l', not 'end-1l'..'end'.
+        log_widget.delete('end-2l', 'end-1l')
     log_widget.insert(tk.END, f"{timestamp} — {message}\n")
     log_widget.see(tk.END)
     log_widget.config(state=tk.DISABLED)
+    log_widget._last_line_transient = replace_last
 
 
 class AdminAppV2:
@@ -532,8 +541,10 @@ class AddDatabaseWindow:
         thread.start()
     
     def _create_database_thread(self, name, db_type, db_filename, db_path):
-        def on_progress(current, total, message):
-            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+        def on_progress(current, total, message, replace_last=False):
+            self.main_app.schedule_on_main(
+                lambda: _append_build_log_line(self.log_widget, message, replace_last=replace_last)
+            )
 
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path), progress_callback=on_progress)
@@ -673,8 +684,10 @@ class QuickUpdateDialog:
         UpdateDatabaseWindow(self.main_app.root, self.main_app, self.project, self.database)
     
     def _update_database_thread(self, db_path, xml_path):
-        def on_progress(current, total, message):
-            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+        def on_progress(current, total, message, replace_last=False):
+            self.main_app.schedule_on_main(
+                lambda: _append_build_log_line(self.log_widget, message, replace_last=replace_last)
+            )
 
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, xml_path, progress_callback=on_progress)
@@ -764,8 +777,10 @@ class UpdateDatabaseWindow:
         thread.start()
     
     def _update_database_thread(self, db_path):
-        def on_progress(current, total, message):
-            self.main_app.schedule_on_main(lambda: _append_build_log_line(self.log_widget, message))
+        def on_progress(current, total, message, replace_last=False):
+            self.main_app.schedule_on_main(
+                lambda: _append_build_log_line(self.log_widget, message, replace_last=replace_last)
+            )
 
         try:
             success = DatabaseManager.build_from_xml_atomic(db_path, str(self.xml_path), progress_callback=on_progress)

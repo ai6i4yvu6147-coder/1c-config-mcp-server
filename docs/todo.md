@@ -57,7 +57,7 @@ Do not start implementation from the list without explicit user request.
 | Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
-| Admin GUI: build stage log / timings | **done, validated on real exports (Фитэра, АСБ 5.8 GB)** — see `gui-build-log-timings`; pending: a manual check that the GUI log widget itself renders correctly during a real multi-minute build |
+| Admin GUI: build stage log / timings | **done** — validated on real exports and live in the rebuilt admin GUI; see `gui-build-log-timings` |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |
 | Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 10; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
 | `metadata_relations` (subsystems, roles, …) | **partial** — subsystems (phase 3, v10); roles/subscriptions — phases 4–5 |
@@ -116,7 +116,7 @@ Do not start implementation from the list without explicit user request.
 
 <!-- status: idea — no fixed scope -->
 
-- **gui-build-log-timings** · `in-progress` · DB build stage log and timings on update form
+- **gui-build-log-timings** · `done` · DB build stage log and timings on update form
 
   - **Task:** on create/update DB form — scrollable list (like a log): lines as stages complete, with duration, e.g. `12:01:05 — XML parse — 412 s`, `12:07:12 — Objects (N) — …`, `12:14:03 — Forms — …`, `12:14:10 — fo_content_ref / scheduled job linking — 0.4 s`, `Done`
 
@@ -129,8 +129,8 @@ Do not start implementation from the list without explicit user request.
     - `scripts/parse-benchmark.py` (new) — standalone CLI to run the parser/builder against a real export outside the GUI/exe, for timing measurement without touching `projects.json`/`databases/`
     - **Validated against real exports:** Фитэра/Задачник (631 MB, 2151 objects, 11.4 s) and АСБ/Бухгалтерия (5.8 GB, 11114 objects, 148.5 s) — both parse+build cleanly end to end
     - **Bug found + fixed along the way:** Windows `MAX_PATH` (260 char) silently broke/crashed on the АСБ export's deeply nested Subsystems tree (a 261-char path) — `ET.parse()`/`.exists()`/`open()` across the whole `shared/xml_parser/` package now go through a `_winlong()` (`\\?\` extended-length prefix) helper in `xml_helpers.py`. Also fixed a console-encoding crash in the benchmark script itself (a box-drawing character wasn't encodable in the Windows console codepage)
-
-  - **Pending:** a manual check that the GUI log widget renders correctly during a real multi-minute build in the actual admin GUI (tkinter rendering can't be verified headlessly) — this is the last part of the "done when" bar below
+    - **Validated live in the rebuilt admin GUI** (user-confirmed): log widget shows real stage progress during an actual update
+    - **Follow-up fix:** live use showed the per-10-objects/forms counters ("Объекты N/M") flooding the log with hundreds of lines — `progress_callback` gained an optional `replace_last` flag; those recurring counters now update the same log line in place (Tk Text last-line delete range is `'end-2l'..'end-1l'`, not `'end-1l'..'end'` — Tk always keeps one extra trailing blank row) while stage-boundary summaries stay as separate permanent lines
 
   - **Related:** `gui-bulk-update` (same log on bulk update)
 

@@ -28,7 +28,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from admin_tool.db_manager import DatabaseManager, format_build_error
 
 
-def _print_progress(current: int, total: int, message: str) -> None:
+def _print_progress(current: int, total: int, message: str, replace_last: bool = False) -> None:
+    # replace_last is a GUI-only hint (collapse "Объекты N/M" counters into one line); the
+    # benchmark log keeps every line since that's useful detail for a saved run.
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{timestamp}] ({current:3d}/{total}) {message}")
 
