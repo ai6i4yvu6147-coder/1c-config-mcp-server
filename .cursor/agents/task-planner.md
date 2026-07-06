@@ -1,9 +1,7 @@
 ---
 name: task-planner
-description: >-
-  Read-only task decomposition: turns a feature into atomic ordered steps in
-  .tasks/*.md. Plans only; implementation and verification are separate agents.
-model: gpt-5.5
+model: inherit
+description: Read-only task decomposition: turns a feature into atomic ordered steps in .tasks/*.md. Plans only; implementation and verification are separate agents.
 readonly: true
 ---
 

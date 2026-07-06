@@ -1,9 +1,7 @@
 ---
 name: code-explorer
-description: >-
-  Read-only codebase search and impact analysis for large repos: maps modules,
-  finds usages, traces architecture. Reports; code changes go to implementer.
-model: gemini-3.1-pro
+model: inherit
+description: Read-only codebase search and impact analysis for large repos: maps modules, finds usages, traces architecture. Reports; code changes go to implementer.
 readonly: true
 ---
 

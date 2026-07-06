@@ -1,9 +1,7 @@
 ---
 name: verifier
-description: >-
-  Read-only skeptic: confirms claimed work is real — code exists, tests pass,
-  docs updated. Run after a step or feature is claimed done.
-model: claude-sonnet-5
+model: inherit
+description: Read-only skeptic: confirms claimed work is real — code exists, tests pass, docs updated. Run after a step or feature is claimed done.
 readonly: true
 ---
 

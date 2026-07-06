@@ -8,19 +8,19 @@ Subagent workflow for large product repos: **explore → plan → implement → 
 
 ## Agents
 
-| Agent | Role | Writes | Model tier |
-|-------|------|--------|------------|
-| `code-explorer` | Read-only search + impact analysis | — | strong (first hop feeds the chain) |
-| `task-planner` | Read-only decomposition into atomic steps | plan file | strong (plan quality gates the chain) |
-| `implementer` | One plan step per invocation | code/tests | code model |
-| `verifier` | Read-only skeptic: confirms work is real | — | strong (last gate) |
-| `doc-librarian` | Doc edits (via `maintain-docs`) | docs | light |
+| Agent | Role | Writes | `model` (frontmatter) |
+|-------|------|--------|------------------------|
+| `code-explorer` | Read-only search + impact analysis | — | `inherit` |
+| `task-planner` | Read-only decomposition into atomic steps | plan file | `inherit` |
+| `implementer` | One plan step per invocation | code/tests | `inherit` |
+| `verifier` | Read-only skeptic: confirms work is real | — | `inherit` |
+| `doc-librarian` | Doc edits (via `maintain-docs`) | docs | `inherit` |
 
 Dev agents are materialized only in **large product repos** (`cursor_agents_dev` in `normalize.bundle.yaml`). `doc-librarian` is materialized everywhere.
 
 A repo is large enough to warrant the pipeline when it has **multiple packages/projects or a test suite worth isolating, and tasks routinely span several files**. Small or single-purpose repos skip it and let the orchestrator edit directly. Borderline: ask.
 
-Model assignment follows one rule: the **epistemic boundaries of the chain** (first hop and final gate) get the strong models; mechanical middle work can use lighter ones. A weak explorer or a weak verifier poisons everything downstream. Full tier mapping: `model-selection.md`.
+Subagents use **`model: inherit`** per [Cursor docs](https://cursor.com/docs/subagents.md) — they run on the parent agent's model. Tier guidance for when to delegate heavy work: `model-selection.md`.
 
 ---
 

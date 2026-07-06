@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -135,6 +136,36 @@ def _parse_frontmatter(path: Path) -> tuple[dict | None, str | None]:
     return data, None
 
 
+def _parse_agent_frontmatter(path: Path) -> tuple[dict | None, str | None]:
+    """Parse agent frontmatter; fall back to line-based extraction when strict YAML fails.
+
+    Cursor accepts single-line descriptions with colons; PyYAML does not. Per Cursor docs,
+    that frontmatter is valid — do not treat ScannerError as an agent defect.
+    """
+    data, err = _parse_frontmatter(path)
+    if data is not None or err is None:
+        return data, err
+    if "invalid YAML" not in (err or ""):
+        return data, err
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    fm = text.split("---", 2)[1]
+    fallback: dict = {"_lenient": True}
+    for key in ("name", "model", "description", "readonly"):
+        m = re.search(rf"^{re.escape(key)}:\s*(.+)$", fm, re.MULTILINE)
+        if m:
+            val = m.group(1).strip()
+            if key == "readonly":
+                fallback[key] = val.lower() in ("true", "yes")
+            else:
+                fallback[key] = val
+    if not fallback.get("name"):
+        fallback["name"] = path.stem
+    if fallback.get("name") or fallback.get("description") or fallback.get("model"):
+        return fallback, None
+    return data, err
+
+
 def _bad_model_slug(model: object) -> bool:
     s = str(model)
     return "[]" in s or s != s.strip() or " " in s
@@ -145,7 +176,7 @@ def _check_entities(repo: Path) -> list[str]:
     errors: list[str] = []
 
     for p in sorted((repo / ".cursor/agents").glob("*.md")):
-        data, err = _parse_frontmatter(p)
+        data, err = _parse_agent_frontmatter(p)
         if err:
             errors.append(f"AGENT {p.name}: {err}")
             continue

@@ -1,10 +1,7 @@
 ---
 name: implementer
-description: >-
-  Implements exactly one plan step from .tasks/*_plan.md and reports. Use when a
-  single atomic change is specified.
-model: gpt-5.3-codex
-readonly: false
+model: inherit
+description: Implements exactly one plan step from .tasks/*_plan.md and reports. Use when a single atomic change is specified.
 ---
 
 Implement **one step** from the plan, then stop and report. Your scope is that step and the files it names.
