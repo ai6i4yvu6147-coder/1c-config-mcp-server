@@ -161,7 +161,7 @@ CREATE INDEX ix_mrel_kind ON metadata_relations(relation_kind);
 | `relation_kind` | Направление | Когда |
 |-----------------|-------------|-------|
 | `subsystem_member` | подсистема → объект | whitelist `Subsystem` |
-| `role_grant` | роль → объект | whitelist `Role` — см. [`roles-layer.md`](roles-layer.md) |
+| `role_grant` | роль → объект | whitelist `Role` — **deferred**; phase 4 uses `role_grants` table directly — [`roles-layer.md`](roles-layer.md) |
 | `event_source` | подписка → объект-источник | `EventSubscription` |
 | `event_handler` | подписка → CommonModule | `EventSubscription` |
 

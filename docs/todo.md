@@ -102,10 +102,9 @@ Do not start implementation from the list without explicit user request.
 
   - **Done when:** query "find scheduled job for procedure Y" returns relevant result
 
-- **relations-phase-4** · `spec` · whitelist `Role` (grants, restrictions, templates)
+- **relations-phase-4** · `ready` · whitelist `Role` (grants, restrictions, templates)
 
-  - **Spec:** [`roles-layer.md`](roles-layer.md) (intermediate); roadmap phase 4 in [`dependency-layer.md`](dependency-layer.md)
-  - **Open:** merge rules, MVP tool bounds — see **Open questions** in [`roles-layer.md`](roles-layer.md)
+  - **Spec:** [`roles-layer.md`](roles-layer.md) — status `spec` → ready for implementation when requested
   - **Reference export:** Фитэра/АСБ тест (main + `ФТ_Бюджетирование`)
 
 - **relations-phase-5** · `blocked` · `EventSubscription`
