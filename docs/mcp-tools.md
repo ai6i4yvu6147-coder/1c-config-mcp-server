@@ -77,9 +77,10 @@
 
 ### Планируемые tools (relations, фазы 4+)
 
-Спека: [`dependency-layer.md`](dependency-layer.md).
+Спека: [`dependency-layer.md`](dependency-layer.md); роли и RLS — [`roles-layer.md`](roles-layer.md).
 
-- **`metadata_relations`** в `find_referencing_objects` — роли, подписки (фазы 4–5).
+- **Фаза 4 (роли):** `find_role`, `list_roles`, `get_role_rights` (merge main+ext), `find_roles_for_object`; `role_grant` в `find_referencing_objects`.
+- **`metadata_relations`** в `find_referencing_objects` — подписки (фаза 5).
 - **`find_relation_path`** — позже, обход с `depth > 1`.
 
 ФО — по-прежнему **`get_functional_options`**; в общий graph **не** дублировать.

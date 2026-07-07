@@ -161,7 +161,7 @@ CREATE INDEX ix_mrel_kind ON metadata_relations(relation_kind);
 | `relation_kind` | Направление | Когда |
 |-----------------|-------------|-------|
 | `subsystem_member` | подсистема → объект | whitelist `Subsystem` |
-| `role_grant` | роль → объект | whitelist `Role` (MVP) |
+| `role_grant` | роль → объект | whitelist `Role` — см. [`roles-layer.md`](roles-layer.md) |
 | `event_source` | подписка → объект-источник | `EventSubscription` |
 | `event_handler` | подписка → CommonModule | `EventSubscription` |
 
@@ -228,7 +228,7 @@ SQL — **UNION** двух источников:
 | **1b** | 9 | формы: `form_attribute_columns`, `get_form_structure.types` — [`form-type-system.md`](form-type-system.md) | **готово** |
 | **2** | — | `find_referencing_objects` (слоты metadata + формы) | **готово** |
 | **3** | 10 | `metadata_relations`; whitelist `Subsystem` | **готово** |
-| **4** | +1 | whitelist `Role` (MVP grants) | blocked (выгрузка) |
+| **4** | +1 | whitelist `Role` — grants, restrictions, templates; MCP role tools | spec: [`roles-layer.md`](roles-layer.md) |
 | **5** | +1 | `EventSubscription` | blocked (выгрузка) |
 | **отдельно** | — | Поиск РЗ по `MethodName` | backlog |
 | **Tier 3** | — | СКД, RLS, code graph | отложено |

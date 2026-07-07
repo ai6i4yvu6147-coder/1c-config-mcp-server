@@ -102,9 +102,11 @@ Do not start implementation from the list without explicit user request.
 
   - **Done when:** query "find scheduled job for procedure Y" returns relevant result
 
-- **relations-phase-4** · `blocked` · whitelist `Role` (MVP grants)
+- **relations-phase-4** · `spec` · whitelist `Role` (grants, restrictions, templates)
 
-  - **Spec:** [`dependency-layer.md`](dependency-layer.md) — phase 4; **blocked** without real role export
+  - **Spec:** [`roles-layer.md`](roles-layer.md) (intermediate); roadmap phase 4 in [`dependency-layer.md`](dependency-layer.md)
+  - **Open:** merge rules, MVP tool bounds — see **Open questions** in [`roles-layer.md`](roles-layer.md)
+  - **Reference export:** Фитэра/АСБ тест (main + `ФТ_Бюджетирование`)
 
 - **relations-phase-5** · `blocked` · `EventSubscription`
 
@@ -164,13 +166,9 @@ Do not start implementation from the list without explicit user request.
 
   - **Open:** stay on tkinter or consider another UI layer
 
-- **whitelist-role** · `idea` · Index roles (`Role`)
+- **whitelist-role** · `spec` · Index roles (`Role`) — folded into **relations-phase-4**
 
-  - **Why:** `role_grant` in `metadata_relations`, rights analysis
-
-  - **Materials:** whitelist, [`dependency-layer.md`](dependency-layer.md) phase 4; **blocked** without real role export
-
-  - **Open:** MVP without full RLS model (rights in `source_path`)
+  - **Spec:** [`roles-layer.md`](roles-layer.md)
 
 - **whitelist-event-subscription** · `idea` · Index event subscriptions (`EventSubscription`)
 

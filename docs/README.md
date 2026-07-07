@@ -20,6 +20,7 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 | [`database.md`](database.md) | SQLite schema, no-migrations policy |
 | [`metadata-whitelist.md`](metadata-whitelist.md) | Metadata type whitelist |
 | [`dependency-layer.md`](dependency-layer.md) | Type system, reverse references |
+| [`roles-layer.md`](roles-layer.md) | Roles, RLS, phase 4 (intermediate spec) |
 | [`form-type-system.md`](form-type-system.md) | Form type system |
 | [`testing-protocol.md`](testing-protocol.md) | Verification on connected MCP |
 | [`performance.md`](performance.md) | Performance notes |
