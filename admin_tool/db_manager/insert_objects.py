@@ -15,6 +15,7 @@ class ObjectInsertionMixin:
         cursor.execute('PRAGMA temp_store=MEMORY')
         total_objects = len(data['objects'])
         pending_type_slots = []
+        source_db_name = data.get('name') or ''
 
         t_phase1_start = time.perf_counter()
 
@@ -65,6 +66,9 @@ class ObjectInsertionMixin:
                     p.get('restart_count_on_failure'),
                     p.get('restart_interval_on_failure'),
                 ))
+
+            if obj['type'] == 'Role':
+                self._insert_role_data(cursor, object_id, obj, source_db_name)
 
             for module in obj['modules']:
                 cursor.execute('''
@@ -230,6 +234,8 @@ class ObjectInsertionMixin:
 
         if pending_form_type_slots:
             type_resolver.insert_slots(cursor, pending_form_type_slots, type_name_to_id)
+
+        self._insert_index_metadata(cursor, data)
 
         self.conn.commit()
         cursor.execute('PRAGMA synchronous=NORMAL')

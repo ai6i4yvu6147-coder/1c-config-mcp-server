@@ -64,6 +64,10 @@ async def handle_find_referencing_objects(tools, arguments: dict) -> list[TextCo
                 elif via == 'subsystem_member':
                     detail = ref.get('source_detail') or 'Content'
                     line += f" — {detail}: {ref.get('source_name', '')}"
+                elif via == 'role_grant':
+                    line += f" — {ref.get('right_name', '')} (granted={ref.get('granted')})"
+                    if ref.get('db_name'):
+                        line += f" [{ref['db_name']}]"
                 if ref.get('ordinal', 0) > 0:
                     line += f" (ordinal={ref['ordinal']})"
                 response += line + "\n"

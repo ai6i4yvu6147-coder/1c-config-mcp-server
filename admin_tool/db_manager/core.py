@@ -16,6 +16,7 @@ _STAGE_LABELS = {
     'flowchart': 'Маршруты БП (Flowchart)',
     'commands': 'Команды объектов',
     'subsystems': 'Подсистемы',
+    'roles': 'Роли / role_grants',
 }
 
 

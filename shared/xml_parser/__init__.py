@@ -4,6 +4,7 @@ from .sections import SectionsMixin
 from .flowchart import FlowchartMixin
 from .modules import ModulesMixin
 from .forms import FormsMixin
+from .roles import RolesMixin
 from .xml_helpers import XmlHelpersMixin, get_configuration_name, get_configuration_type
 
 
@@ -13,6 +14,7 @@ class ConfigurationParser(
     FlowchartMixin,
     SectionsMixin,
     TypeSlotsMixin,
+    RolesMixin,
     XmlHelpersMixin,
     ConfigurationParserCore,
 ):

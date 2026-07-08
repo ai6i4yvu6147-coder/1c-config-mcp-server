@@ -9,6 +9,7 @@ from .objects import ObjectsMixin
 from .code import CodeMixin, MAX_MODULES_SEARCH_CODE
 from .forms import FormsMixin
 from .relations import RelationsMixin
+from .roles import RolesMixin
 from .formatting import format_business_process_route_text
 
 
@@ -17,6 +18,7 @@ class ConfigurationTools(
     CodeMixin,
     FormsMixin,
     RelationsMixin,
+    RolesMixin,
     BaseTools,
 ):
     """Инструменты для работы с конфигурациями 1С через несколько проектов"""

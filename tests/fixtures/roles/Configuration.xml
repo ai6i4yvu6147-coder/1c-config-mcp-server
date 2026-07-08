@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Configuration uuid="00000000-0000-0000-0000-000000000001">
+		<InternalInfo/>
+		<Properties>
+			<Name>RolesFixture</Name>
+			<Synonym>
+				<v8:item xmlns:v8="http://v8.1c.ru/8.1/data/core">
+					<v8:lang>ru</v8:lang>
+					<v8:content>Roles fixture</v8:content>
+				</v8:item>
+			</Synonym>
+		</Properties>
+		<ChildObjects>
+			<Role>ЧтениеЭЛН</Role>
+			<Role>ЧтениеИнформацииОВерсияхОбъектов</Role>
+			<Role>ФТ_Бюджетирование</Role>
+			<Role>ЧтениеДанныхБухгалтерии</Role>
+			<Role>ДобавлениеИзменениеДанныхБухгалтерии</Role>
+		</ChildObjects>
+	</Configuration>
+</MetaDataObject>

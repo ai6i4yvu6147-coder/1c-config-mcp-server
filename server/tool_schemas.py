@@ -371,7 +371,7 @@ TOOL_SCHEMAS = [
             "(metadata_type_slots) и структурные связи (metadata_relations). "
             "project_filter обязателен. "
             "via: attribute | tabular_section_column | form_attribute | form_attribute_column | "
-            "subsystem_member (подсистема в Content)."
+            "subsystem_member (подсистема в Content) | role_grant (роль → право на объект)."
         ),
         inputSchema={
             "type": "object",
@@ -396,8 +396,9 @@ TOOL_SCHEMAS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "Фильтр relation_kind в metadata_relations "
-                        "(например subsystem_member). Пусто — все виды связей."
+                        "Фильтр видов связей: subsystem_member, role_grant, attribute, … "
+                        "Непустой список — только перечисленные via; для ролей удобнее find_roles_for_object. "
+                        "Пусто — все виды."
                     )
                 }
             },
@@ -464,5 +465,108 @@ TOOL_SCHEMAS = [
             },
             "required": ["attribute_name", "project_filter"]
         }
-    )
+    ),
+    Tool(
+        name="find_role",
+        description="Найти роль по имени или синониму. project_filter обязателен.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Имя или синоним роли (можно частичное)"},
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из active_databases (опционально)",
+                },
+            },
+            "required": ["name", "project_filter"],
+        },
+    ),
+    Tool(
+        name="list_roles",
+        description="Список ролей в проекте/базе. project_filter обязателен.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из active_databases (опционально)",
+                },
+                "limit": {"type": "integer", "description": "Максимум ролей на базу (по умолчанию 200)", "default": 200},
+            },
+            "required": ["project_filter"],
+        },
+    ),
+    Tool(
+        name="get_role_rights",
+        description=(
+            "Права роли: grants, RLS, шаблоны. merge=true (по умолчанию) — эффективное состояние "
+            "main + расширения; merge=false — только выбранный слой."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "role_name": {"type": "string", "description": "Имя роли"},
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Слой при merge=false (имя базы из active_databases)",
+                },
+                "merge": {"type": "boolean", "description": "Объединить main + расширения", "default": True},
+                "object_name": {"type": "string", "description": "Фильтр по объекту (частичное совпадение)"},
+                "rights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Фильтр типов прав (Read, View, …)",
+                },
+                "rls": {"type": "boolean", "description": "Фильтр по наличию ограничений доступа"},
+                "depth": {
+                    "type": "string",
+                    "enum": ["object", "all"],
+                    "description": "object — только объектный уровень; all — включая реквизиты",
+                    "default": "object",
+                },
+                "include_restriction_text": {
+                    "description": "false | true (preview 200 символов) | full",
+                    "default": False,
+                },
+                "max_results": {"type": "integer", "default": 200},
+                "response_mode": {
+                    "type": "string",
+                    "enum": ["summary", "full"],
+                    "description": "summary — сводка для тяжёлых ролей; full — перечисление grants",
+                },
+            },
+            "required": ["role_name", "project_filter"],
+        },
+    ),
+    Tool(
+        name="find_roles_for_object",
+        description=(
+            "Обратный поиск: какие роли выдают права на объект. "
+            "merge=true — сводка по всему проекту (main + расширения); merge=false — по слоям. "
+            "project_filter обязателен."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {"type": "string", "description": "Имя или синоним объекта"},
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Имя базы из active_databases (опционально; при merge=true игнорируется)",
+                },
+                "merge": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "true — объединённый список ролей по проекту; false — по базам",
+                },
+                "right_name": {"type": "string", "description": "Фильтр по типу права (Read, …)"},
+                "rls": {"type": "boolean", "description": "true — только с RLS; false — без RLS"},
+                "max_results": {"type": "integer", "default": 200},
+            },
+            "required": ["object_name", "project_filter"],
+        },
+    ),
 ]

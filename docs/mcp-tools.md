@@ -41,7 +41,7 @@
   - `route_points` — `{name, type, synonym, uuid, true_port?, false_port?}` (type: Start, Activity, Condition, Completion, Split, Join, …);
   - `route_transitions` — `{from, to, from_port?, title?}`.
 - В **текстовом ответе MCP**: компактный индекс точек по типам и **adjacency list** переходов (полный граф, включая Split/Join). Подписи веток условий — из `title` линии или «Да»/«Нет» по портам Condition.
-- После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **10**).
+- После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **11**).
 
 ### Type system (фаза 1 — реализовано)
 
@@ -58,7 +58,7 @@
 
 **Не материализуются (MVP):** `DefinedType`, `AnyRef`, безымянный `TypeSet`.
 
-### Обратный поиск (`find_referencing_objects`, фазы 2–3 — реализовано)
+### Обратный поиск (`find_referencing_objects`, фазы 2–4 — реализовано)
 
 Спека: [`dependency-layer.md`](dependency-layer.md).
 
@@ -67,20 +67,32 @@
 - **`find_referencing_objects(object_name, project_filter, …)`** — обратный поиск через `metadata_type_slots` и `metadata_relations`:
   - metadata: реквизиты (`via: attribute`), колонки ТЧ (`via: tabular_section_column`);
   - формы: реквизиты формы (`via: form_attribute`), колонки реквизита формы (`via: form_attribute_column`);
-  - подсистемы: объект в Content (`via: subsystem_member`, поле `source_name` — строка `Type.Name`).
+  - подсистемы: объект в Content (`via: subsystem_member`, поле `source_name` — строка `Type.Name`);
+  - роли: право на объект (`via: role_grant`, JOIN `role_grants` по `parent_object_qname`).
 - **`object_name`** — имя или синоним целевого объекта (как в `find_object` / `get_object_structure`).
 - **`max_results`** — лимит записей на базу (по умолчанию 100); при обрезке — `is_truncated: true`.
-- **`relation_kinds`** — фильтр `relation_kind` в `metadata_relations` (например `subsystem_member`); слоты metadata/форм всегда включаются. Пусто — все виды связей.
-- Роли, подписки — после фаз 4–5; ФО — **`get_functional_options`**.
+- **`relation_kinds`** — фильтр видов связей (`subsystem_member`, `role_grant`, `attribute`, …); непустой список — только перечисленные `via` (для ролей удобнее `find_roles_for_object`). Пусто — все виды связей.
+- Роли (детали прав) — **`get_role_rights`**; подписки — фаза 5; ФО — **`get_functional_options`**.
 
 Исходящие ссылки отдельным tool **не** планируются — покрываются **`get_object_structure`**.
 
-### Планируемые tools (relations, фазы 4+)
+### Роли и RLS (фаза 4 — реализовано)
 
-Спека: [`dependency-layer.md`](dependency-layer.md); роли и RLS — [`roles-layer.md`](roles-layer.md).
+Спека: [`roles-layer.md`](roles-layer.md).
 
-- **Фаза 4 (роли):** `find_role`, `list_roles`, `get_role_rights` (merge main+ext), `find_roles_for_object`; `find_referencing_objects` via JOIN `role_grants` (см. [`roles-layer.md`](roles-layer.md)).
-- **`metadata_relations`** в `find_referencing_objects` — подписки (фаза 5).
+- **`find_role`** — поиск роли по имени/синониму; `role_qualified_name`, `uuid`, слой, adopted-ссылка.
+- **`list_roles`** — список ролей в проекте/базе; `is_truncated` + `total_count`.
+- **`get_role_rights`** — центральный tool: `merge=true` (по умолчанию) — эффективное состояние main + расширения; `merge=false` — один слой. Фильтры: `object_name`, `rights`, `rls`, `depth` (`object` / `all`), `include_restriction_text`. Для `ПолныеПрава` и тяжёлых ролей — `response_mode=summary` по умолчанию.
+- **`find_roles_for_object`** — обратный поиск ролей с явным grant на объект; `merge=true` — сводка по проекту (main + расширения); `merge=false` — по базам; `admin_roles_note` при наличии `ПолныеПрава`.
+- **`active_databases`** — у расширений дополнительно `extension_purpose` (`Customization` / `AddOn` / `Patch`).
+
+После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **11**).
+
+### Планируемые tools (relations, фаза 5+)
+
+Спека: [`dependency-layer.md`](dependency-layer.md).
+
+- **Фаза 5 (подписки):** `EventSubscription` в `metadata_relations`.
 - **`find_relation_path`** — позже, обход с `depth > 1`.
 
 ФО — по-прежнему **`get_functional_options`**; в общий graph **не** дублировать.

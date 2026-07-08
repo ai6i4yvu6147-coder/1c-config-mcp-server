@@ -1,0 +1,29 @@
+# Codebase index exclusions (AI can still @-mention these paths).
+# Mirrors .gitignore heavy paths — defense in depth beyond git ignore.
+
+# Python / build
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Runtime / derived data
+databases/
+*.db
+Portable/
+projects.json
+
+# Ephemeral / handoff
+plans/
+scratch/
+.tasks/
+docs/group/exports/
+/HANDOFF-*.md
+
+# Optional local 1C help dump (uncomment in .gitignore when used)
+help_sources/

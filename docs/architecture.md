@@ -66,7 +66,7 @@ Three layers — **do not mix**:
 
 **Domain tables** (`fo_content_ref`, `scheduled_jobs`, …) coexist with the core; **do not** duplicate them in `metadata_relations`.
 
-Full spec: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + forms)**, **`find_referencing_objects`** (slots + `metadata_relations` for subsystems) are implemented (`INDEXER_VERSION` 10); roles and subscriptions — in backlog ([`todo.md`](todo.md)).
+Full spec: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata + forms)**, **`find_referencing_objects`** (slots + subsystems + role grants), and **role tools** (phase 4) are implemented (`INDEXER_VERSION` 11); event subscriptions — in backlog ([`todo.md`](todo.md)).
 
 ### Indexing principles
 

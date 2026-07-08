@@ -9,6 +9,7 @@ from .schema import SchemaMixin
 from .insert_objects import ObjectInsertionMixin
 from .insert_forms import FormInsertionMixin
 from .relations import RelationsMixin
+from .roles import RoleInsertionMixin
 from .file_ops import format_build_error, _replace_file_with_retry
 
 
@@ -16,6 +17,7 @@ class DatabaseManager(
     ObjectInsertionMixin,
     FormInsertionMixin,
     RelationsMixin,
+    RoleInsertionMixin,
     SchemaMixin,
     DatabaseManagerCore,
 ):

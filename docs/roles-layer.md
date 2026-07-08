@@ -1,6 +1,6 @@
 # Roles and access restrictions (phase 4)
 
-**Status:** phase 4 spec (implementation not started)
+**Status:** implemented (phase 4, `INDEXER_VERSION` 11)
 
 Task-oriented parsing and MCP tools for 1C roles and row-level security (RLS). Parsing exists to support agent workflows, not for its own sake.
 
@@ -33,13 +33,23 @@ Profiles and access groups (`Catalog.ПрофилиГруппДоступа`, `C
 - Merge effective role across layers (main + extensions)
 - Reverse lookup: which roles grant a right on an object
 
-### data-mcp (contract; tools TBD)
-
-**Agreed:** contract stays in this doc until data-mcp implementation; separate protocol addendum when tools ship in the data-mcp repo.
+### data-mcp (planned tools)
 
 - `get_user_access_chain` — user → access groups → profiles → roles (`role_qualified_name`)
 - `find_profiles_by_role` — profiles containing a role
 - `get_profile_access` — profile roles + access kinds / values (ТЧ `ВидыДоступа`, `ЗначенияДоступа`)
+
+### data-mcp consumption (for Head ripple)
+
+When implementing access-chain tools, data-mcp should:
+
+1. Resolve user → profile → role via runtime catalogs (`ПрофилиГруппДоступа`, `ИдентификаторыОбъектовМетаданных`).
+2. Match profile role rows to config-mcp by **`role_qualified_name`** (`Role.<Name>`).
+3. For “what rights does this role grant?” — call config-mcp **`get_role_rights(role_name, merge=true)`** (effective state).
+4. For “which roles can Read object X?” — call config-mcp **`find_roles_for_object(object_name, merge=true)`**.
+5. Use Hub **`configMcp.projectFilter`** / **`extensionFilter`** when scoping; ignore internal SQLite `source_db_name`.
+
+Contract body for group shared canon: see Sub handoff **THR-009** (pending Head).
 
 ### Link key (config ↔ data)
 
@@ -50,14 +60,16 @@ Profile tabular section `Роли.Роль` → `Catalog.Идентификат�
   "role_qualified_name": "Role.ЧтениеРеализацииТоваровУслуг",
   "role_name": "ЧтениеРеализацииТоваровУслуг",
   "role_uuid": "<from Role.xml>",
-  "source_layer": "main | <extension_name>",
-  "extension_name": null
+  "db_name": "<projects.json name; same as extension_filter>",
+  "extension_purpose": "AddOn | Patch | Customization | null"
 }
 ```
 
 For adopted extension roles: extension `Role.xml` has its own `uuid` and `ExtendedConfigurationObject` pointing at the main role uuid.
 
 **Adopted identity (agreed):** merge and lookup by role **`Name`**. API also returns `extended_configuration_object_uuid` when `ObjectBelonging=Adopted` (link to main role uuid).
+
+**Layer identity (agreed):** config-mcp MCP responses use `db_name` from `projects.json` / `active_databases` — the same value as `extension_filter` and Hub `configMcp.instances[].extensionFilter` ([`registry-mapping-data-mcp.md`](group/protocol-ref/epoch0/registry-mapping-data-mcp.md) § C-MCP refs). data-mcp does not need `Configuration.xml` `Name` for layer disambiguation.
 
 ---
 
@@ -105,6 +117,19 @@ Pairs inside `#ПоЗначениям("…", "Организации", "Орга
 
 ---
 
+## Layer identity (agent contract)
+
+Same rule as all other MCP tools ([`mcp-tools.md`](mcp-tools.md)):
+
+| Context | Field | Value |
+|---------|-------|-------|
+| `extension_filter`, result bucket keys | `db_name` | `projects.json` database name (`active_databases`) |
+| SQLite `source_db_name` columns | internal | `Configuration.xml` `Name` — merge tie-break only; **not** exposed in MCP JSON |
+
+Role tool responses use `db_name` for layer provenance (grants, restrictions, `layers` array, `find_roles_for_object` merge hits). Agents never need to map registry name ↔ config name.
+
+---
+
 ## Data model (SQLite)
 
 Separate tables; bump `INDEXER_VERSION` when implemented.
@@ -123,7 +148,7 @@ Separate tables; bump `INDEXER_VERSION` when implemented.
 | `parent_object_qname` | For field-level rows |
 | `right_name` | `Read`, `View`, `Edit`, … |
 | `granted` | bool |
-| `source_db_name` | Main or extension db name |
+| `source_db_name` | `Configuration.xml` `Name` (internal; MCP exposes `db_name` from `projects.json`) |
 
 ### `role_access_restrictions`
 
@@ -195,24 +220,24 @@ Restrictions: **replace by field key**, not union. Two restrictions on one right
 
 | Requested layer | Result |
 |-----------------|--------|
-| Main db (`extension_filter` = main name or base only) | Rows with `source_db_name` = main only |
-| Extension db | Rows from that extension only; adopted role without `Rights.xml` → **empty** |
+| Main db (`extension_filter` = main `db_name`) | Grants from main layer only |
+| Extension db | Grants from that extension only; adopted role without `Rights.xml` → **empty** |
 | Extension-only role | Only that extension’s rows (main has no role) |
 
 ### `merge=true` response
 
-Effective merged state. Optional `provenance` per row (`source_db_name`, `extension_purpose`) — post-MVP; not required for first implementation.
+Effective merged state. Per-row provenance: `db_name`, `extension_purpose` (MCP JSON).
 
 ---
 
-## MCP tools (config-mcp, planned)
+## MCP tools (config-mcp, implemented)
 
 | Tool | Purpose |
 |------|---------|
 | `find_role` | By name / synonym; `role_qualified_name`, `uuid`, layer |
 | `list_roles` | List roles in project/layer |
 | `get_role_rights` | **Central tool.** `merge=true` (default) = effective state (main + extensions by purpose priority); `merge=false` = single layer only, no main inheritance. `extension_filter` selects layer when `merge=false`. Filters: `object_name`, `rights`, `rls`, `depth` (`object` / `all`), `include_restriction_text` |
-| `find_roles_for_object` | Reverse: roles granting rights on object; filters for right type and RLS |
+| `find_roles_for_object` | Reverse: roles granting rights on object; `merge=true` (default off) = project-level overlay by role `Name`; `merge=false` = per-layer buckets |
 | `find_referencing_objects` | `via: role_grant` — JOIN `role_grants` (no `metadata_relations` duplicate) |
 
 ### MVP tool bounds

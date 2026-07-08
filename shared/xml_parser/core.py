@@ -54,9 +54,18 @@ class ConfigurationParserCore:
         objects = self._parse_child_objects(config, ns)
         with self._accumulate('subsystems'):
             objects.extend(self._parse_subsystems())
+        with self._accumulate('roles'):
+            objects.extend(self._parse_roles())
+
+        extension_purpose = ''
+        if properties is not None:
+            purpose_elem = properties.find('md:ConfigurationExtensionPurpose', ns)
+            if purpose_elem is not None and purpose_elem.text:
+                extension_purpose = purpose_elem.text.strip()
 
         return {
             'name': config_name,
+            'extension_purpose': extension_purpose,
             'objects': objects
         }
 

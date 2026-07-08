@@ -71,6 +71,16 @@ def _create_test_db(path: Path) -> None:
             source_name TEXT,
             source_detail TEXT
         );
+        CREATE TABLE role_grants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_object_id INTEGER NOT NULL,
+            target_qname TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            parent_object_qname TEXT NOT NULL,
+            right_name TEXT NOT NULL,
+            granted INTEGER,
+            source_db_name TEXT
+        );
         INSERT INTO metadata_objects (id, name, object_type, object_kind)
         VALUES (1, 'Контрагенты', 'Catalog', 'ConfigObject');
         INSERT INTO metadata_objects (id, name, object_type, object_kind)
@@ -214,10 +224,11 @@ def test_find_referencing_relation_kinds_filter(tools_with_db):
         VALUES (5, 'РольТест', 'Role', 'ConfigObject')
     ''')
     conn.execute('''
-        INSERT INTO metadata_relations (
-            src_object_id, dst_object_id, relation_kind, source_name, source_detail
+        INSERT INTO role_grants (
+            role_object_id, target_qname, target_kind, parent_object_qname,
+            right_name, granted, source_db_name
         )
-        VALUES (5, 1, 'role_right', 'Catalog.Контрагенты', 'Right')
+        VALUES (5, 'Catalog.Контрагенты', 'object', 'Catalog.Контрагенты', 'Read', 1, 'Main')
     ''')
     conn.execute('''
         INSERT INTO metadata_objects (id, name, object_type, object_kind)
@@ -239,11 +250,12 @@ def test_find_referencing_relation_kinds_filter(tools_with_db):
         'Контрагенты', project_filter='TestProject', relation_kinds=['subsystem_member']
     )
     refs = sub_only['TestProject']['Main (base)']['referencers']
-    relation_vias = {
-        r['via'] for r in refs
-        if r['via'] not in (
-            'attribute', 'tabular_section_column', 'form_attribute', 'form_attribute_column'
-        )
-    }
-    assert relation_vias == {'subsystem_member'}
-    assert sub_only['TestProject']['Main (base)']['total_count'] == 5
+    assert all(r['via'] == 'subsystem_member' for r in refs)
+    assert sub_only['TestProject']['Main (base)']['total_count'] == 1
+
+    role_only = tools_with_db.find_referencing_objects(
+        'Контрагенты', project_filter='TestProject', relation_kinds=['role_grant']
+    )
+    role_refs = role_only['TestProject']['Main (base)']['referencers']
+    assert all(r['via'] == 'role_grant' for r in role_refs)
+    assert role_only['TestProject']['Main (base)']['total_count'] == 1

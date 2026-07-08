@@ -449,6 +449,80 @@ class SchemaMixin:
             ON scheduled_jobs(method_name)
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS index_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS role_settings (
+                role_object_id INTEGER NOT NULL PRIMARY KEY,
+                set_for_new_objects INTEGER,
+                set_for_attributes_by_default INTEGER,
+                independent_rights_of_child_objects INTEGER,
+                source_db_name TEXT,
+                FOREIGN KEY (role_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS role_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_object_id INTEGER NOT NULL,
+                target_qname TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                parent_object_qname TEXT NOT NULL,
+                right_name TEXT NOT NULL,
+                granted INTEGER,
+                source_db_name TEXT,
+                FOREIGN KEY (role_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_role_grants_role
+            ON role_grants(role_object_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_role_grants_parent
+            ON role_grants(parent_object_qname)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_role_grants_target_right
+            ON role_grants(target_qname, right_name)
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS role_access_restrictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grant_id INTEGER NOT NULL,
+                field_scope TEXT,
+                restriction_text TEXT NOT NULL,
+                source_db_name TEXT,
+                FOREIGN KEY (grant_id) REFERENCES role_grants(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_role_access_restrictions_grant
+            ON role_access_restrictions(grant_id)
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS role_restriction_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_object_id INTEGER NOT NULL,
+                template_name TEXT NOT NULL,
+                condition_text TEXT NOT NULL,
+                source_db_name TEXT,
+                FOREIGN KEY (role_object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_role_restriction_templates_role
+            ON role_restriction_templates(role_object_id)
+        ''')
+
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search

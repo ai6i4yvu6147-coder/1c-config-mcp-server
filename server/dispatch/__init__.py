@@ -19,6 +19,12 @@ from .forms import (
     handle_search_form_properties,
 )
 from .relations import handle_find_referencing_objects
+from .roles import (
+    handle_find_role,
+    handle_list_roles,
+    handle_get_role_rights,
+    handle_find_roles_for_object,
+)
 
 # Tool name -> async handler(tools, arguments) -> list[TextContent].
 # active_databases is dispatched separately in server.py (outside the ValueError try/except).
@@ -37,6 +43,10 @@ HANDLERS = {
     "find_referencing_objects": handle_find_referencing_objects,
     "get_functional_options": handle_get_functional_options,
     "find_attribute": handle_find_attribute,
+    "find_role": handle_find_role,
+    "list_roles": handle_list_roles,
+    "get_role_rights": handle_get_role_rights,
+    "find_roles_for_object": handle_find_roles_for_object,
 }
 
 __all__ = ['HANDLERS', 'handle_active_databases']

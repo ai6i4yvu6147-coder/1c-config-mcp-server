@@ -7,6 +7,7 @@ from shared.project_manager import ProjectManager
 from shared.indexer_version import INDEXER_VERSION
 from shared.index_status import read_db_last_updated_at
 from shared.db_build_state import is_building as _is_db_updating
+from server.role_db import read_index_metadata
 
 
 def _read_db_user_version(db_path: str) -> Optional[int]:
@@ -31,6 +32,22 @@ def _is_db_outdated(db_path: str) -> bool:
     if ver == 0:
         return True
     return ver < INDEXER_VERSION
+
+
+def _read_db_extension_purpose(db_path: str) -> str:
+    """Read extension_purpose from index_metadata (empty for base configs)."""
+    p = Path(db_path)
+    if not p.exists():
+        return ''
+    uri = p.resolve().as_uri() + '?mode=ro'
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        meta = read_index_metadata(conn.cursor())
+        return meta.get('extension_purpose') or ''
+    except sqlite3.Error:
+        return ''
+    finally:
+        conn.close()
 
 
 class BaseTools:
@@ -146,5 +163,6 @@ class BaseTools:
                 'is_outdated': _is_db_outdated(db['db_path']),
                 'is_updating': _is_db_updating(db['db_path']),
                 'last_updated_at': read_db_last_updated_at(db['db_path']),
+                'extension_purpose': _read_db_extension_purpose(db['db_path']),
             })
         return {'projects': list(by_project.values())}

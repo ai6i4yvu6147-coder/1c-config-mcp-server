@@ -8,7 +8,10 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 ## Hub pending
 
-(none — THR-008 resolved; Head registry shows `stable`, no active thread)
+- **THR-009** · `awaiting_head` · Role block cross-MCP contract (config-mcp → Head → data-mcp ripple)
+  - Sub: phase 4 + UX polish **done**; spec [`roles-layer.md`](roles-layer.md)
+  - Head: add `docs/group/shared/roles-cross-mcp.md`; open `sync_delta` + ripple thread for `1c-data-mcp`
+  - Ephemeral handoff at repo root (not in git) for Head operator
 
 ## Admin Hub / group integration
 
@@ -58,9 +61,9 @@ Do not start implementation from the list without explicit user request.
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
 | Admin GUI: build stage log / timings | **done** — validated on real exports and live in the rebuilt admin GUI; see `gui-build-log-timings` |
-| Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` done (phase 3); see `dependency-layer.md` phases 4–5 |
-| Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 10; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
-| `metadata_relations` (subsystems, roles, …) | **partial** — subsystems (phase 3, v10); roles/subscriptions — phases 4–5 |
+| Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` (phase 3), `Role` (phase 4); see `dependency-layer.md` phase 5 |
+| Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 11; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
+| `metadata_relations` / role grants | **done** — subsystems (phase 3); roles via `role_grants` (phase 4); role UX polish (layer naming, merge, relation_kinds) — see CHANGELOG 2026-07-08 |
 
 ---
 
@@ -101,11 +104,6 @@ Do not start implementation from the list without explicit user request.
   - **Not to confuse with** dependency layer (`dependency-layer.md`) — separate axis (handler, not metadata ref)
 
   - **Done when:** query "find scheduled job for procedure Y" returns relevant result
-
-- **relations-phase-4** · `ready` · whitelist `Role` (grants, restrictions, templates)
-
-  - **Spec:** [`roles-layer.md`](roles-layer.md) — status `spec` → ready for implementation when requested
-  - **Reference export:** Фитэра/АСБ тест (main + `ФТ_Бюджетирование`)
 
 - **relations-phase-5** · `blocked` · `EventSubscription`
 
@@ -164,10 +162,6 @@ Do not start implementation from the list without explicit user request.
   - **Priority:** low; does not block `gui-bulk-update` and status fix
 
   - **Open:** stay on tkinter or consider another UI layer
-
-- **whitelist-role** · `spec` · Index roles (`Role`) — folded into **relations-phase-4**
-
-  - **Spec:** [`roles-layer.md`](roles-layer.md)
 
 - **whitelist-event-subscription** · `idea` · Index event subscriptions (`EventSubscription`)
 

@@ -48,7 +48,8 @@
   - `metadata_objects`: `object_kind` (`ConfigObject` | `TypeDescriptor`), `is_primitive`, `base_type`, `qualifier_1..3` для синтетических примитивов и form-wrappers (`ValueListType`, `ValueTable`, `DynamicList`);
   - `metadata_type_slots` — типы реквизитов/колонок ТЧ и **реквизитов/колонок форм** (`source_table`: `attributes`, `tabular_section_columns`, `form_attributes`, `form_attribute_columns`);
   - `form_attribute_columns` — колонки ValueTable / AdditionalColumns (имя, заголовок, `table_context`);
-  - `metadata_relations` — структурные связи (`subsystem_member` для подсистем; роли и подписки — фазы 4–5).
+  - `metadata_relations` — структурные связи (`subsystem_member` для подсистем; роли — `role_grants`, фаза 4);
+  - **Роли (фаза 4):** `role_settings`, `role_grants`, `role_access_restrictions`, `role_restriction_templates`; `index_metadata` (`config_name`, `extension_purpose`, `source_db_name`) — см. [`roles-layer.md`](roles-layer.md).
 
 ### Где к БД обращаются
 

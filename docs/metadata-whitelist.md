@@ -36,7 +36,7 @@
 
 ### Связь с type system и relations
 
-Тип `Subsystem` **индексируется** (фаза 3): связи Content и вложенность — в `metadata_relations` (`subsystem_member`). Типы `Role`, `EventSubscription` планируются в [`dependency-layer.md`](dependency-layer.md) (фазы 4–5).
+Тип `Subsystem` **индексируется** (фаза 3): связи Content и вложенность — в `metadata_relations` (`subsystem_member`). Тип `Role` **индексируется** (фаза 4): grants/RLS — в `role_grants` и связанных таблицах ([`roles-layer.md`](roles-layer.md)). `EventSubscription` — фаза 5.
 
 ### Как добавить новый тип
 

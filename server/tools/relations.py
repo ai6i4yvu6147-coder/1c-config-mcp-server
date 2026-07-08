@@ -182,11 +182,71 @@ def _referencer_sort_key(ref):
     return (src['type'], src['name'], via, detail, ref.get('ordinal', 0))
 
 
-def _fetch_referencing_combined(cursor, target_object_id, max_results, relation_kinds=None):
-    """UNION slots + relations; total_count before limit, sorted combined list."""
-    slots = _fetch_all_referencing_slots(cursor, target_object_id)
-    relations = _fetch_referencing_relations(cursor, target_object_id, relation_kinds)
-    combined = slots + relations
+def _fetch_referencing_role_grants(cursor, parent_object_qname):
+    """Return referencer dicts from role_grants (phase 4)."""
+    try:
+        cursor.execute('''
+            SELECT mo.object_type AS src_type,
+                   mo.name AS src_name,
+                   mo.synonym AS src_synonym,
+                   rg.right_name,
+                   rg.granted,
+                   rg.source_db_name
+            FROM role_grants rg
+            JOIN metadata_objects mo ON rg.role_object_id = mo.id
+            WHERE rg.parent_object_qname = ? AND rg.granted = 1
+            ORDER BY src_type, src_name, rg.right_name
+        ''', (parent_object_qname,))
+    except Exception:
+        return []
+
+    referencers = []
+    for row in cursor.fetchall():
+        referencers.append({
+            'src_object': {
+                'type': row['src_type'],
+                'name': row['src_name'],
+                'synonym': row['src_synonym'] or '',
+            },
+            'via': 'role_grant',
+            'right_name': row['right_name'],
+            'granted': bool(row['granted']),
+            'source_db_name': row['source_db_name'],
+            'source_name': parent_object_qname,
+            'source_detail': row['right_name'],
+        })
+    return referencers
+
+
+_SLOT_VIAS = frozenset({
+    'attribute', 'tabular_section_column', 'form_attribute', 'form_attribute_column',
+})
+
+
+def _fetch_referencing_combined(cursor, target_object_id, parent_object_qname, max_results, relation_kinds=None):
+    """UNION slots + relations + role_grants; total_count before limit."""
+    if relation_kinds:
+        include_slots = any(k in _SLOT_VIAS for k in relation_kinds)
+        rel_kinds = [k for k in relation_kinds if k != 'role_grant' and k not in _SLOT_VIAS]
+        include_relations = bool(rel_kinds)
+        include_role_grants = 'role_grant' in relation_kinds
+    else:
+        include_slots = True
+        include_relations = True
+        include_role_grants = True
+        rel_kinds = None
+
+    slots = _fetch_all_referencing_slots(cursor, target_object_id) if include_slots else []
+    relations = []
+    if include_relations:
+        kinds_filter = rel_kinds if relation_kinds else None
+        relations = _fetch_referencing_relations(cursor, target_object_id, kinds_filter)
+
+    role_grants = []
+    if include_role_grants and parent_object_qname:
+        role_grants = _fetch_referencing_role_grants(cursor, parent_object_qname)
+
+    combined = slots + relations + role_grants
     combined.sort(key=_referencer_sort_key)
     total_count = len(combined)
     return total_count, combined[:max_results]
@@ -207,15 +267,15 @@ class RelationsMixin:
         max_results=100, relation_kinds=None,
     ):
         """
-        Обратный поиск: кто ссылается на объект через metadata_type_slots
-        и metadata_relations (подсистемы и др.).
+        Обратный поиск: кто ссылается на объект через metadata_type_slots,
+        metadata_relations (подсистемы и др.) и role_grants (роли).
 
         Args:
             object_name: Имя или синоним целевого объекта (частичное совпадение)
             project_filter: Фильтр по проекту (обязательно)
             extension_filter: Фильтр по расширению/базе (опционально)
             max_results: Максимум записей на базу (по умолчанию 100)
-            relation_kinds: Фильтр relation_kind в metadata_relations (опционально)
+            relation_kinds: Фильтр видов связей (subsystem_member, role_grant, …)
 
         Returns:
             Dict сгруппированный по проектам/базам
@@ -252,9 +312,14 @@ class RelationsMixin:
                 continue
 
             obj_row = resolved['row']
+            parent_object_qname = f"{obj_row['object_type']}.{obj_row['name']}"
             total_count, referencers = _fetch_referencing_combined(
-                cursor, obj_row['id'], max_results, relation_kinds,
+                cursor, obj_row['id'], parent_object_qname, max_results, relation_kinds,
             )
+            for ref in referencers:
+                if ref.get('via') == 'role_grant':
+                    ref['db_name'] = db_info['db_name']
+                    ref.pop('source_db_name', None)
 
             if project_key not in results:
                 results[project_key] = {}

@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-07-08
+
+- **Фаза 4: роли и RLS (`relations-phase-4`):** парсинг `Roles/*.xml` + `Rights.xml` (`shared/xml_parser/roles.py`); таблицы `role_settings`, `role_grants`, `role_access_restrictions`, `role_restriction_templates`, `index_metadata`; `INDEXER_VERSION` **11**; MCP tools `find_role`, `list_roles`, `get_role_rights` (merge main+ext), `find_roles_for_object`; `find_referencing_objects` via `role_grant`; фикстура `tests/fixtures/roles/` (5 ролей из чеклиста); `extension_purpose` в `active_databases`.
+- **Role UX polish (фаза 4 follow-up):** `find_referencing_objects` — непустой `relation_kinds` возвращает только перечисленные `via` (роль-only без шума слотов); role tools — в ответах MCP `db_name` из `projects.json` (как `extension_filter`), без утечки `Configuration.xml` `Name`; `find_roles_for_object(merge=true)` — сводка по проекту; тесты `tests/test_role_tools.py`.
+
 ## 2026-07-05
 
 - **Refactor: decompose god modules (`refactor-god-modules`, backlog):** `shared/xml_parser.py`, `admin_tool/db_manager.py`, `server/tools.py`, `server/server.py` (~1.5–2.2k lines each) split into packages of cohesive mixins/modules, no public API/behavior change (same imports, same MCP tool list/schemas, same DB schema); `server/server.py` additionally split into `server/tool_schemas.py` (Tool definitions) + `server/dispatch/` (per-domain response formatting), server.py itself now thin. Full test suite unchanged (102 passed, 9 skipped) throughout.
