@@ -4,7 +4,7 @@ Single entry point for the orchestrator (the main agent).
 
 ## Type
 
-**Subordinate (Sub)** — module `1c-config-mcp` in group `1c-cursor`. Head: `1c-admin-tool` (`C:/projects/1c-admin-tool`).
+**Subordinate (Sub)** — module `1c-config-mcp` in group `1c-cursor`. Head: `1c-admin-tool` (`C:/projects/1c-admin-tool` · `C:/repo/1c-config-admin-tool`).
 
 ## What this project is
 
@@ -69,7 +69,7 @@ build_all.bat   # portable: Admin/, Server/, Tools/
 
 ## Hub (Sub)
 
-- **Hub file:** `C:/projects/1c-admin-tool/GROUP-HUB.md` — edit only `1c-config-mcp` registry row and own threads.
+- **Hub file:** `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md` — edit only `1c-config-mcp` registry row and own threads.
 - **Protocol snapshot:** `docs/group/protocol-ref/epoch0/` (reference; Head canon in `docs/group/shared/`).
 - **Local adaptation:** [`admin-hub-integration.md`](admin-hub-integration.md); group link — [`group/integration.md`](group/integration.md).
 

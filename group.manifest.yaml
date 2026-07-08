@@ -9,3 +9,6 @@ role: subordinate
 head:
   id: 1c-admin-tool
   path: C:/projects/1c-admin-tool
+  paths:
+    - C:/projects/1c-admin-tool
+    - C:/repo/1c-config-admin-tool

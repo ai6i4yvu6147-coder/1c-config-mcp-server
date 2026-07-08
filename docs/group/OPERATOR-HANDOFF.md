@@ -8,10 +8,10 @@ Human-tier — русский OK. В хаб-модели (canon 2.5.0) синх�
 
 | Роль | Репозиторий | Путь |
 |------|-------------|------|
-| Head | `1c-admin-tool` | `C:/projects/1c-admin-tool` |
-| Sub `1c-config-mcp` | `1c-config-mcp` | `C:/projects/1c-config-mcp` |
+| Head | `1c-admin-tool` / `1c-config-admin-tool` | `C:/projects/1c-admin-tool` · `C:/repo/1c-config-admin-tool` |
+| Sub `1c-config-mcp` | `1c-config-mcp` / `1c-config-mcp-server` | `C:/projects/1c-config-mcp` · `C:/repo/1c-config-mcp-server` |
 
-Хаб: `C:/projects/1c-admin-tool/GROUP-HUB.md`. Sub обращается к нему по `head.path` из `group.manifest.yaml`.
+Хаб: `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md`. Sub resolves via `head.paths` в `group.manifest.yaml`.
 
 ---
 

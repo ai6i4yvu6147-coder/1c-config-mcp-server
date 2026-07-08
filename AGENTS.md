@@ -1,6 +1,6 @@
 ## Agent hints
 
-**Role:** Sub (subordinate) · group `1c-cursor` · Head: `1c-admin-tool` (`C:/projects/1c-admin-tool`).
+**Role:** Sub (subordinate) · group `1c-cursor` · Head: `1c-admin-tool` (`C:/projects/1c-admin-tool` · `C:/repo/1c-config-admin-tool`).
 
 **Subagents:** `.cursor/agents/` — **5** (`doc-librarian`, `code-explorer`, `task-planner`, `implementer`, `verifier`). **Skills:** `.cursor/skills/` — **4** (`normalize-project`, `canon-align`, `maintain-docs`, `sync`).
 
