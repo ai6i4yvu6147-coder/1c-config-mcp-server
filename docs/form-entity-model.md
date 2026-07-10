@@ -1,6 +1,6 @@
 # Form entity model (specification)
 
-**Status:** specification (not yet implemented in indexer/MCP)  
+**Status:** implemented (`INDEXER_VERSION` 12)  
 **Related:** [`form-type-system.md`](form-type-system.md) (types), [`dependency-layer.md`](dependency-layer.md) (metadata layering), [`database.md`](database.md) (SQLite), [`mcp-tools.md`](mcp-tools.md) (tools)  
 **Origin:** MCP feedback — `get_form_structure` truncates DynamicList `QueryText`; broader gaps in form property handling
 

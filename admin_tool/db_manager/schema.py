@@ -51,7 +51,6 @@ class SchemaMixin:
                 name TEXT NOT NULL,
                 title TEXT,
                 is_main INTEGER DEFAULT 0,
-                query_text TEXT,
                 FOREIGN KEY (form_id) REFERENCES forms(id)
             )
         ''')
@@ -106,14 +105,36 @@ class SchemaMixin:
                 parent_id INTEGER,
                 name TEXT NOT NULL,
                 item_type TEXT NOT NULL,
-                data_path TEXT,
-                title TEXT,
-                visible INTEGER,
-                enabled INTEGER,
-                command_name TEXT,
                 FOREIGN KEY (form_id) REFERENCES forms(id),
                 FOREIGN KEY (parent_id) REFERENCES form_items(id)
             )
+        ''')
+
+        # EAV свойства сущностей форм (attribute | attribute_column | item)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS form_entity_properties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_kind TEXT NOT NULL,
+                entity_id INTEGER NOT NULL,
+                property_path TEXT NOT NULL,
+                property_name TEXT NOT NULL,
+                ordinal INTEGER NOT NULL DEFAULT 0,
+                value_text TEXT,
+                value_type TEXT,
+                UNIQUE(entity_kind, entity_id, property_path, ordinal)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_fep_entity
+            ON form_entity_properties(entity_kind, entity_id)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_fep_path
+            ON form_entity_properties(property_path)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_fep_name
+            ON form_entity_properties(property_name)
         ''')
 
         # Таблица событий элементов
@@ -363,6 +384,7 @@ class SchemaMixin:
                 form_id INTEGER,
                 element_type TEXT NOT NULL,
                 element_name TEXT,
+                parent_element_name TEXT,
                 FOREIGN KEY (functional_option_id) REFERENCES metadata_objects(id),
                 FOREIGN KEY (owner_object_id) REFERENCES metadata_objects(id),
                 FOREIGN KEY (form_id) REFERENCES forms(id)
@@ -401,8 +423,6 @@ class SchemaMixin:
             ON attributes(object_id)
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_attributes_name ON attributes(name)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_items_data_path ON form_items(data_path)')
-
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_sections_object ON tabular_sections(object_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_section_columns_ts ON tabular_section_columns(tabular_section_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tabular_section_columns_name ON tabular_section_columns(column_name)')

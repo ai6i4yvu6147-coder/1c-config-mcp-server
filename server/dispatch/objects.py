@@ -213,9 +213,12 @@ async def handle_get_functional_options(tools, arguments: dict) -> list[TextCont
     element_type = arguments.get("element_type")
     element_name = arguments.get("element_name")
 
+    attribute_name = arguments.get("attribute_name")
+
     results = tools.get_functional_options(
         object_name, project_filter, extension_filter,
-        form_name=form_name, element_type=element_type, element_name=element_name
+        form_name=form_name, element_type=element_type, element_name=element_name,
+        attribute_name=attribute_name,
     )
 
     if not results:

@@ -16,6 +16,8 @@ from .forms import (
     handle_find_form,
     handle_find_form_element,
     handle_get_form_structure,
+    handle_get_form_attribute,
+    handle_get_form_item,
     handle_search_form_properties,
 )
 from .relations import handle_find_referencing_objects
@@ -38,6 +40,8 @@ HANDLERS = {
     "find_form": handle_find_form,
     "find_form_element": handle_find_form_element,
     "get_form_structure": handle_get_form_structure,
+    "get_form_attribute": handle_get_form_attribute,
+    "get_form_item": handle_get_form_item,
     "search_form_properties": handle_search_form_properties,
     "get_object_structure": handle_get_object_structure,
     "find_referencing_objects": handle_find_referencing_objects,

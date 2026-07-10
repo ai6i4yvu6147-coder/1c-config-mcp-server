@@ -28,6 +28,11 @@ async def handle_search_code(tools, arguments: dict) -> list[TextContent]:
         for db_name, db_results in project_data.items():
             response += f"  └─ {db_name}: {len(db_results)} результат(ов)\n"
             for r in db_results:
+                if r.get('match_kind') == 'form_query':
+                    response += f"     • [запрос формы] {r['object_type']}.{r['object_name']}.{r['form_name']} / {r['attribute_name']}\n"
+                    response += f"       {r['snippet']}\n"
+                    response += f"       → {r['hint']}\n"
+                    continue
                 loc = f"{r['object_type']}.{r['object_name']}.{r['module_type']}"
                 if r['module_type'] == 'CommandModule' and r.get('command_name'):
                     loc = f"{r['object_type']}.{r['object_name']}.CommandModule.{r['command_name']}"

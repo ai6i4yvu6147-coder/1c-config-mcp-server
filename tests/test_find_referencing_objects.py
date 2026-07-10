@@ -45,8 +45,7 @@ def _create_test_db(path: Path) -> None:
             form_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             title TEXT,
-            is_main INTEGER DEFAULT 0,
-            query_text TEXT
+            is_main INTEGER DEFAULT 0
         );
         CREATE TABLE form_attribute_columns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

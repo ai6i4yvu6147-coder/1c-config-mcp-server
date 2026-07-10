@@ -478,7 +478,8 @@ class ObjectsMixin:
         return results
 
     def get_functional_options(self, object_name, project_filter=None, extension_filter=None,
-                               form_name=None, element_type=None, element_name=None):
+                               form_name=None, element_type=None, element_name=None,
+                               attribute_name=None):
         """
         Единый инструмент: возвращает функциональные опции для объекта метаданных или для элемента формы.
         Вызывать при вопросах: почему объект/документ недоступен; почему поле/кнопка на форме не отображается.
@@ -491,8 +492,9 @@ class ObjectsMixin:
             project_filter: Фильтр по проекту (обязательно).
             extension_filter: Фильтр по расширению/базе (опционально).
             form_name: Имя формы (опционально; для запроса по элементу формы).
-            element_type: FormAttribute | FormCommand | FormItem (опционально).
-            element_name: Имя реквизита/команды/элемента (опционально).
+            element_type: FormAttribute | FormCommand | FormItem | FormAttributeColumn (опционально).
+            element_name: Имя реквизита/команды/элемента/колонки (опционально).
+            attribute_name: Имя реквизита-родителя (обязательно для FormAttributeColumn).
 
         Returns:
             Dict по проектам/базам. Для объекта: список {name, synonym, content_ref_type, tabular_section_name, element_name}.
@@ -505,6 +507,8 @@ class ObjectsMixin:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
         query_form_element = bool(form_name and element_type and element_name)
+        if element_type == 'FormAttributeColumn' and not attribute_name:
+            raise ValueError("Для element_type='FormAttributeColumn' укажите attribute_name")
 
         results = {}
         for db_info in databases:
@@ -523,13 +527,24 @@ class ObjectsMixin:
                 if not row:
                     continue
                 owner_id, form_id = row['owner_id'], row['form_id']
-                cursor.execute('''
-                    SELECT mo.name, mo.synonym
-                    FROM fo_form_usage fo
-                    JOIN metadata_objects mo ON fo.functional_option_id = mo.id
-                    WHERE fo.owner_object_id = ? AND fo.form_id = ? AND fo.element_type = ? AND fo.element_name = ?
-                    ORDER BY mo.name
-                ''', (owner_id, form_id, element_type, element_name))
+                if element_type == 'FormAttributeColumn':
+                    cursor.execute('''
+                        SELECT mo.name, mo.synonym
+                        FROM fo_form_usage fo
+                        JOIN metadata_objects mo ON fo.functional_option_id = mo.id
+                        WHERE fo.owner_object_id = ? AND fo.form_id = ?
+                          AND fo.element_type = ? AND fo.element_name = ?
+                          AND fo.parent_element_name = ?
+                        ORDER BY mo.name
+                    ''', (owner_id, form_id, element_type, element_name, attribute_name))
+                else:
+                    cursor.execute('''
+                        SELECT mo.name, mo.synonym
+                        FROM fo_form_usage fo
+                        JOIN metadata_objects mo ON fo.functional_option_id = mo.id
+                        WHERE fo.owner_object_id = ? AND fo.form_id = ? AND fo.element_type = ? AND fo.element_name = ?
+                        ORDER BY mo.name
+                    ''', (owner_id, form_id, element_type, element_name))
                 options = [{'name': r['name'], 'synonym': r['synonym'] or ''} for r in cursor.fetchall()]
             else:
                 cursor.execute('SELECT id FROM metadata_objects WHERE name = ? LIMIT 1', (object_name,))

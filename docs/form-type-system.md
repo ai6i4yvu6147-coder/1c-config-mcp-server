@@ -52,7 +52,7 @@ flowchart LR
 |-----------|------------|------------|
 | `v8:ValueListType` + Settings | СписокЗначений | wrapper + inner |
 | `v8:ValueTable` | ТаблицаЗначений | wrapper + колонки в `form_attribute_columns` |
-| `cfg:DynamicList` | ДинамическийСписок | wrapper + `query_text`; MainTable — backlog |
+| `cfg:DynamicList` | ДинамическийСписок | wrapper + `Settings.QueryText` в EAV; MainTable — backlog |
 | `cfg:DocumentObject.X` | Объект документа на форме | resolve через `object_type_hint` → Document |
 | `pl:Planner` и др. | Спец. UI-тип | `kind: unknown`, slot не материализуется |
 

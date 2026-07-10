@@ -91,20 +91,19 @@ class CodeMixin:
                 ''', (query, MAX_MODULES_SEARCH_CODE))
 
             rows = cursor.fetchall()
-            if not rows:
-                continue
-            module_ids = [r['module_id'] for r in rows]
-            placeholders = ','.join('?' * len(module_ids))
-            cursor.execute(
-                f'SELECT module_id, name, proc_type, start_line, end_line FROM module_procedures WHERE module_id IN ({placeholders}) ORDER BY module_id, start_line',
-                module_ids
-            )
+            module_ids = [r['module_id'] for r in rows] if rows else []
             procedures_by_module = {}
-            for pr in cursor.fetchall():
-                mid = pr['module_id']
-                if mid not in procedures_by_module:
-                    procedures_by_module[mid] = []
-                procedures_by_module[mid].append(pr)
+            if module_ids:
+                placeholders = ','.join('?' * len(module_ids))
+                cursor.execute(
+                    f'SELECT module_id, name, proc_type, start_line, end_line FROM module_procedures WHERE module_id IN ({placeholders}) ORDER BY module_id, start_line',
+                    module_ids
+                )
+                for pr in cursor.fetchall():
+                    mid = pr['module_id']
+                    if mid not in procedures_by_module:
+                        procedures_by_module[mid] = []
+                    procedures_by_module[mid].append(pr)
 
             db_results = []
             for row in rows:
@@ -162,7 +161,54 @@ class CodeMixin:
                 if project_key not in results:
                     results[project_key] = {}
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = db_results
+                if db_key not in results[project_key]:
+                    results[project_key][db_key] = []
+                results[project_key][db_key].extend(db_results)
+
+            # Поиск по тексту запроса DynamicList в EAV
+            fq_sql = '''
+                SELECT
+                    o.name as object_name,
+                    o.object_type,
+                    f.form_name,
+                    fa.name as attribute_name,
+                    fep.value_text as query_text
+                FROM form_entity_properties fep
+                JOIN form_attributes fa ON fep.entity_id = fa.id AND fep.entity_kind = 'attribute'
+                JOIN forms f ON fa.form_id = f.id
+                JOIN metadata_objects o ON f.object_id = o.id
+                WHERE fep.property_name = 'QueryText' AND fep.value_text LIKE ?
+            '''
+            fq_params = [f'%{query}%']
+            if object_name:
+                fq_sql += ' AND o.name LIKE ?'
+                fq_params.append(f'%{object_name}%')
+            cursor.execute(fq_sql, fq_params)
+
+            for row in cursor.fetchall():
+                text = row['query_text'] or ''
+                pos = text.lower().find(query.lower())
+                if pos == -1:
+                    continue
+                start = max(0, pos - 80)
+                end = min(len(text), pos + len(query) + 80)
+                snippet = "..." + text[start:end] + "..."
+                entry = {
+                    'match_kind': 'form_query',
+                    'object_name': row['object_name'],
+                    'object_type': row['object_type'],
+                    'form_name': row['form_name'],
+                    'attribute_name': row['attribute_name'],
+                    'snippet': snippet,
+                    'hint': f'get_form_attribute(object_name="{row["object_name"]}", form_name="{row["form_name"]}", attribute_name="{row["attribute_name"]}")',
+                }
+                project_key = f"{db_info['project_name']}"
+                if project_key not in results:
+                    results[project_key] = {}
+                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+                if db_key not in results[project_key]:
+                    results[project_key][db_key] = []
+                results[project_key][db_key].append(entry)
 
         if not results:
             return {"_empty": True, "diagnostics": {"project_filter": project_filter, "num_databases": len(databases)}}

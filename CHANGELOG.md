@@ -6,6 +6,12 @@
 
 ---
 
+## 2026-07-10
+
+- **Fix: BSL procedure boundaries with trailing `// Имя()` after `КонецФункции` (INDEXER_VERSION 14):** `_parse_module_procedures` required a bare `КонецФункции`/`КонецПроцедуры` line; the common `КонецФункции // ИмяФункции()` pattern was ignored, merging adjacent procedures in `module_procedures` — `get_procedure_code` missed the next function, `search_code` attributed snippets to the previous one. Parser now accepts trailing `//` comments on end lines.
+- **Fix: form EAV duplicate ordinals on nested `item` nodes (INDEXER_VERSION 13):** flattener assigned sibling ordinals per XML level only; nested `Settings.ListSettings.conditionalAppearance` rules reused the same `(property_path, ordinal)` and SQLite `UNIQUE` aborted the build (~object 598 on АСБ, log last showed `Формы 591/11426` because progress updates every 10 objects). Flattener now assigns a monotonic ordinal per `property_path`; full АСБ insert completes (~103 s).
+- **Form entity model (INDEXER_VERSION 12):** EAV `form_entity_properties` для свойств реквизитов, колонок ValueTable и UI-элементов; XML flattener (`shared/form_property_flattener.py`); удалены legacy-колонки `form_attributes.query_text`, `form_items.data_path/title/visible/enabled/command_name`. MCP: `get_form_attribute` (полный `Settings.QueryText` DynamicList, drill-down `column_name`), `get_form_item`, обзорный `get_form_structure` с профилями по типу элемента и скрытием колонок Table; `search_code` — поиск по тексту запроса в EAV; `get_functional_options` — `FormAttributeColumn` + `attribute_name`; `fo_form_usage.parent_element_name`.
+
 ## 2026-07-08
 
 - **Фаза 4: роли и RLS (`relations-phase-4`):** парсинг `Roles/*.xml` + `Rights.xml` (`shared/xml_parser/roles.py`); таблицы `role_settings`, `role_grants`, `role_access_restrictions`, `role_restriction_templates`, `index_metadata`; `INDEXER_VERSION` **11**; MCP tools `find_role`, `list_roles`, `get_role_rights` (merge main+ext), `find_roles_for_object`; `find_referencing_objects` via `role_grant`; фикстура `tests/fixtures/roles/` (5 ролей из чеклиста); `extension_purpose` в `active_databases`.

@@ -37,9 +37,9 @@
 
 - `metadata_objects`: объекты метаданных (uuid, тип, имя, синоним, комментарий, принадлежность для расширений).
 - `object_commands`: команды **объектов** метаданных (не `CommonCommand`): имя, синоним, uuid, принадлежность; связь с родителем `object_id` → `metadata_objects`.
-- `forms` + таблицы форм: свойства/реквизиты/команды/события/элементы UI. **Планируется (spec):** `form_entity_properties` (EAV) — см. [`form-entity-model.md`](form-entity-model.md); при реализации — `INDEXER_VERSION` **12**, пересборка БД.
+- `forms` + таблицы форм: свойства/реквизиты/команды/события/элементы UI. **`form_entity_properties` (EAV, v12):** свойства реквизитов, колонок и UI-элементов — см. [`form-entity-model.md`](form-entity-model.md); `INDEXER_VERSION` **12**, пересборка БД.
 - `modules`: код модулей объектов, модулей форм и **модулей команд** (`module_type = 'CommandModule'`). Для модуля команды объекта задаётся `command_id` → `object_commands`; для модуля общей команды (`CommonCommand`) — `command_id IS NULL` (модуль «самого» объекта).
-- `form_items`: у элемента формы может быть сырое поле `command_name` (значение `CommandName` из Form.xml); источник команды в MCP выводится логикой tools, отдельной колонки в БД нет.
+- `form_items`: identity + tree (`name`, `item_type`, `parent_id`); свойства UI — в `form_entity_properties` (`entity_kind=item`).
 - `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода; колонка `used_in_scheduled_job` — процедура указана в `MethodName` хотя бы одного регл. задания.
 - `scheduled_jobs`: свойства регламентных заданий (`method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, …); связь с объектом через `object_id` → `metadata_objects`.
 - `code_search` (FTS5): полнотекстовый поиск по коду модулей.
@@ -48,7 +48,7 @@
   - `metadata_objects`: `object_kind` (`ConfigObject` | `TypeDescriptor`), `is_primitive`, `base_type`, `qualifier_1..3` для синтетических примитивов и form-wrappers (`ValueListType`, `ValueTable`, `DynamicList`);
   - `metadata_type_slots` — типы реквизитов/колонок ТЧ и **реквизитов/колонок форм** (`source_table`: `attributes`, `tabular_section_columns`, `form_attributes`, `form_attribute_columns`);
   - `form_attribute_columns` — колонки ValueTable / AdditionalColumns (имя, заголовок, `table_context`); в обзоре формы не перечисляются — drill-down через `get_form_attribute` + `column_name` (spec);
-  - **Form properties (spec, not in DB yet):** [`form-entity-model.md`](form-entity-model.md) — `form_entity_properties` (`entity_kind`: `attribute` | `attribute_column` | `item`), overview profiles, drill-down tools; ФО на колонках — `fo_form_usage` с `element_type=FormAttributeColumn`;
+  - **Form properties (v12):** [`form-entity-model.md`](form-entity-model.md) — `form_entity_properties`, overview profiles, `get_form_attribute` / `get_form_item`; ФО на колонках — `fo_form_usage` с `element_type=FormAttributeColumn` и `parent_element_name`;
   - `metadata_relations` — структурные связи (`subsystem_member` для подсистем; роли — `role_grants`, фаза 4);
   - **Роли (фаза 4):** `role_settings`, `role_grants`, `role_access_restrictions`, `role_restriction_templates`; `index_metadata` (`config_name`, `extension_purpose`, `source_db_name`) — см. [`roles-layer.md`](roles-layer.md).
 

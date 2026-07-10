@@ -75,6 +75,31 @@ async def handle_find_form_element(tools, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=response)]
 
 
+def _format_item_overview_line(item, attribute_names):
+    depth = item.get('depth', 0)
+    indent = "    " + "  " * depth
+    props = item.get('overview_properties') or {}
+    prop_parts = []
+    for key, val in props.items():
+        if key == 'CommandName':
+            continue
+        if key == 'DataPath' and val in attribute_names:
+            prop_parts.append(f"{key}={val} (→ attribute {val})")
+        else:
+            prop_parts.append(f"{key}={val}")
+    props_str = (' ' + ' '.join(prop_parts)) if prop_parts else ''
+    vis_str = ''
+    if props.get('Visible', '').lower() == 'false':
+        vis_str += " [скрыт]"
+    if props.get('Enabled', '').lower() == 'false':
+        vis_str += " [недоступен]"
+    cmd_sfx = _form_item_command_suffix(item)
+    line = f"{indent}• {item['name']} ({item['type']}){props_str}{vis_str}{cmd_sfx}\n"
+    if item.get('child_count'):
+        line += f"{indent}  columns: {item['child_count']} — get_form_item(element_name=\"{item['name']}\")\n"
+    return line
+
+
 async def handle_get_form_structure(tools, arguments: dict) -> list[TextContent]:
     object_name = arguments["object_name"]
     form_name = arguments["form_name"]
@@ -96,14 +121,12 @@ async def handle_get_form_structure(tools, arguments: dict) -> list[TextContent]
                 response += f"  Тип формы: {structure['form_kind']}\n"
             if structure.get('object_belonging'):
                 response += f"  Принадлежность: {structure['object_belonging']}\n\n"
-            # Свойства формы
             if structure.get('properties'):
                 response += "  Свойства формы:\n"
                 for key, value in structure['properties'].items():
                     response += f"    • {key}: {value}\n"
                 response += "\n"
 
-            # События
             if structure['events']:
                 response += "  События формы:\n"
                 for event in structure['events']:
@@ -111,22 +134,17 @@ async def handle_get_form_structure(tools, arguments: dict) -> list[TextContent]
                     response += f"    • {event['event_name']}{call_type} -> {event['handler']}\n"
                 response += "\n"
 
-            # Реквизиты
+            attr_names = set(structure.get('attribute_names') or [])
             if structure['attributes']:
                 response += "  Реквизиты:\n"
                 for attr in structure['attributes']:
                     main_mark = " [Основной]" if attr['is_main'] else ""
                     type_text = format_types_for_text(attr.get('types') or [])
                     response += f"    • {attr['name']}{main_mark}: {type_text}\n"
-                    for col in attr.get('columns') or []:
-                        col_type_text = format_types_for_text(col.get('types') or [])
-                        table_ctx = f" [{col['table']}]" if col.get('table') else ""
-                        response += f"      - {col['name']}{table_ctx}: {col_type_text}\n"
-                    if attr.get('query_text'):
-                        response += f"      QueryText: {attr['query_text'][:100]}...\n"
+                    for hint in attr.get('hints') or []:
+                        response += f"      {hint}\n"
                 response += "\n"
 
-            # Команды
             if structure['commands']:
                 response += "  Команды:\n"
                 for cmd in structure['commands']:
@@ -134,23 +152,103 @@ async def handle_get_form_structure(tools, arguments: dict) -> list[TextContent]
                     response += f"    • {cmd['name']}{shortcut}: {cmd['action']}\n"
                 response += "\n"
 
-            # Элементы UI (с иерархией по depth)
             if structure['items']:
                 response += f"  Элементы UI ({len(structure['items'])}):\n"
                 for item in structure['items']:
-                    depth = item.get('depth', 0)
-                    indent = "    " + "  " * depth
-                    data_path = f" -> {item['data_path']}" if item.get('data_path') else ""
-                    title = f" «{item['title']}»" if item.get('title') else ""
-                    v, e = item.get('visible'), item.get('enabled')
-                    vis_str = ""
-                    if v == 0:
-                        vis_str += " [скрыт]"
-                    if e == 0:
-                        vis_str += " [недоступен]"
-                    cmd_sfx = _form_item_command_suffix(item)
-                    response += f"{indent}• {item['name']} ({item['type']}){data_path}{title}{vis_str}{cmd_sfx}\n"
+                    response += _format_item_overview_line(item, attr_names)
                 response += "\n"
+
+    return [TextContent(type="text", text=response)]
+
+
+async def handle_get_form_attribute(tools, arguments: dict) -> list[TextContent]:
+    object_name = arguments["object_name"]
+    form_name = arguments["form_name"]
+    attribute_name = arguments["attribute_name"]
+    project_filter = arguments.get("project_filter")
+    extension_filter = arguments.get("extension_filter")
+    column_name = arguments.get("column_name")
+
+    results = tools.get_form_attribute(
+        object_name, form_name, attribute_name, project_filter, extension_filter, column_name,
+    )
+
+    if not results:
+        target = f"{attribute_name}" + (f".{column_name}" if column_name else "")
+        return [TextContent(type="text", text=f"Реквизит '{target}' не найден в форме '{object_name}.{form_name}'")]
+
+    response = ""
+    for project_name, project_data in results.items():
+        for db_name, data in project_data.items():
+            response += f"📁 {project_name} / {db_name}\n"
+            if column_name:
+                response += f"Колонка/поле {column_name} реквизита {attribute_name}:\n\n"
+                if data.get('types'):
+                    response += f"  types: {format_types_for_text(data['types'])}\n"
+                for prop in data.get('properties') or []:
+                    response += f"  {prop['path']}: {prop['value']}\n"
+                for fo in data.get('functional_options') or []:
+                    response += f"  ФО: {fo['name']}\n"
+            else:
+                main_mark = " [Основной]" if data.get('is_main') else ""
+                response += f"Реквизит {data['name']}{main_mark}\n"
+                if data.get('title'):
+                    response += f"  title: {data['title']}\n"
+                response += f"  types: {format_types_for_text(data.get('types') or [])}\n\n"
+                for prop in data.get('properties') or []:
+                    response += f"  {prop['path']}: {prop['value']}\n"
+                if data.get('columns'):
+                    response += "\n  Columns:\n"
+                    for col in data['columns']:
+                        if col.get('types'):
+                            ct = format_types_for_text(col['types'])
+                            table_ctx = f" [{col['table']}]" if col.get('table') else ""
+                            response += f"    • {col['name']}{table_ctx}: {ct}\n"
+                        else:
+                            dp = col.get('dataPath') or col.get('field') or col.get('name')
+                            response += f"    • dataPath={dp}\n"
+            response += "\n"
+
+    return [TextContent(type="text", text=response)]
+
+
+async def handle_get_form_item(tools, arguments: dict) -> list[TextContent]:
+    object_name = arguments["object_name"]
+    form_name = arguments["form_name"]
+    element_name = arguments["element_name"]
+    project_filter = arguments.get("project_filter")
+    extension_filter = arguments.get("extension_filter")
+    column_name = arguments.get("column_name")
+
+    results = tools.get_form_item(
+        object_name, form_name, element_name, project_filter, extension_filter, column_name,
+    )
+
+    if not results:
+        target = element_name + (f".{column_name}" if column_name else "")
+        return [TextContent(type="text", text=f"Элемент '{target}' не найден в форме '{object_name}.{form_name}'")]
+
+    response = ""
+    for project_name, project_data in results.items():
+        for db_name, data in project_data.items():
+            response += f"📁 {project_name} / {db_name}\n"
+            label = data['name']
+            if column_name:
+                response += f"Колонка UI {label} (родитель: {data.get('parent_name')}):\n\n"
+            else:
+                response += f"Элемент {label} ({data['item_type']}):\n\n"
+            for prop in data.get('properties') or []:
+                response += f"  {prop['path']}: {prop['value']}\n"
+            if data.get('events'):
+                response += "\n  События:\n"
+                for ev in data['events']:
+                    response += f"    • {ev['event_name']} -> {ev['handler']}\n"
+            if data.get('columns'):
+                response += "\n  Columns:\n"
+                for col in data['columns']:
+                    dp = f" -> {col['dataPath']}" if col.get('dataPath') else ""
+                    response += f"    • {col['name']} ({col['item_type']}){dp}\n"
+            response += "\n"
 
     return [TextContent(type="text", text=response)]
 
@@ -177,7 +275,7 @@ async def handle_search_form_properties(tools, arguments: dict) -> list[TextCont
             for elem in elements:
                 response += f"     • {elem['object_name']}.{elem['form_name']}.{elem['element_name']}\n"
                 response += f"       Тип: {elem['element_type']}, {property_name}: {elem['property_value']}\n"
-                if elem['data_path']:
+                if elem.get('data_path'):
                     response += f"       DataPath: {elem['data_path']}\n"
         response += "\n"
 

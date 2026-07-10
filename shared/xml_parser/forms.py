@@ -1,6 +1,12 @@
 import os
 import xml.etree.ElementTree as ET
 
+from shared.form_property_flattener import (
+    flatten_attribute,
+    flatten_attribute_column,
+    flatten_item,
+)
+
 from .xml_helpers import _winlong
 
 
@@ -163,7 +169,7 @@ class FormsMixin:
                 'title': self._extract_localized_string(attr, 'Title'),
                 'is_main': attr.find(f'{{{default_ns}}}MainAttribute') is not None,
                 'columns': self._extract_columns(attr),
-                'query_text': self._extract_query_text(attr),
+                'entity_properties': flatten_attribute(attr),
                 'functional_options': self._extract_form_functional_options(attr, default_ns),
             }
             attributes.append(attr_data)
@@ -235,27 +241,14 @@ class FormsMixin:
             local_tag = elem.tag.split('}')[-1] if elem.tag else ''
             if local_tag not in item_types_set:
                 continue
-            props = self._extract_item_properties(elem)
-            visible = None
-            enabled = None
-            if props:
-                v = props.get('Visible', '').strip().lower()
-                visible = True if v == 'true' else False if v == 'false' else None
-                e = props.get('Enabled', '').strip().lower()
-                enabled = True if e == 'true' else False if e == 'false' else None
-            cmd_name_raw = self._get_element_text(elem, 'CommandName')
             item_data = {
                 'name': elem.get('name', ''),
                 'id': elem.get('id', ''),
                 'type': local_tag,
                 'parent_id': parent_id,
-                'data_path': self._get_element_text(elem, 'DataPath'),
-                'title': self._extract_localized_string(elem, 'Title'),
-                'visible': visible,
-                'enabled': enabled,
+                'entity_properties': flatten_item(elem),
                 'events': self._extract_item_events(elem),
                 'functional_options': self._extract_form_functional_options(elem, default_ns),
-                'command_name': cmd_name_raw.strip() if cmd_name_raw else '',
             }
             items.append(item_data)
             # В логформе дочерние элементы могут лежать в разных контейнерах:
@@ -343,6 +336,8 @@ class FormsMixin:
                 'name': col.get('name', ''),
                 'title': self._extract_localized_string(col, 'Title'),
                 'type_slots': self._extract_logform_type_slots(col),
+                'entity_properties': flatten_attribute_column(col),
+                'functional_options': self._extract_form_functional_options(col, default_ns),
             })
         for add_col in columns_elem.findall(f'{{{default_ns}}}AdditionalColumns'):
             table_name = add_col.get('table', '') or None
@@ -352,37 +347,11 @@ class FormsMixin:
                     'name': col.get('name', ''),
                     'title': self._extract_localized_string(col, 'Title'),
                     'type_slots': self._extract_logform_type_slots(col),
+                    'entity_properties': flatten_attribute_column(col),
+                    'functional_options': self._extract_form_functional_options(col, default_ns),
                 })
 
         return columns if columns else None
-
-    def _extract_query_text(self, attr_elem):
-        """Извлекает QueryText для ДинамическогоСписка"""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        query_elem = attr_elem.find(f'.//{{{default_ns}}}QueryText')
-        if query_elem is not None and query_elem.text:
-            return query_elem.text
-        return None
-
-    def _extract_item_properties(self, elem):
-        """Извлекает свойства элемента UI"""
-        properties = {}
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-
-        # Список часто используемых свойств
-        prop_names = [
-            'Visible', 'Enabled', 'Width', 'Height',
-            'HorizontalStretch', 'VerticalStretch',
-            'ReadOnly', 'TitleLocation', 'Group',
-            'Representation', 'CommandSource', 'Type'
-        ]
-
-        for prop_name in prop_names:
-            prop_elem = elem.find(f'{{{default_ns}}}{prop_name}')
-            if prop_elem is not None and prop_elem.text:
-                properties[prop_name] = prop_elem.text
-
-        return properties
 
     def _extract_item_events(self, elem):
         """Извлекает события элемента"""

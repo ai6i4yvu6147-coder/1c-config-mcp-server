@@ -3,6 +3,29 @@ import json
 from .bsl import _parse_module_procedures
 
 
+def _insert_entity_properties(cursor, entity_kind, entity_id, properties):
+    """Bulk-insert EAV rows for one entity."""
+    if not properties:
+        return
+    cursor.executemany('''
+        INSERT INTO form_entity_properties (
+            entity_kind, entity_id, property_path, property_name, ordinal, value_text, value_type
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', [
+        (
+            entity_kind,
+            entity_id,
+            p['property_path'],
+            p['property_name'],
+            p.get('ordinal', 0),
+            p.get('value_text'),
+            p.get('value_type'),
+        )
+        for p in properties
+    ])
+
+
 class FormInsertionMixin:
     """Form insertion (forms + attributes + commands + events + items + fo_form_usage) and Content-ref parsing."""
 
@@ -38,6 +61,16 @@ class FormInsertionMixin:
         s = fo_ref.strip()
         return fo_resolver.get(s)
 
+    def _insert_fo_form_usage(self, cursor, fo_id, owner_object_id, form_id, element_type, element_name,
+                              parent_element_name=None):
+        cursor.execute('''
+            INSERT INTO fo_form_usage (
+                functional_option_id, owner_object_id, form_id,
+                element_type, element_name, parent_element_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (fo_id, owner_object_id, form_id, element_type, element_name, parent_element_name))
+
     def _insert_form(self, cursor, object_id, object_name, form, fo_resolver=None, pending_type_slots=None):
         """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id) для fo_form_usage."""
         fo_resolver = fo_resolver or {}
@@ -55,18 +88,16 @@ class FormInsertionMixin:
 
         for attr in form.get('attributes', []):
             cursor.execute('''
-                INSERT INTO form_attributes (
-                    form_id, name, title, is_main, query_text
-                )
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO form_attributes (form_id, name, title, is_main)
+                VALUES (?, ?, ?, ?)
             ''', (
                 form_id,
                 attr['name'],
                 attr['title'],
                 1 if attr['is_main'] else 0,
-                attr.get('query_text')
             ))
             attr_id = cursor.lastrowid
+            _insert_entity_properties(cursor, 'attribute', attr_id, attr.get('entity_properties'))
             if pending_type_slots is not None:
                 type_slots = attr.get('type_slots')
                 if type_slots:
@@ -89,6 +120,7 @@ class FormInsertionMixin:
                     col.get('table'),
                 ))
                 col_id = cursor.lastrowid
+                _insert_entity_properties(cursor, 'attribute_column', col_id, col.get('entity_properties'))
                 if pending_type_slots is not None:
                     col_slots = col.get('type_slots')
                     if col_slots:
@@ -98,13 +130,19 @@ class FormInsertionMixin:
                             'src_object_id': object_id,
                             'type_slots': col_slots,
                         })
+                for fo_ref in col.get('functional_options', []):
+                    fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
+                    if fo_id is not None:
+                        self._insert_fo_form_usage(
+                            cursor, fo_id, object_id, form_id,
+                            'FormAttributeColumn', col['name'], parent_element_name=attr['name'],
+                        )
             for fo_ref in attr.get('functional_options', []):
                 fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
                 if fo_id is not None:
-                    cursor.execute('''
-                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (fo_id, object_id, form_id, 'FormAttribute', attr['name']))
+                    self._insert_fo_form_usage(
+                        cursor, fo_id, object_id, form_id, 'FormAttribute', attr['name'],
+                    )
 
         for cmd in form.get('commands', []):
             cursor.execute('''
@@ -123,10 +161,9 @@ class FormInsertionMixin:
             for fo_ref in cmd.get('functional_options', []):
                 fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
                 if fo_id is not None:
-                    cursor.execute('''
-                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (fo_id, object_id, form_id, 'FormCommand', cmd['name']))
+                    self._insert_fo_form_usage(
+                        cursor, fo_id, object_id, form_id, 'FormCommand', cmd['name'],
+                    )
 
         # Вставляем события формы
         for event in form.get('events', []):
@@ -144,46 +181,30 @@ class FormInsertionMixin:
         item_id_map = {}  # Маппинг item['id'] -> db_id
 
         for item in form.get('items', []):
-            # Определяем parent_id из БД
             parent_db_id = None
             if item['parent_id']:
                 parent_db_id = item_id_map.get(item['parent_id'])
 
-            visible = item.get('visible')
-            enabled = item.get('enabled')
-            if visible is not None:
-                visible = 1 if visible else 0
-            if enabled is not None:
-                enabled = 1 if enabled else 0
             cursor.execute('''
-                INSERT INTO form_items (
-                    form_id, parent_id, name, item_type,
-                    data_path, title, visible, enabled, command_name
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO form_items (form_id, parent_id, name, item_type)
+                VALUES (?, ?, ?, ?)
             ''', (
                 form_id,
                 parent_db_id,
                 item['name'],
                 item['type'],
-                item['data_path'],
-                item['title'],
-                visible,
-                enabled,
-                item.get('command_name') or None,
             ))
 
             item_db_id = cursor.lastrowid
             item_id_map[item['id']] = item_db_id
+            _insert_entity_properties(cursor, 'item', item_db_id, item.get('entity_properties'))
             for fo_ref in item.get('functional_options', []):
                 fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
                 if fo_id is not None:
-                    cursor.execute('''
-                        INSERT INTO fo_form_usage (functional_option_id, owner_object_id, form_id, element_type, element_name)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (fo_id, object_id, form_id, 'FormItem', item['name']))
+                    self._insert_fo_form_usage(
+                        cursor, fo_id, object_id, form_id, 'FormItem', item['name'],
+                    )
 
-            # Вставляем события элемента
             for event in item.get('events', []):
                 cursor.execute('''
                     INSERT INTO form_item_events (item_id, event_name, handler)
@@ -194,7 +215,6 @@ class FormInsertionMixin:
                     event['handler']
                 ))
 
-        # Вставляем условное оформление
         if form.get('conditional_appearance'):
             cursor.execute('''
                 INSERT INTO form_conditional_appearance (form_id, xml_data)
@@ -204,7 +224,6 @@ class FormInsertionMixin:
                 form['conditional_appearance']
             ))
 
-        # Вставляем модуль формы
         if form.get('module'):
             cursor.execute('''
                 INSERT INTO modules (object_id, form_id, command_id, module_type, code)
@@ -216,7 +235,6 @@ class FormInsertionMixin:
                 form['module']
             ))
 
-            # Добавляем в полнотекстовый индекс
             module_id = cursor.lastrowid
             cursor.execute('''
                 INSERT INTO code_search (rowid, object_name, module_type, code)

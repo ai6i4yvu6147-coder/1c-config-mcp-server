@@ -44,7 +44,12 @@ def _parse_module_procedures(code):
         (re.compile(r'^\s*&После\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'After'),
         (re.compile(r'^\s*&Перед\s*(\([^)]*\))?\s*$', re.IGNORECASE), 'Before'),
     ]
-    end_pattern = re.compile(r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\s*$', re.IGNORECASE)
+    # Trailing // comments after КонецФункции/КонецПроцедуры are common in 1C codebases and must not
+    # prevent boundary detection (e.g. "КонецФункции // ИмяФункции()").
+    end_pattern = re.compile(
+        r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\b(?:\s*//.*)?\s*$',
+        re.IGNORECASE,
+    )
 
     def directive_to_context(line):
         """Возвращает директиву как есть (без нормализации)."""

@@ -283,9 +283,10 @@ TOOL_SCHEMAS = [
     Tool(
         name="get_form_structure",
         description=(
-            "Полная структура формы: реквизиты, команды, элементы UI (visible, enabled), события. project_filter обязателен. "
-            "У элементов items: command_name (сырое значение из Form.xml) и command_source (Form | Object | Common — по префиксу command_name). "
-            "form_kind и object_belonging для расширений."
+            "Обзор структуры формы: реквизиты (types[] и подсказки drill-down), команды, события, "
+            "элементы UI с профилем свойств по типу элемента. project_filter обязателен. "
+            "DynamicList: QueryText только как подсказка (N chars) — полный текст через get_form_attribute. "
+            "Колонки Table/ValueTable скрыты в обзоре — get_form_item / get_form_attribute."
         ),
         inputSchema={
             "type": "object",
@@ -308,6 +309,45 @@ TOOL_SCHEMAS = [
                 }
             },
             "required": ["object_name", "form_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_form_attribute",
+        description=(
+            "Детали реквизита формы: все свойства из EAV, types[], индекс колонок ValueTable или полей DynamicList. "
+            "Полный Settings.QueryText динамического списка. project_filter обязателен. "
+            "column_name (опционально): колонка ValueTable или поле DynamicList."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {"type": "string", "description": "Имя объекта"},
+                "form_name": {"type": "string", "description": "Имя формы"},
+                "attribute_name": {"type": "string", "description": "Имя реквизита формы"},
+                "column_name": {"type": "string", "description": "Имя колонки ValueTable или поля DynamicList (опционально)"},
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {"type": "string", "description": "Точное имя базы из active_databases (опционально)"},
+            },
+            "required": ["object_name", "form_name", "attribute_name", "project_filter"]
+        }
+    ),
+    Tool(
+        name="get_form_item",
+        description=(
+            "Детали элемента UI формы: свойства EAV, события, индекс колонок для Table. "
+            "project_filter обязателен. column_name (опционально): дочерний элемент колонки контейнера."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {"type": "string", "description": "Имя объекта"},
+                "form_name": {"type": "string", "description": "Имя формы"},
+                "element_name": {"type": "string", "description": "Имя элемента UI"},
+                "column_name": {"type": "string", "description": "Имя дочернего элемента колонки (опционально)"},
+                "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
+                "extension_filter": {"type": "string", "description": "Точное имя базы из active_databases (опционально)"},
+            },
+            "required": ["object_name", "form_name", "element_name", "project_filter"]
         }
     ),
     Tool(
@@ -407,7 +447,7 @@ TOOL_SCHEMAS = [
     ),
     Tool(
         name="get_functional_options",
-        description="Функциональные опции для объекта или элемента формы. Вызывать при вопросах: почему объект/документ недоступен; почему поле/кнопка на форме не отображается. Один tool: только object_name — в каких ФО задействован объект; object_name + form_name + element_type + element_name — от каких ФО зависит элемент формы. project_filter обязателен.",
+        description="Функциональные опции для объекта или элемента формы. FormAttributeColumn: также attribute_name. project_filter обязателен.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -429,11 +469,15 @@ TOOL_SCHEMAS = [
                 },
                 "element_type": {
                     "type": "string",
-                    "description": "FormAttribute | FormCommand | FormItem — для элемента формы."
+                    "description": "FormAttribute | FormCommand | FormItem | FormAttributeColumn — для элемента формы."
                 },
                 "element_name": {
                     "type": "string",
-                    "description": "Имя реквизита/команды/элемента формы."
+                    "description": "Имя реквизита/команды/элемента/колонки формы."
+                },
+                "attribute_name": {
+                    "type": "string",
+                    "description": "Имя реквизита-родителя (обязательно для FormAttributeColumn)."
                 }
             },
             "required": ["object_name", "project_filter"]
