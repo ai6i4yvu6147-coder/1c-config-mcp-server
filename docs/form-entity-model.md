@@ -130,19 +130,33 @@ CREATE TABLE form_entity_properties (
 );
 
 CREATE INDEX ix_fep_entity ON form_entity_properties(entity_kind, entity_id);
-CREATE INDEX ix_fep_path ON form_entity_properties(property_path);
-CREATE INDEX ix_fep_name ON form_entity_properties(property_name);
+
+-- A-2 (INDEXER_VERSION 15): property_path/property_name are only ever filtered by exact
+-- match on a narrow "hot" set in tool code (DataPath, Visible, Enabled, QueryText) — one
+-- partial index per hot value, indexed on (entity_kind, property_path) so SQLite's
+-- per-bind-value partial-index optimization actually fires for the `entity_kind='item'
+-- AND property_path=?` shape tool queries use (verified: ~1600x faster on Visible over
+-- a 2M-row table vs. falling back to the UNIQUE-constraint autoindex). Everything else
+-- (arbitrary search_form_properties paths) still works via a full scan — same accepted
+-- trade-off as the search_code LIKE fallback (§4.2 P-5 in the architecture audit).
+CREATE INDEX ix_fep_path_datapath ON form_entity_properties(entity_kind, property_path) WHERE property_path = 'DataPath';
+CREATE INDEX ix_fep_path_visible  ON form_entity_properties(entity_kind, property_path) WHERE property_path = 'Visible';
+CREATE INDEX ix_fep_path_enabled  ON form_entity_properties(entity_kind, property_path) WHERE property_path = 'Enabled';
+CREATE INDEX ix_fep_name_querytext ON form_entity_properties(property_name) WHERE property_name = 'QueryText';
 ```
 
-**Flattener rules** (`shared/xml_parser/forms.py`):
+**Flattener rules** (`shared/form_property_flattener.py`):
 
 - Walk the XML subtree of each **attribute**, **attribute column** (`<Column>`), and **UI item** element.
-- **Skip on attribute:** `Type`, `Columns` (child entities flattened separately).
-- **Skip on column (`<Column>`):** `Type` only.
-- **Skip on UI item:** `ChildItems`, `Items` (child items are separate entities).
+- **Skip on attribute:** `Type`, `Columns`, `MainAttribute`, `FunctionalOptions` (child entities flattened separately).
+- **Skip on column (`<Column>`):** `Type`, `FunctionalOptions`.
+- **Skip on UI item:** `ChildItems`, `Items`, `Events`, `FunctionalOptions` (child items are separate entities).
+- **Skip everywhere (A-1/P-1, `INDEXER_VERSION` 15):** `AdditionSource` — pure structural wiring under `SearchStringAddition`/`ViewStatusAddition`/… that just echoes the owning item's own name plus a fixed enum discriminator.
 - Repeated siblings → increment `ordinal` per sibling group.
 - Strip namespace prefixes in paths (`dcssch:dataPath` → `dataPath` under parent).
 - `value_type=longtext` for `QueryText` and similar large text.
+- **Localized strings collapse to one value (A-1/P-1, `INDEXER_VERSION` 15):** any element whose children are all `item` (`<Tag><item><lang/><content/></item>…</Tag>`, one `item` per language) collapses to a single row at `Tag` — prefer `lang=ru`, else the first non-empty `content`. Not just `Title`: applies wherever the pattern occurs (`ToolTip`, `ChoiceList.Item.Value.Presentation`, …). The `.item.lang`/`.item.content` rows themselves are never emitted.
+- **Unset-date sentinel dropped (A-1/P-1, `INDEXER_VERSION` 15):** any leaf equal to the platform's unset-date value (`0001-01-01T00:00:00`, e.g. default `Period.startDate`/`endDate`) is never emitted — never real data.
 
 **Repeated nodes (decided):** store `ordinal` in DB; render paths in agent text with bracket notation, e.g. `Settings.Field[0].dataPath`.
 
@@ -294,7 +308,7 @@ No specialized tools (e.g. `get_dynamic_list_query`, `get_form_attribute_column`
 | Tool | Role |
 |------|------|
 | `search_code` | Extend: search `QueryText` via denormalized `form_attributes.query_text`; hint → `get_form_attribute` |
-| `search_form_properties` | **Future:** generalize to EAV `property_path` + `value_text` (supersedes Visible/Enabled-only) |
+| `search_form_properties` | **Done (T-4):** any EAV `property_path` + `value_text` (`value_match` exact/contains, `max_results`); supersedes Visible/Enabled-only |
 
 ### 5.4 Agent workflow
 

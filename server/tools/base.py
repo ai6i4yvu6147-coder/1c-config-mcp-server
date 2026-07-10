@@ -10,6 +10,11 @@ from shared.db_build_state import is_building as _is_db_updating
 from server.role_db import read_index_metadata
 
 
+def _py_lower(value):
+    """Unicode-aware lowercase for SQLite (built-in LOWER() is ASCII-only — breaks on Cyrillic)."""
+    return value.lower() if isinstance(value, str) else value
+
+
 def _read_db_user_version(db_path: str) -> Optional[int]:
     """PRAGMA user_version из файла .db (только чтение). None — файла нет."""
     p = Path(db_path)
@@ -115,6 +120,7 @@ class BaseTools:
             uri = p.resolve().as_uri() + '?mode=ro'
             conn = sqlite3.connect(uri, uri=True)
             conn.row_factory = sqlite3.Row
+            conn.create_function('py_lower', 1, _py_lower, deterministic=True)
             self.connections[db_path] = conn
             self._connection_mtime[db_path] = current_mtime
         return self.connections[db_path]

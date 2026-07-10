@@ -42,7 +42,8 @@ flowchart LR
 2. **Колонки:** таблица `form_attribute_columns` + слоты.
 3. **DynamicList Settings:** вне v1 — `form-dynamiclist-settings` в todo.
 4. **`find_referencing_objects` по формам:** **готово** (фаза 2 dependency-layer).
-5. **DefinedType / AnyRef / безымянный TypeSet:** slot не материализуется (как metadata фаза 1).
+5. **DefinedType / AnyRef / безымянный TypeSet:** slot не материализуется (как metadata фаза 1) — ссылается на сущность вне индексируемого графа (DefinedTypes не парсятся); `format_types_for_text` для такого реквизита показывает явное `(тип не определён)`, а не пусто (P-3, `INDEXER_VERSION` 15).
+6. **Произвольный `prefix:Name` без точки (P-3, `INDEXER_VERSION` 15):** любой bare платформенный тип — не только старый whitelist `v8:ValueListType`/`v8:ValueTable` — материализуется как `TypeDescriptor` по имени (`pl:Planner` → `Planner`, `dcsset:SettingsComposer` → `SettingsComposer`, `mxl:SpreadsheetDocument` → `SpreadsheetDocument`, …). Раньше 32% реквизитов форм в Планете (`44 147` из `137 638`) оставались без резолвленного типа именно из-за этого — см. `docs/architecture-audit-2026-07.md`.
 
 ---
 
@@ -54,7 +55,7 @@ flowchart LR
 | `v8:ValueTable` | ТаблицаЗначений | wrapper + колонки в `form_attribute_columns` |
 | `cfg:DynamicList` | ДинамическийСписок | wrapper + `Settings.QueryText` в EAV; MainTable — backlog |
 | `cfg:DocumentObject.X` | Объект документа на форме | resolve через `object_type_hint` → Document |
-| `pl:Planner` и др. | Спец. UI-тип | `kind: unknown`, slot не материализуется |
+| `pl:Planner` и др. bare `prefix:Name` | Спец. UI-тип (Planner, SettingsComposer, SpreadsheetDocument, Color, Font, UUID, …) | `kind: primitive`, `base_type=Name` — материализуется как `TypeDescriptor` (P-3, `INDEXER_VERSION` 15; раньше `kind: unknown`, не материализовался) |
 
 ---
 

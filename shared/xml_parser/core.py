@@ -20,6 +20,10 @@ class ConfigurationParserCore:
         # Накопленное время по категориям парсинга (заполняется во время parse()),
         # используется вызывающей стороной (db_manager) для разбивки в progress_callback.
         self.stage_seconds = {}
+        # Формы, не разобранные из-за исключения (см. FormsMixin._parse_form) — заполняется
+        # во время parse(), используется вызывающей стороной для отчёта в progress_callback
+        # (P-2: ошибка раньше уходила только в stdout print и терялась в GUI-сборке).
+        self.skipped_forms = []
 
     @contextmanager
     def _accumulate(self, stage_name):

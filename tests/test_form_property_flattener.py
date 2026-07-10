@@ -108,6 +108,59 @@ class TestFlattenItem(unittest.TestCase):
         self.assertEqual(by_path['Visible'], 'false')
         self.assertEqual(by_path['Enabled'], 'true')
 
+    def test_localized_string_collapses_to_single_value(self):
+        """Any `<Tag><item><lang/><content/></item>…</Tag>`, not just Title, collapses
+        to one row; language-code and per-language duplicate rows are never emitted."""
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<InputField xmlns="{LF}" xmlns:v8="{V8}" name="Поле1">
+  <ToolTip>
+    <v8:item><v8:lang>ru</v8:lang><v8:content>Быстрые отборы</v8:content></v8:item>
+    <v8:item><v8:lang>en</v8:lang><v8:content>Quick filters</v8:content></v8:item>
+  </ToolTip>
+</InputField>"""
+        root = ET.fromstring(xml)
+        rows = flatten_item(root)
+        by_path = {r['property_path']: r['value_text'] for r in rows}
+        self.assertEqual(by_path['ToolTip'], 'Быстрые отборы')
+        self.assertNotIn('ToolTip.item.lang', by_path)
+        self.assertNotIn('ToolTip.item.content', by_path)
+        self.assertEqual(len(rows), 1)
+
+    def test_addition_source_is_skipped(self):
+        """AdditionSource is pure structural wiring (echoes the owning item's own name
+        + a fixed enum) and must never reach the EAV table."""
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<SearchStringAddition xmlns="{LF}" name="СписокСтрокаПоиска">
+  <AdditionSource>
+    <Item>Список</Item>
+    <Type>SearchStringRepresentation</Type>
+  </AdditionSource>
+  <HorizontalLocation>Left</HorizontalLocation>
+</SearchStringAddition>"""
+        root = ET.fromstring(xml)
+        rows = flatten_item(root)
+        paths = [r['property_path'] for r in rows]
+        self.assertFalse(any(p.startswith('AdditionSource') for p in paths))
+        self.assertIn('HorizontalLocation', paths)
+
+    def test_unset_date_sentinel_is_dropped(self):
+        """Period.startDate/endDate default to the platform's unset-date sentinel when no
+        period filter is configured — never real data, must not reach the EAV table."""
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Table xmlns="{LF}" xmlns:v8="{V8}" name="Список">
+  <Period>
+    <v8:variant xsi:type="v8:StandardPeriodVariant" xmlns:xsi="{XSI}">Custom</v8:variant>
+    <v8:startDate>0001-01-01T00:00:00</v8:startDate>
+    <v8:endDate>0001-01-01T00:00:00</v8:endDate>
+  </Period>
+</Table>"""
+        root = ET.fromstring(xml)
+        rows = flatten_item(root)
+        by_path = {r['property_path']: r['value_text'] for r in rows}
+        self.assertNotIn('Period.startDate', by_path)
+        self.assertNotIn('Period.endDate', by_path)
+        self.assertEqual(by_path['Period.variant'], 'Custom')
+
 
 if __name__ == '__main__':
     unittest.main()

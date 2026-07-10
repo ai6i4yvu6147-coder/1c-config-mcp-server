@@ -6,16 +6,22 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from typing import Any
 
-V8_CORE = 'http://v8.1c.ru/8.1/data/core'
-LOGFORM_NS = 'http://v8.1c.ru/8.3/xcf/logform'
-
 LONGTEXT_PROPERTY_NAMES = frozenset({'QueryText'})
+
+# Platform sentinel for an unset date/period bound (Period.startDate/endDate and similar).
+# Never real user data — dropped wherever it occurs so it never reaches the EAV table.
+UNSET_DATE_VALUE = '0001-01-01T00:00:00'
 
 SKIP_TAGS = {
     'attribute': frozenset({'Type', 'Columns', 'MainAttribute', 'FunctionalOptions'}),
     'attribute_column': frozenset({'Type', 'FunctionalOptions'}),
     'item': frozenset({'ChildItems', 'Items', 'Events', 'FunctionalOptions'}),
 }
+
+# Tags skipped in every entity kind: pure structural wiring, never meaningful to an agent.
+# AdditionSource (SearchStringAddition/ViewStatusAddition/…) just echoes back the owning
+# item's own name + a fixed enum discriminator — no independent data.
+GLOBAL_SKIP_TAGS = frozenset({'AdditionSource'})
 
 
 def _local_tag(tag: str) -> str:
@@ -24,13 +30,40 @@ def _local_tag(tag: str) -> str:
     return tag or ''
 
 
+def _is_localized_string_container(elem: ET.Element) -> bool:
+    """True if every child is a v8 `item` — the localized-string wrapper
+    (`<Tag><item><lang/><content/></item>…</Tag>`, one item per language)."""
+    children = list(elem)
+    if not children:
+        return False
+    return all(_local_tag(child.tag) == 'item' for child in children)
+
+
+def _localized_string_value(elem: ET.Element) -> str | None:
+    """Collapse a localized-string container to one value: prefer `lang=ru`,
+    else the first non-empty content found."""
+    best = None
+    for item in elem:
+        lang = None
+        content = None
+        for sub in item:
+            local = _local_tag(sub.tag)
+            if local == 'lang':
+                lang = (sub.text or '').strip()
+            elif local == 'content':
+                content = (sub.text or '').strip()
+        if content:
+            if lang == 'ru':
+                return content
+            if best is None:
+                best = content
+    return best
+
+
 def _extract_leaf_value(elem: ET.Element, local_name: str) -> str | None:
     """Extract scalar value from a leaf element."""
-    if local_name == 'Title':
-        content = elem.find(f'.//{{{V8_CORE}}}content')
-        if content is not None and content.text:
-            return content.text.strip()
-        return None
+    if _is_localized_string_container(elem):
+        return _localized_string_value(elem)
 
     children = list(elem)
     if children:
@@ -60,11 +93,13 @@ def _value_type_for(local_name: str, value: str) -> str:
 
 def flatten_entity(elem: ET.Element, entity_kind: str) -> list[dict[str, Any]]:
     """Walk entity XML subtree and return EAV row dicts for insert."""
-    skip = SKIP_TAGS.get(entity_kind, frozenset())
+    skip = SKIP_TAGS.get(entity_kind, frozenset()) | GLOBAL_SKIP_TAGS
     rows: list[dict[str, Any]] = []
     path_ordinals: dict[str, int] = defaultdict(int)
 
     def emit(path_parts: list[str], local_name: str, value: str) -> None:
+        if value == UNSET_DATE_VALUE:
+            return
         path = '.'.join(path_parts) if path_parts else local_name
         ordinal = path_ordinals[path]
         path_ordinals[path] += 1

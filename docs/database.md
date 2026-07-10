@@ -32,12 +32,13 @@
 - создаётся схема таблиц;
 - загружаются метаданные, формы, модули;
 - код модулей индексируется через FTS5 (`code_search`).
+- **Пропущенные формы (P-2):** если парсинг конкретной формы падает с исключением, она пропускается (не попадает в индекс), но количество пропусков считается (`parser.skipped_forms`) и выводится через `progress_callback` (видно в build-логе GUI), а не только в stdout `print`, который в GUI-режиме никто не видит.
 
 ### Что хранится (в общих чертах)
 
 - `metadata_objects`: объекты метаданных (uuid, тип, имя, синоним, комментарий, принадлежность для расширений).
 - `object_commands`: команды **объектов** метаданных (не `CommonCommand`): имя, синоним, uuid, принадлежность; связь с родителем `object_id` → `metadata_objects`.
-- `forms` + таблицы форм: свойства/реквизиты/команды/события/элементы UI. **`form_entity_properties` (EAV, v12):** свойства реквизитов, колонок и UI-элементов — см. [`form-entity-model.md`](form-entity-model.md); `INDEXER_VERSION` **12**, пересборка БД.
+- `forms` + таблицы форм: свойства/реквизиты/команды/события/элементы UI. **`form_entity_properties` (EAV, v12):** свойства реквизитов, колонок и UI-элементов — см. [`form-entity-model.md`](form-entity-model.md); `INDEXER_VERSION` **12**, пересборка БД. **v15 (A-1/P-1):** flatten-фильтр убирает структурный шум (`AdditionSource`) и схлопывает локализованные строки (`item.lang`/`item.content` → одно значение) на входе — на выгрузке Трансгаз/ТД_ОперативныйУчет строк EAV стало на ~10% меньше (22 314 → 20 148); частичные индексы на горячих путях (A-2, см. `ix_fep_path_*`/`ix_fep_name_querytext` в `admin_tool/db_manager/schema.py`).
 - `modules`: код модулей объектов, модулей форм и **модулей команд** (`module_type = 'CommandModule'`). Для модуля команды объекта задаётся `command_id` → `object_commands`; для модуля общей команды (`CommonCommand`) — `command_id IS NULL` (модуль «самого» объекта).
 - `form_items`: identity + tree (`name`, `item_type`, `parent_id`); свойства UI — в `form_entity_properties` (`entity_kind=item`).
 - `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода; колонка `used_in_scheduled_job` — процедура указана в `MethodName` хотя бы одного регл. задания.

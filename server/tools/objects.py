@@ -1,6 +1,16 @@
 from .formatting import _load_resolved_types_map
 from .relations import _resolve_config_object
 
+# Default cap for wide attribute families in get_object_structure (0 disables the cap).
+DEFAULT_MAX_ATTRIBUTES = 50
+# Attribute families subject to max_attributes.
+_CAPPED_SECTION_KEYS = ('attributes', 'dimensions', 'resources')
+# All optional section keys agents can restrict via `sections`.
+_STRUCTURE_SECTION_KEYS = (
+    'attributes', 'dimensions', 'resources', 'tabular_sections',
+    'enum_values', 'commands', 'forms', 'modules', 'route_points',
+)
+
 
 class ObjectsMixin:
     """Object search/discovery: find_object, list_objects, get_object_structure, find_attribute, get_functional_options."""
@@ -177,7 +187,8 @@ class ObjectsMixin:
 
         return results
 
-    def get_object_structure(self, object_name, project_filter=None, extension_filter=None):
+    def get_object_structure(self, object_name, project_filter=None, extension_filter=None,
+                             sections=None, max_attributes=DEFAULT_MAX_ATTRIBUTES):
         """
         Получить полную структуру метаданных объекта 1С:
         реквизиты, табличные части, измерения/ресурсы регистров, значения перечислений.
@@ -186,10 +197,15 @@ class ObjectsMixin:
             object_name: Имя объекта (частичное совпадение)
             project_filter: Фильтр по проекту (опционально)
             extension_filter: Фильтр по расширению/базе (опционально)
+            sections: список секций для ответа (attributes, tabular_sections, forms, …);
+                None — все секции
+            max_attributes: лимит на списки реквизитов/измерений/ресурсов (0 — без лимита);
+                при обрезке добавляется <section>_total_count и is_truncated
 
         Returns:
             Dict сгруппированный по проектам/базам
         """
+        wanted_sections = set(sections) if sections else None
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -463,6 +479,7 @@ class ObjectsMixin:
                 if obj_type == 'BusinessProcess':
                     structure['route_points'] = route_points
                     structure['route_transitions'] = route_transitions
+                self._apply_structure_view(structure, wanted_sections, max_attributes)
             if db_info.get('db_type') == 'extension' and obj_row['object_belonging']:
                 structure['object_belonging'] = obj_row['object_belonging']
                 if obj_row['extended_configuration_object']:
@@ -476,6 +493,25 @@ class ObjectsMixin:
             results[project_key][db_key] = structure
 
         return results
+
+    @staticmethod
+    def _apply_structure_view(structure, wanted_sections, max_attributes):
+        """Restrict to requested sections and cap wide attribute families (T-1)."""
+        if wanted_sections is not None:
+            for key in _STRUCTURE_SECTION_KEYS:
+                if key not in wanted_sections:
+                    structure.pop(key, None)
+            if 'route_points' not in wanted_sections:
+                structure.pop('route_transitions', None)
+
+        cap = None if not max_attributes or max_attributes <= 0 else int(max_attributes)
+        if cap is not None:
+            for key in _CAPPED_SECTION_KEYS:
+                items = structure.get(key)
+                if items and len(items) > cap:
+                    structure[key] = items[:cap]
+                    structure[f'{key}_total_count'] = len(items)
+                    structure['is_truncated'] = True
 
     def get_functional_options(self, object_name, project_filter=None, extension_filter=None,
                                form_name=None, element_type=None, element_name=None,

@@ -111,6 +111,7 @@ class FormsMixin:
             }
         except Exception as e:
             print(f"Ошибка парсинга формы {form_dir.name}: {e}")
+            self.skipped_forms.append({'path': str(form_dir), 'error': str(e)})
             return None
 
     def _parse_form_properties(self, root, ns):

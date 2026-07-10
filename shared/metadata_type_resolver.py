@@ -32,11 +32,6 @@ XS_TYPE_TO_BASE = {
     'xs:float': 'Number',
 }
 
-V8_WRAPPER_TO_BASE = {
-    'ValueListType': 'ValueListType',
-    'ValueTable': 'ValueTable',
-}
-
 CFG_FORM_WRAPPER_TO_BASE = {
     'DynamicList': 'DynamicList',
 }
@@ -53,13 +48,6 @@ def parse_cfg_type_string(type_str):
     """Parse cfg:/xs:/v8: type string into slot dict fields."""
     type_str = (type_str or '').strip()
     if not type_str:
-        return {'kind': 'unknown', 'raw': type_str}
-
-    if type_str.startswith('v8:'):
-        body = type_str[3:]
-        base = V8_WRAPPER_TO_BASE.get(body)
-        if base:
-            return {'kind': 'primitive', 'raw': type_str, 'base_type': base}
         return {'kind': 'unknown', 'raw': type_str}
 
     if type_str.startswith('cfg:'):
@@ -98,6 +86,15 @@ def parse_cfg_type_string(type_str):
         if base:
             return {'kind': 'primitive', 'raw': type_str, 'xs_type': type_str, 'base_type': base}
         return {'kind': 'unknown', 'raw': type_str, 'xs_type': type_str}
+
+    # v8: and any other platform namespace alias (dcsset:, mxl:, chart:, adcsp:, …). A bare
+    # "prefix:Name" (no dot — not an Object.Name reference) is a concrete platform built-in
+    # type (ValueListType, SettingsComposer, SpreadsheetDocument, Color, Font, …) — surface
+    # it by name instead of silently dropping it as unresolved (P-3).
+    if ':' in type_str:
+        _, body = type_str.split(':', 1)
+        if body and '.' not in body:
+            return {'kind': 'primitive', 'raw': type_str, 'base_type': body}
 
     return {'kind': 'unknown', 'raw': type_str}
 
@@ -206,9 +203,15 @@ def slot_to_mcp_type(slot_row):
 
 
 def format_types_for_text(types):
-    """Compact text for MCP text responses."""
+    """Compact text for MCP text responses.
+
+    P-3: a real 1C attribute always has at least one type; an empty list here means
+    the parser/resolver couldn't map the declared type (e.g. cfg:DefinedType.X, or a
+    genuinely empty <Type/>), not that the attribute is untyped. Say so explicitly
+    instead of leaving a blank the agent might misread as "no type".
+    """
     if not types:
-        return ''
+        return '(тип не определён)'
     parts = []
     for t in types:
         if t.get('kind') == 'object':

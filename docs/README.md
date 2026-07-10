@@ -25,6 +25,7 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 | [`form-entity-model.md`](form-entity-model.md) | Form properties, overview profiles, drill-down (spec) |
 | [`testing-protocol.md`](testing-protocol.md) | Verification on connected MCP |
 | [`performance.md`](performance.md) | Performance notes |
+| [`architecture-audit-2026-07.md`](architecture-audit-2026-07.md) | DB / parser / tools audit — findings and prioritized recommendations |
 | [`admin-hub-integration.md`](admin-hub-integration.md) | Admin Hub module roadmap, Phase 3 CLI |
 
 ### Group and protocol

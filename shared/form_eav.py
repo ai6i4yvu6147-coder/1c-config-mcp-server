@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from shared.form_property_flattener import UNSET_DATE_VALUE as _UNSET_DATE_VALUE
+
 
 def group_eav_rows(rows) -> dict[int, list[dict[str, Any]]]:
     """Group EAV rows by entity_id."""
@@ -114,3 +116,74 @@ def eav_rows_for_display(rows: list[dict[str, Any]], property_paths: list[str]) 
         if val is not None:
             result[path] = val
     return result
+
+
+# --- Drill-down curation (T-2) --------------------------------------------
+# Note: the flattener itself now suppresses `.item.lang` and the unset-date sentinel
+# at ingest time (A-1/P-1), so these checks are mostly a backstop for pre-v15 databases.
+
+# Localized-string subtree leaf holding the language code (always e.g. "ru").
+_LOCALIZED_CONTENT_SUFFIX = '.item.content'
+
+
+def _is_noise_eav_row(path: str, name: str, value, drop_prefixes: tuple) -> bool:
+    """True for structural/localization/default rows not worth showing in drill-down."""
+    if value is None or value == '':
+        return True
+    if name == 'lang':  # `<Tag><item><lang>ru</lang>…` — language code, not data
+        return True
+    if value == _UNSET_DATE_VALUE:  # unset Period.startDate/endDate and similar
+        return True
+    for prefix in drop_prefixes:
+        if path.startswith(prefix):
+            return True
+    return False
+
+
+def _collapse_localized_path(path: str) -> str:
+    """`ToolTip.item.content` -> `ToolTip` (localized string value under a named tag)."""
+    if path.endswith(_LOCALIZED_CONTENT_SUFFIX):
+        return path[: -len(_LOCALIZED_CONTENT_SUFFIX)]
+    return path
+
+
+def curate_eav_properties(rows, priority_paths=None, drop_prefixes=(), verbose=False):
+    """Build the drill-down `properties` list from raw EAV rows.
+
+    verbose=True  -> every row as-is (path/ordinal/value/value_type), unchanged order.
+    verbose=False -> drop noise (empty, `.item.lang`, unset dates, `drop_prefixes`),
+                     collapse `X.item.content` -> `X`, and order `priority_paths` first
+                     (in the given order) then the rest alphabetically.
+
+    Returns (properties, hidden_count) where hidden_count is the number of raw rows
+    suppressed by curation (0 when verbose).
+    """
+    def to_prop(row, path=None):
+        return {
+            'path': path if path is not None else row['property_path'],
+            'ordinal': row.get('ordinal', 0),
+            'value': row['value_text'],
+            'value_type': row.get('value_type'),
+        }
+
+    if verbose:
+        return [to_prop(r) for r in rows], 0
+
+    drop_prefixes = tuple(drop_prefixes)
+    curated = []
+    for row in rows:
+        path = row['property_path']
+        if _is_noise_eav_row(path, row.get('property_name', ''), row.get('value_text'), drop_prefixes):
+            continue
+        curated.append(to_prop(row, path=_collapse_localized_path(path)))
+
+    priority_index = {p: i for i, p in enumerate(priority_paths or [])}
+
+    def sort_key(prop):
+        base = prop['path']
+        if base in priority_index:
+            return (0, priority_index[base], prop['ordinal'])
+        return (1, base, prop['ordinal'])
+
+    curated.sort(key=sort_key)
+    return curated, len(rows) - len(curated)

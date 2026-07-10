@@ -54,6 +54,24 @@ class TestParseCfgTypeString(unittest.TestCase):
         self.assertEqual(slot['object_type_hint'], 'Document')
         self.assertEqual(slot['ref_name'], 'Реализация')
 
+    def test_arbitrary_v8_bare_type_resolves(self):
+        """P-3: any bare v8:Name (not just the old ValueListType/ValueTable whitelist)
+        resolves to a named primitive instead of dropping as unknown."""
+        slot = parse_cfg_type_string('v8:Color')
+        self.assertEqual(slot['kind'], 'primitive')
+        self.assertEqual(slot['base_type'], 'Color')
+
+    def test_other_namespace_bare_type_resolves(self):
+        """P-3: platform types under non-v8/cfg/xs namespace aliases (dcsset:, mxl:, …)
+        also resolve by name instead of dropping as unknown."""
+        slot = parse_cfg_type_string('dcsset:SettingsComposer')
+        self.assertEqual(slot['kind'], 'primitive')
+        self.assertEqual(slot['base_type'], 'SettingsComposer')
+
+        slot = parse_cfg_type_string('mxl:SpreadsheetDocument')
+        self.assertEqual(slot['kind'], 'primitive')
+        self.assertEqual(slot['base_type'], 'SpreadsheetDocument')
+
 
 class TestTypeDescriptor(unittest.TestCase):
     def setUp(self):
@@ -174,6 +192,10 @@ class TestFormatHelpers(unittest.TestCase):
             {'kind': 'primitive', 'base_type': 'Number', 'qualifiers': {'digits': 10, 'fraction': 0}},
         ])
         self.assertEqual(text, 'Catalog.X | Number(10,0)')
+
+    def test_format_types_for_text_empty_is_explicit(self):
+        """P-3: unresolved/empty types must read as explicitly unresolved, not blank."""
+        self.assertEqual(format_types_for_text([]), '(тип не определён)')
 
     def test_slot_to_mcp_type_primitive(self):
         row = {

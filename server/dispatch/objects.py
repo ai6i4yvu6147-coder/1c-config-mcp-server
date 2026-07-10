@@ -75,12 +75,30 @@ async def handle_list_objects(tools, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=response)]
 
 
+def _capped_header(label, items, total):
+    shown = len(items)
+    if total and total > shown:
+        return f"  {label} (показаны {shown} из {total}):\n"
+    return f"  {label} ({shown}):\n"
+
+
+def _capped_footer(items, total, hint):
+    shown = len(items)
+    if total and total > shown:
+        return f"    … ещё {total - shown}; {hint}\n"
+    return ""
+
+
 async def handle_get_object_structure(tools, arguments: dict) -> list[TextContent]:
     object_name = arguments["object_name"]
     project_filter = arguments.get("project_filter")
     extension_filter = arguments.get("extension_filter")
+    sections = arguments.get("sections")
+    max_attributes = arguments.get("max_attributes", 50)
 
-    results = tools.get_object_structure(object_name, project_filter, extension_filter)
+    results = tools.get_object_structure(
+        object_name, project_filter, extension_filter, sections, max_attributes,
+    )
 
     if not results:
         return [TextContent(type="text", text=f"Объект '{object_name}' не найден")]
@@ -130,31 +148,41 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
                     response += f"  Интервал перезапуска (с): {structure['restart_interval_on_failure']}\n"
                 response += "\n"
             if structure.get('attributes'):
-                response += f"  Реквизиты ({len(structure['attributes'])}):\n"
+                response += _capped_header("Реквизиты", structure['attributes'], structure.get('attributes_total_count'))
                 for attr in structure['attributes']:
                     std = " [стд]" if attr['is_standard'] else ""
                     title = f" — {attr['title']}" if attr.get('title') else ""
                     comment = f" — {attr['comment']}" if attr.get('comment') else ""
                     type_text = format_types_for_text(attr.get('types') or [])
                     response += f"    - {attr['name']}{std}: {type_text}{title}{comment}\n"
+                response += _capped_footer(
+                    structure['attributes'], structure.get('attributes_total_count'),
+                    "увеличьте max_attributes или используйте find_attribute",
+                )
                 response += "\n"
 
             if structure.get('dimensions'):
-                response += f"  Измерения ({len(structure['dimensions'])}):\n"
+                response += _capped_header("Измерения", structure['dimensions'], structure.get('dimensions_total_count'))
                 for dim in structure['dimensions']:
                     title = f" — {dim['title']}" if dim.get('title') else ""
                     comment = f" — {dim['comment']}" if dim.get('comment') else ""
                     type_text = format_types_for_text(dim.get('types') or [])
                     response += f"    - {dim['name']}: {type_text}{title}{comment}\n"
+                response += _capped_footer(
+                    structure['dimensions'], structure.get('dimensions_total_count'), "увеличьте max_attributes",
+                )
                 response += "\n"
 
             if structure.get('resources'):
-                response += f"  Ресурсы ({len(structure['resources'])}):\n"
+                response += _capped_header("Ресурсы", structure['resources'], structure.get('resources_total_count'))
                 for res in structure['resources']:
                     title = f" — {res['title']}" if res.get('title') else ""
                     comment = f" — {res['comment']}" if res.get('comment') else ""
                     type_text = format_types_for_text(res.get('types') or [])
                     response += f"    - {res['name']}: {type_text}{title}{comment}\n"
+                response += _capped_footer(
+                    structure['resources'], structure.get('resources_total_count'), "увеличьте max_attributes",
+                )
                 response += "\n"
 
             if structure.get('tabular_sections'):

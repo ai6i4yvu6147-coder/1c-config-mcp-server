@@ -1,6 +1,7 @@
 import json
 
 from shared.form_eav import (
+    curate_eav_properties,
     field_index_from_eav,
     filter_field_eav,
     get_eav_value,
@@ -300,7 +301,7 @@ class FormsMixin:
         return results
 
     def get_form_attribute(self, object_name, form_name, attribute_name, project_filter=None,
-                           extension_filter=None, column_name=None):
+                           extension_filter=None, column_name=None, verbose=False):
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -333,25 +334,22 @@ class FormsMixin:
             eav = load_entity_eav(cursor, 'attribute', [attr_id]).get(attr_id, [])
 
             if column_name:
-                detail = self._attribute_column_detail(cursor, attr_id, types, eav, column_name)
+                detail = self._attribute_column_detail(cursor, attr_id, types, eav, column_name, verbose)
                 if detail is None:
                     continue
                 payload = detail
             else:
+                # Settings.Field.* rows are surfaced via the `columns` field index; drop from props.
+                properties, hidden = curate_eav_properties(
+                    eav, drop_prefixes=('Settings.Field.',), verbose=verbose,
+                )
                 payload = {
                     'name': attr_row['name'],
                     'title': attr_row['title'],
                     'is_main': bool(attr_row['is_main']),
                     'types': types,
-                    'properties': [
-                        {
-                            'path': r['property_path'],
-                            'ordinal': r.get('ordinal', 0),
-                            'value': r['value_text'],
-                            'value_type': r.get('value_type'),
-                        }
-                        for r in eav
-                    ],
+                    'properties': properties,
+                    'properties_hidden': hidden,
                     'columns': self._attribute_column_index(cursor, attr_id, types, eav),
                 }
 
@@ -395,7 +393,7 @@ class FormsMixin:
             ]
         return []
 
-    def _attribute_column_detail(self, cursor, attr_id, types, eav, column_name):
+    def _attribute_column_detail(self, cursor, attr_id, types, eav, column_name, verbose=False):
         if is_value_table(types):
             cursor.execute('''
                 SELECT id, name, title, table_context
@@ -420,32 +418,30 @@ class FormsMixin:
                 ORDER BY mo.name
             ''', (attr_id, column_name))
             fo = [{'name': r['name'], 'synonym': r['synonym'] or ''} for r in cursor.fetchall()]
+            properties, hidden = curate_eav_properties(col_eav, verbose=verbose)
             return {
                 'name': col_row['name'],
                 'title': col_row['title'],
                 'table': col_row['table_context'],
                 'types': col_types,
-                'properties': [
-                    {'path': r['property_path'], 'ordinal': r.get('ordinal', 0), 'value': r['value_text']}
-                    for r in col_eav
-                ],
+                'properties': properties,
+                'properties_hidden': hidden,
                 'functional_options': fo,
             }
         if is_dynamic_list(types):
             field_rows = filter_field_eav(eav, column_name)
             if not field_rows:
                 return None
+            properties, hidden = curate_eav_properties(field_rows, verbose=verbose)
             return {
                 'column_name': column_name,
-                'properties': [
-                    {'path': r['property_path'], 'ordinal': r.get('ordinal', 0), 'value': r['value_text']}
-                    for r in field_rows
-                ],
+                'properties': properties,
+                'properties_hidden': hidden,
             }
         return None
 
     def get_form_item(self, object_name, form_name, element_name, project_filter=None,
-                      extension_filter=None, column_name=None):
+                      extension_filter=None, column_name=None, verbose=False):
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -464,9 +460,9 @@ class FormsMixin:
                 continue
 
             if column_name:
-                payload = self._form_item_column_detail(cursor, form_row['id'], element_name, column_name)
+                payload = self._form_item_column_detail(cursor, form_row['id'], element_name, column_name, verbose)
             else:
-                payload = self._form_item_detail(cursor, form_row['id'], element_name)
+                payload = self._form_item_detail(cursor, form_row['id'], element_name, verbose)
 
             if payload is None:
                 continue
@@ -478,7 +474,7 @@ class FormsMixin:
 
         return results
 
-    def _form_item_detail(self, cursor, form_id, element_name):
+    def _form_item_detail(self, cursor, form_id, element_name, verbose=False):
         cursor.execute('''
             SELECT id, name, item_type
             FROM form_items
@@ -491,6 +487,7 @@ class FormsMixin:
 
         eav = load_entity_eav(cursor, 'item', [row['id']]).get(row['id'], [])
         paths = overview_paths_for_item(row['item_type'])
+        properties, hidden = curate_eav_properties(eav, priority_paths=paths, verbose=verbose)
         cursor.execute('''
             SELECT event_name, handler
             FROM form_item_events
@@ -523,17 +520,14 @@ class FormsMixin:
         return {
             'name': row['name'],
             'item_type': row['item_type'],
-            'properties': [
-                {'path': r['property_path'], 'ordinal': r.get('ordinal', 0), 'value': r['value_text'],
-                 'value_type': r.get('value_type')}
-                for r in eav
-            ],
+            'properties': properties,
+            'properties_hidden': hidden,
             'overview_properties': _eav_display_props(eav, paths),
             'events': events,
             'columns': columns,
         }
 
-    def _form_item_column_detail(self, cursor, form_id, parent_name, column_name):
+    def _form_item_column_detail(self, cursor, form_id, parent_name, column_name, verbose=False):
         cursor.execute('''
             SELECT id FROM form_items
             WHERE form_id = ? AND name = ?
@@ -555,6 +549,7 @@ class FormsMixin:
 
         eav = load_entity_eav(cursor, 'item', [child['id']]).get(child['id'], [])
         paths = overview_paths_for_item(child['item_type'])
+        properties, hidden = curate_eav_properties(eav, priority_paths=paths, verbose=verbose)
         cursor.execute('''
             SELECT event_name, handler
             FROM form_item_events
@@ -566,18 +561,29 @@ class FormsMixin:
             'name': child['name'],
             'item_type': child['item_type'],
             'parent_name': parent_name,
-            'properties': [
-                {'path': r['property_path'], 'ordinal': r.get('ordinal', 0), 'value': r['value_text'],
-                 'value_type': r.get('value_type')}
-                for r in eav
-            ],
+            'properties': properties,
+            'properties_hidden': hidden,
             'overview_properties': _eav_display_props(eav, paths),
             'events': events,
         }
 
-    def search_form_properties(self, property_name, property_value=None, project_filter=None, extension_filter=None):
-        if property_name not in ('Visible', 'Enabled'):
-            raise ValueError("Поддерживаются только свойства Visible и Enabled. Укажите property_name 'Visible' или 'Enabled'.")
+    _BOOL_TRUE_TOKENS = frozenset({'true', '1', 'да', 'yes'})
+    _BOOL_FALSE_TOKENS = frozenset({'false', '0', 'нет', 'no'})
+
+    def search_form_properties(self, property_path, property_value=None, project_filter=None,
+                               extension_filter=None, value_match='exact', max_results=100):
+        """Найти UI-элементы форм по любому свойству EAV (property_path) и опционально значению.
+
+        Args:
+            property_path: путь свойства из EAV (например DataPath, Visible, ReadOnly, CommandName,
+                Settings.MainTable). Точное совпадение пути.
+            property_value: искомое значение (опционально). Булевы синонимы (да/нет/1/0) нормализуются.
+            value_match: 'exact' (по умолчанию) или 'contains' (подстрока, LIKE).
+            max_results: лимит элементов на базу (по умолчанию 100); при обрезке — is_truncated.
+        """
+        if not property_path or not str(property_path).strip():
+            raise ValueError("Укажите property_path (например DataPath, Visible, ReadOnly, CommandName).")
+        property_path = str(property_path).strip()
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -585,22 +591,47 @@ class FormsMixin:
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
-        results = {}
-        want_val = None
-        if property_value is not None:
-            pv = str(property_value).strip().lower()
-            if pv in ('true', '1', 'да', 'yes'):
-                want_val = 'true'
-            elif pv in ('false', '0', 'нет', 'no'):
-                want_val = 'false'
-            else:
-                want_val = 'true' if pv else 'false'
+        if max_results is None or max_results < 1:
+            max_results = 100
+        value_match = (value_match or 'exact').lower()
+        if value_match not in ('exact', 'contains'):
+            value_match = 'exact'
 
+        # Build value predicate (shared by count and select).
+        value_clause = ''
+        value_param = None
+        if property_value is not None and str(property_value).strip() != '':
+            raw = str(property_value).strip()
+            if value_match == 'contains':
+                value_clause = ' AND py_lower(fep.value_text) LIKE ?'
+                value_param = f'%{raw.lower()}%'
+            else:
+                low = raw.lower()
+                if low in self._BOOL_TRUE_TOKENS:
+                    low = 'true'
+                elif low in self._BOOL_FALSE_TOKENS:
+                    low = 'false'
+                value_clause = ' AND py_lower(fep.value_text) = ?'
+                value_param = low
+
+        where_params = [property_path]
+        if value_param is not None:
+            where_params.append(value_param)
+
+        results = {}
         for db_info in databases:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
-            sql = '''
+            total = cursor.execute(
+                f'''SELECT COUNT(*) FROM form_entity_properties fep
+                    WHERE fep.entity_kind = 'item' AND fep.property_path = ?{value_clause}''',
+                where_params,
+            ).fetchone()[0]
+            if not total:
+                continue
+
+            cursor.execute(f'''
                 SELECT
                     o.name as object_name,
                     o.object_type,
@@ -613,17 +644,11 @@ class FormsMixin:
                 JOIN form_items fi ON fep.entity_id = fi.id AND fep.entity_kind = 'item'
                 JOIN forms f ON fi.form_id = f.id
                 JOIN metadata_objects o ON f.object_id = o.id
-                WHERE fep.property_path = ?
-            '''
-            params = [property_name]
-            if want_val is not None:
-                sql += ' AND LOWER(fep.value_text) = ?'
-                params.append(want_val)
-            cursor.execute(sql, params)
-
+                WHERE fep.property_path = ?{value_clause}
+                ORDER BY o.name, f.form_name, fi.name
+                LIMIT ?
+            ''', [*where_params, max_results])
             rows = cursor.fetchall()
-            if not rows:
-                continue
 
             item_ids = [r['item_id'] for r in rows]
             item_eav = load_entity_eav(cursor, 'item', item_ids)
@@ -638,16 +663,19 @@ class FormsMixin:
                     'element_name': row['element_name'],
                     'element_type': row['item_type'],
                     'data_path': get_eav_value(eav, 'DataPath'),
-                    'property_name': property_name,
+                    'property_path': property_path,
                     'property_value': row['property_value'],
                 })
 
-            if db_results:
-                project_key = f"{db_info['project_name']}"
-                if project_key not in results:
-                    results[project_key] = {}
-
-                db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = db_results
+            project_key = f"{db_info['project_name']}"
+            if project_key not in results:
+                results[project_key] = {}
+            db_key = f"{db_info['db_name']} ({db_info['db_type']})"
+            results[project_key][db_key] = {
+                'elements': db_results,
+                'total_count': total,
+                'returned_count': len(db_results),
+                'is_truncated': total > len(db_results),
+            }
 
         return results

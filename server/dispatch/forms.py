@@ -5,6 +5,14 @@ from shared.metadata_type_resolver import format_types_for_text
 from .common import _form_item_command_suffix
 
 
+def _hidden_props_hint(data, verbose):
+    """Hint line when curation suppressed service properties (drill-down)."""
+    hidden = data.get('properties_hidden') or 0
+    if verbose or not hidden:
+        return ""
+    return f"  (+{hidden} служебных свойств скрыто; verbose=true — полный список)\n"
+
+
 async def handle_find_form(tools, arguments: dict) -> list[TextContent]:
     object_name = arguments.get("object_name")
     form_name = arguments.get("form_name")
@@ -168,9 +176,10 @@ async def handle_get_form_attribute(tools, arguments: dict) -> list[TextContent]
     project_filter = arguments.get("project_filter")
     extension_filter = arguments.get("extension_filter")
     column_name = arguments.get("column_name")
+    verbose = bool(arguments.get("verbose", False))
 
     results = tools.get_form_attribute(
-        object_name, form_name, attribute_name, project_filter, extension_filter, column_name,
+        object_name, form_name, attribute_name, project_filter, extension_filter, column_name, verbose,
     )
 
     if not results:
@@ -187,6 +196,7 @@ async def handle_get_form_attribute(tools, arguments: dict) -> list[TextContent]
                     response += f"  types: {format_types_for_text(data['types'])}\n"
                 for prop in data.get('properties') or []:
                     response += f"  {prop['path']}: {prop['value']}\n"
+                response += _hidden_props_hint(data, verbose)
                 for fo in data.get('functional_options') or []:
                     response += f"  ФО: {fo['name']}\n"
             else:
@@ -197,6 +207,7 @@ async def handle_get_form_attribute(tools, arguments: dict) -> list[TextContent]
                 response += f"  types: {format_types_for_text(data.get('types') or [])}\n\n"
                 for prop in data.get('properties') or []:
                     response += f"  {prop['path']}: {prop['value']}\n"
+                response += _hidden_props_hint(data, verbose)
                 if data.get('columns'):
                     response += "\n  Columns:\n"
                     for col in data['columns']:
@@ -219,9 +230,10 @@ async def handle_get_form_item(tools, arguments: dict) -> list[TextContent]:
     project_filter = arguments.get("project_filter")
     extension_filter = arguments.get("extension_filter")
     column_name = arguments.get("column_name")
+    verbose = bool(arguments.get("verbose", False))
 
     results = tools.get_form_item(
-        object_name, form_name, element_name, project_filter, extension_filter, column_name,
+        object_name, form_name, element_name, project_filter, extension_filter, column_name, verbose,
     )
 
     if not results:
@@ -239,6 +251,7 @@ async def handle_get_form_item(tools, arguments: dict) -> list[TextContent]:
                 response += f"Элемент {label} ({data['item_type']}):\n\n"
             for prop in data.get('properties') or []:
                 response += f"  {prop['path']}: {prop['value']}\n"
+            response += _hidden_props_hint(data, verbose)
             if data.get('events'):
                 response += "\n  События:\n"
                 for ev in data['events']:
@@ -254,29 +267,42 @@ async def handle_get_form_item(tools, arguments: dict) -> list[TextContent]:
 
 
 async def handle_search_form_properties(tools, arguments: dict) -> list[TextContent]:
-    property_name = arguments["property_name"]
+    property_path = arguments.get("property_path") or arguments.get("property_name")
     property_value = arguments.get("property_value")
+    value_match = arguments.get("value_match", "exact")
+    max_results = arguments.get("max_results", 100)
     project_filter = arguments.get("project_filter")
     extension_filter = arguments.get("extension_filter")
 
-    results = tools.search_form_properties(property_name, property_value, project_filter, extension_filter)
+    if not property_path:
+        return [TextContent(type="text", text="Укажите property_path (например DataPath, Visible, ReadOnly, CommandName).")]
 
+    results = tools.search_form_properties(
+        property_path, property_value, project_filter, extension_filter, value_match, max_results,
+    )
+
+    match_note = " (подстрока)" if property_value and value_match == "contains" else ""
+    value_text = f"={property_value}{match_note}" if property_value else ""
     if not results:
-        value_text = f"={property_value}" if property_value else ""
-        return [TextContent(type="text", text=f"Элементы со свойством '{property_name}{value_text}' не найдены")]
+        return [TextContent(type="text", text=f"Элементы со свойством '{property_path}{value_text}' не найдены")]
 
-    value_text = f"={property_value}" if property_value else ""
-    response = f"Элементы со свойством '{property_name}{value_text}':\n\n"
+    response = f"Элементы со свойством '{property_path}{value_text}':\n\n"
 
     for project_name, project_data in results.items():
         response += f"📁 Проект: {project_name}\n"
-        for db_name, elements in project_data.items():
-            response += f"  └─ {db_name}: {len(elements)} элемент(ов)\n"
+        for db_name, payload in project_data.items():
+            elements = payload['elements']
+            total = payload['total_count']
+            shown = payload['returned_count']
+            count_note = f"{shown} из {total}" if payload['is_truncated'] else f"{shown}"
+            response += f"  └─ {db_name}: {count_note} элемент(ов)\n"
             for elem in elements:
                 response += f"     • {elem['object_name']}.{elem['form_name']}.{elem['element_name']}\n"
-                response += f"       Тип: {elem['element_type']}, {property_name}: {elem['property_value']}\n"
-                if elem.get('data_path'):
+                response += f"       Тип: {elem['element_type']}, {property_path}: {elem['property_value']}\n"
+                if elem.get('data_path') and property_path != 'DataPath':
                     response += f"       DataPath: {elem['data_path']}\n"
+            if payload['is_truncated']:
+                response += "       … показаны не все; уточните property_value или увеличьте max_results.\n"
         response += "\n"
 
     return [TextContent(type="text", text=response)]

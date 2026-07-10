@@ -129,6 +129,11 @@ class DatabaseManagerCore:
             for stage_name, seconds in sorted(parser.stage_seconds.items(), key=lambda kv: -kv[1]):
                 label = _STAGE_LABELS.get(stage_name, stage_name)
                 progress_callback(10, 100, f"    - {label}: {seconds:.1f} c")
+            if parser.skipped_forms:
+                progress_callback(
+                    10, 100,
+                    f"    ⚠ Пропущено форм при парсинге (ошибки): {len(parser.skipped_forms)} — см. лог выше",
+                )
 
         t0 = time.perf_counter()
         self._create_schema()

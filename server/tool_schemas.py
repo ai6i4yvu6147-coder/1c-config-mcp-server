@@ -4,11 +4,10 @@ TOOL_SCHEMAS = [
     Tool(
         name="active_databases",
         description=(
-            "Список проектов и список баз данных. Получить список проектов, перечень проектов, какие проекты доступны, доступные базы. "
-            "Узнать какой project_filter указать для search_code, find_object, get_module_code, get_procedure_code. "
-            "Первый шаг при работе с конфигурацией 1С: с чего начать, начало работы. Возвращает имена проектов и имён баз (основная конфигурация и расширения). "
-            "Без вызова этого инструмента нельзя узнать допустимые значения project_filter. Вызывайте перед search_code и другими инструментами. "
-            "Передавайте возвращённые имена в project_filter и extension_filter без изменений (точное совпадение)."
+            "Список проектов и баз данных 1С (основная конфигурация и расширения). Первый шаг работы: "
+            "вызывайте без аргументов, чтобы узнать допустимые project_filter/extension_filter для остальных "
+            "инструментов (search_code, find_object, get_module_code и др.). Передавайте возвращённые имена "
+            "без изменений (точное совпадение)."
         ),
         inputSchema={
             "type": "object",
@@ -314,9 +313,10 @@ TOOL_SCHEMAS = [
     Tool(
         name="get_form_attribute",
         description=(
-            "Детали реквизита формы: все свойства из EAV, types[], индекс колонок ValueTable или полей DynamicList. "
+            "Детали реквизита формы: ключевые свойства из EAV, types[], индекс колонок ValueTable или полей DynamicList. "
             "Полный Settings.QueryText динамического списка. project_filter обязателен. "
-            "column_name (опционально): колонка ValueTable или поле DynamicList."
+            "column_name (опционально): колонка ValueTable или поле DynamicList. "
+            "По умолчанию свойства курируются (скрыт служебный шум); verbose=true — полный EAV."
         ),
         inputSchema={
             "type": "object",
@@ -325,6 +325,7 @@ TOOL_SCHEMAS = [
                 "form_name": {"type": "string", "description": "Имя формы"},
                 "attribute_name": {"type": "string", "description": "Имя реквизита формы"},
                 "column_name": {"type": "string", "description": "Имя колонки ValueTable или поля DynamicList (опционально)"},
+                "verbose": {"type": "boolean", "description": "true — полный EAV без курирования (по умолчанию false)", "default": False},
                 "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
                 "extension_filter": {"type": "string", "description": "Точное имя базы из active_databases (опционально)"},
             },
@@ -334,8 +335,9 @@ TOOL_SCHEMAS = [
     Tool(
         name="get_form_item",
         description=(
-            "Детали элемента UI формы: свойства EAV, события, индекс колонок для Table. "
-            "project_filter обязателен. column_name (опционально): дочерний элемент колонки контейнера."
+            "Детали элемента UI формы: ключевые свойства EAV (сначала профильные), события, индекс колонок для Table. "
+            "project_filter обязателен. column_name (опционально): дочерний элемент колонки контейнера. "
+            "По умолчанию свойства курируются (скрыт служебный шум); verbose=true — полный EAV."
         ),
         inputSchema={
             "type": "object",
@@ -344,6 +346,7 @@ TOOL_SCHEMAS = [
                 "form_name": {"type": "string", "description": "Имя формы"},
                 "element_name": {"type": "string", "description": "Имя элемента UI"},
                 "column_name": {"type": "string", "description": "Имя дочернего элемента колонки (опционально)"},
+                "verbose": {"type": "boolean", "description": "true — полный EAV без курирования (по умолчанию false)", "default": False},
                 "project_filter": {"type": "string", "description": "Фильтр по проекту (обязательно)"},
                 "extension_filter": {"type": "string", "description": "Точное имя базы из active_databases (опционально)"},
             },
@@ -352,17 +355,33 @@ TOOL_SCHEMAS = [
     ),
     Tool(
         name="search_form_properties",
-        description="Поиск элементов форм по свойствам Visible и Enabled. Поддерживаются только эти два свойства. project_filter обязателен.",
+        description=(
+            "Поиск UI-элементов форм по любому свойству EAV (property_path) и опционально значению. "
+            "project_filter обязателен. value_match=contains — поиск подстроки. "
+            "Лимит max_results (по умолчанию 100) с is_truncated. Пути свойств — как в get_form_item "
+            "(DataPath, Visible, Enabled, ReadOnly, CommandName, RowPictureDataPath, Settings.MainTable, …)."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "property_name": {
+                "property_path": {
                     "type": "string",
-                    "description": "Имя свойства: только Visible или Enabled"
+                    "description": "Путь свойства из EAV: Visible, Enabled, ReadOnly, DataPath, CommandName, Settings.MainTable, … (точное совпадение пути)"
                 },
                 "property_value": {
                     "type": "string",
-                    "description": "Значение (опционально): true, false, 1, 0"
+                    "description": "Значение (опционально). Булевы синонимы да/нет/1/0 нормализуются в true/false."
+                },
+                "value_match": {
+                    "type": "string",
+                    "enum": ["exact", "contains"],
+                    "description": "exact (по умолчанию) — точное значение; contains — подстрока (LIKE)",
+                    "default": "exact"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Максимум элементов на базу (по умолчанию 100)",
+                    "default": 100
                 },
                 "project_filter": {
                     "type": "string",
@@ -373,7 +392,7 @@ TOOL_SCHEMAS = [
                     "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
                 }
             },
-            "required": ["property_name", "project_filter"]
+            "required": ["property_path", "project_filter"]
         }
     ),
     Tool(
@@ -383,7 +402,9 @@ TOOL_SCHEMAS = [
             "Поле modules — только модули объекта (без CommandModule команд). Команды объекта — в массиве commands: name, synonym, has_module. "
             "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст. "
             "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов. "
-            "ScheduledJob: method_name, use, predefined, restart_count_on_failure, restart_interval_on_failure."
+            "ScheduledJob: method_name, use, predefined, restart_count_on_failure, restart_interval_on_failure. "
+            "Списки реквизитов/измерений/ресурсов ограничены max_attributes (по умолчанию 50); при обрезке — <section>_total_count и is_truncated. "
+            "sections — вернуть только указанные секции (экономия для широких объектов)."
         ),
         inputSchema={
             "type": "object",
@@ -399,6 +420,19 @@ TOOL_SCHEMAS = [
                 "extension_filter": {
                     "type": "string",
                     "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Только указанные секции: attributes, dimensions, resources, tabular_sections, "
+                        "enum_values, commands, forms, modules, route_points. Пусто — все секции."
+                    )
+                },
+                "max_attributes": {
+                    "type": "integer",
+                    "description": "Лимит списков реквизитов/измерений/ресурсов (по умолчанию 50; 0 — без лимита)",
+                    "default": 50
                 }
             },
             "required": ["object_name", "project_filter"]
