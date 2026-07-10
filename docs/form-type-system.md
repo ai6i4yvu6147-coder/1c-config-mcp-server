@@ -2,7 +2,7 @@
 
 **Статус:** **реализовано** (`INDEXER_VERSION` 9 — type system форм). Текущий формат индекса — **10** (фаза 3: подсистемы в `metadata_relations`, отдельный bump). DynamicList Settings (MainTable, СКД) — см. `form-dynamiclist-settings` в [`todo.md`](todo.md).
 
-Связанные документы: [`dependency-layer.md`](dependency-layer.md), [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`testing-protocol.md`](testing-protocol.md).
+Связанные документы: [`dependency-layer.md`](dependency-layer.md), [`architecture.md`](architecture.md), [`database.md`](database.md), [`mcp-tools.md`](mcp-tools.md), [`form-entity-model.md`](form-entity-model.md) (properties / overview / drill-down — **spec**, not yet implemented), [`testing-protocol.md`](testing-protocol.md).
 
 ---
 
@@ -97,12 +97,14 @@ MCP-проверка: проект **Трансгаз**, база **ТД_Опе�
 
 Текстовый ответ — `format_types_for_text` в [`shared/metadata_type_resolver.py`](../shared/metadata_type_resolver.py).
 
+**После реализации [`form-entity-model.md`](form-entity-model.md):** массив `columns` в **`get_form_structure` убирается** — только `columns: N` и подсказка `get_form_attribute(attribute_name=…)`; полный `types[]` колонки — на drill-down с `column_name`.
+
 ---
 
 ### Вне scope (backlog)
 
-- `form_items.item_type` (UI, не data type).
-- Settings DynamicList (MainTable, СКД) — `form-dynamiclist-settings`.
+- `form_items.item_type` (UI, не data type) — overview profiles per type: [`form-entity-model.md`](form-entity-model.md) §4.
+- Settings DynamicList (MainTable, СКД) — `form-dynamiclist-settings`; interim: EAV on attribute per [`form-entity-model.md`](form-entity-model.md).
 - `find_referencing_objects` по слотам форм — **готово** (фаза 2).
 - Условное оформление форм.
 

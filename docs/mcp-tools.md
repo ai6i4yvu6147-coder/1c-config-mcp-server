@@ -23,8 +23,26 @@
 - **Код модуля команды объекта**: `get_module_code` с `module_type="CommandModule"` и **`command_name`** = имя команды из `commands`.
 - **Общая команда** (`CommonCommand` в whitelist): в `get_object_structure` у объекта в `modules` будет `CommandModule`; `get_module_code` / `get_module_procedures` / `get_procedure_code` с `module_type="CommandModule"` **без** `command_name`.
 - **Кнопка и привязка к команде на форме**: `get_form_structure` → у элементов `items` поля `command_name` (как в XML) и `command_source` (`Form` / `Object` / `Common`, по префиксу строки). В текстовом ответе MCP к строке элемента добавляются пометки вида `[команда объекта: …]`.
-- **Типы реквизитов формы:** `get_form_structure` → массив `types[]` у реквизитов и колонок (как у metadata); колонки ValueTable/AdditionalColumns — `columns[].types[]`, `columns[].table` для AdditionalColumns. См. [`form-type-system.md`](form-type-system.md).
+- **Типы реквизитов формы:** `get_form_structure` → массив `types[]` у реквизитов (колонки ValueTable / поля DynamicList в обзоре **не перечисляются** — только счётчик и подсказка drill-down; см. spec). См. [`form-type-system.md`](form-type-system.md), [`form-entity-model.md`](form-entity-model.md) §3.2.
 - **Поиск по коду модуля команды**: `search_code`; для `CommandModule` команды объекта в результатах есть `command_name`, в текстовой строке локации показывается `…CommandModule.<имя_команды>`; для `CommonCommand` — `CommonCommand.<Имя>.CommandModule`.
+
+### Form entity model (spec — not yet in MCP)
+
+Спека: [`form-entity-model.md`](form-entity-model.md). Реализация потребует **`INDEXER_VERSION` 12** и пересборки БД.
+
+**Сейчас:** `get_form_structure` показывает одни и те же поля UI-элемента для всех типов; колонки таблиц/списков и колонки реквизитов (ValueTable, DynamicList) **выводятся в обзоре**; `QueryText` динамического списка обрезается; drill-down по реквизиту/элементу и поиск по тексту запроса **отсутствуют**.
+
+**Целевой workflow:**
+
+1. **`get_form_structure`** — обзор: типы, дерево элементов **без** дочерних колонок у `Table` (и дерева, когда появится в парсере); реквизиты DynamicList/ValueTable — только `types[]`, подсказки (`QueryText: present (N chars)`, `columns: N`), без списка колонок/полей.
+2. **`get_form_attribute`** (`attribute_name`; опционально **`column_name`**) — без `column_name`: свойства реквизита + индекс колонок; с `column_name`: детали колонки ValueTable (`attribute_column` EAV, `types[]`, ФО) или срез `Settings.Field` у DynamicList.
+3. **`get_form_item`** (`element_name`; опционально **`column_name`**) — без `column_name`: свойства контейнера + индекс колонок UI; с `column_name`: полные свойства и события дочернего элемента колонки.
+4. **`search_code`** — поиск фрагмента запроса → `get_form_attribute`.
+5. **`get_functional_options`** — расширение: `element_type=FormAttributeColumn` (нужны `attribute_name` + `column_name`).
+
+Отдельных tools `get_form_attribute_column` / `get_dynamic_list_query` **не будет** — один инструмент, два уровня (родитель → колонка).
+
+**Планируемые tools:** `get_form_attribute`, `get_form_item` (имена и параметр `column_name` зафиксированы в spec). `search_form_properties` — обобщение на EAV (позже).
 
 ### Регламентные задания (`ScheduledJob`)
 

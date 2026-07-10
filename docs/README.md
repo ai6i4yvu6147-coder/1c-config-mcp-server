@@ -22,6 +22,7 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 | [`dependency-layer.md`](dependency-layer.md) | Type system, reverse references |
 | [`roles-layer.md`](roles-layer.md) | Roles, RLS, phase 4 spec |
 | [`form-type-system.md`](form-type-system.md) | Form type system |
+| [`form-entity-model.md`](form-entity-model.md) | Form properties, overview profiles, drill-down (spec) |
 | [`testing-protocol.md`](testing-protocol.md) | Verification on connected MCP |
 | [`performance.md`](performance.md) | Performance notes |
 | [`admin-hub-integration.md`](admin-hub-integration.md) | Admin Hub module roadmap, Phase 3 CLI |
