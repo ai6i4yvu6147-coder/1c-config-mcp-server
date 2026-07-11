@@ -8,6 +8,10 @@
 - разные модули/файлы в `Ext`;
 - разные важные свойства, которые нужно дополнительно извлекать.
 
+### Внешняя обработка — не whitelist
+
+Файл внешней обработки (`<Имя>.xml`) имеет корень `MetaDataObject/ExternalDataProcessor`, а не `Configuration`. Это **третий вид корня проекта** (наряду с конфигурацией и расширением), не тип внутри `ChildObjects`. Индексация — отдельный трек `external-processor-root` в [`todo.md`](todo.md) через библиотеку `1c-metadata-schema` (Head `metadata-library-cluster.md`). Whitelist `DataProcessor` — только для встроенных обработок внутри конфигурации.
+
 ### Текущий whitelist (`shared/xml_parser.py`)
 
 Сейчас парсер обходит `Configuration.xml/ChildObjects` и пытается загружать объекты следующих типов:

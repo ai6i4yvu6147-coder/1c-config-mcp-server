@@ -8,11 +8,6 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 ## Hub pending
 
-- **THR-009** · `awaiting_head` · Role block cross-MCP contract (config-mcp → Head → data-mcp ripple)
-  - Sub: phase 4 + UX polish **done**; spec [`roles-layer.md`](roles-layer.md)
-  - Head: add `docs/group/shared/roles-cross-mcp.md`; open `sync_delta` + ripple thread for `1c-data-mcp`
-  - Ephemeral handoff at repo root (not in git) for Head operator
-
 ## Admin Hub / group integration
 
 - **Status:** `stable`, epoch 0 (see [`group/integration.md`](group/integration.md))
@@ -70,6 +65,24 @@ Do not start implementation from the list without explicit user request.
 ## Tasks
 
 <!-- id | status | brief | context / links -->
+
+- **external-processor-root** · `ready` · External data processor as third project-root kind (Variant B)
+
+  - **Why:** today `parse()` only accepts `Configuration` root; external processors (`MetaDataObject/ExternalDataProcessor` in `<Name>.xml`) are invisible — **not** a whitelist entry (see [`metadata-whitelist.md`](metadata-whitelist.md))
+
+  - **Canon:** Head `docs/group/shared/metadata-library-cluster.md`; library `C:/projects/1c-metadata-schema` (`onec_metadata_schema.parse()` → generic `Node`)
+
+  - **Approach:** root dispatch in `shared/xml_parser/core.py` → `onec_metadata_schema.parse()` → adapter `Node → dict` matching `_parse_object(..., obj_type='DataProcessor')` → existing `insert_objects.py` pipeline unchanged
+
+  - **Recon first:** (1) dict shape from `_parse_object` for embedded `DataProcessor`; (2) which `_insert_*` paths apply for a single-object “configuration”
+
+  - **Also:** `project_manager.py` `source_xml` may need to accept external processor file path; verify form EAV compatibility with adapter output
+
+  - **Verify:** real MCP tool calls per [`testing-protocol.md`](testing-protocol.md) — not Configurator load (that is library criterion)
+
+  - **Docs on completion:** `architecture.md`, `mcp-tools.md`, `metadata-whitelist.md`
+
+  - **Not in this track:** full whitelist migration (Stage G in metadata-schema); other 14+ types stay on current parser
 
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
