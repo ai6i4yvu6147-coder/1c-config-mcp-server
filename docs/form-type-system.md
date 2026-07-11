@@ -42,8 +42,9 @@ flowchart LR
 2. **Колонки:** таблица `form_attribute_columns` + слоты.
 3. **DynamicList Settings:** вне v1 — `form-dynamiclist-settings` в todo.
 4. **`find_referencing_objects` по формам:** **готово** (фаза 2 dependency-layer).
-5. **DefinedType / AnyRef / безымянный TypeSet:** slot не материализуется (как metadata фаза 1) — ссылается на сущность вне индексируемого графа (DefinedTypes не парсятся); `format_types_for_text` для такого реквизита показывает явное `(тип не определён)`, а не пусто (P-3, `INDEXER_VERSION` 15).
-6. **Произвольный `prefix:Name` без точки (P-3, `INDEXER_VERSION` 15):** любой bare платформенный тип — не только старый whitelist `v8:ValueListType`/`v8:ValueTable` — материализуется как `TypeDescriptor` по имени (`pl:Planner` → `Planner`, `dcsset:SettingsComposer` → `SettingsComposer`, `mxl:SpreadsheetDocument` → `SpreadsheetDocument`, …). Раньше 32% реквизитов форм в Планете (`44 147` из `137 638`) оставались без резолвленного типа именно из-за этого — см. `docs/architecture-audit-2026-07.md`.
+5. **DefinedType (`INDEXER_VERSION` 16):** объект whitelist в `metadata_objects`; `cfg:DefinedType.X` → слот на объект DefinedType; состав типа — слоты на самом DefinedType (`source_table='metadata_objects'`). Adopted DefinedType в расширении без `<Type>` может иметь пустой состав.
+6. **AnyRef / безымянный TypeSet:** slot не материализуется; `format_types_for_text` показывает `(тип не определён)`.
+7. **Произвольный `prefix:Name` без точки (P-3, `INDEXER_VERSION` 15):** любой bare платформенный тип — не только старый whitelist `v8:ValueListType`/`v8:ValueTable` — материализуется как `TypeDescriptor` по имени (`pl:Planner` → `Planner`, `dcsset:SettingsComposer` → `SettingsComposer`, `mxl:SpreadsheetDocument` → `SpreadsheetDocument`, …). Раньше 32% реквизитов форм в Планете (`44 147` из `137 638`) оставались без резолвленного типа именно из-за этого — см. `docs/architecture-audit-2026-07.md`.
 
 ---
 

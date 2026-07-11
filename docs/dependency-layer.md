@@ -35,7 +35,7 @@
 
 - объекты конфигурации из whitelist;
 - синтетические `TypeDescriptor` (примитивы с квалификаторами);
-- позже — `DefinedType` как обычный объект whitelist.
+- `DefinedType` (`INDEXER_VERSION` 16): объект whitelist, состав типа — слоты на самом объекте.
 
 **Не класть по умолчанию:** XDTO-схемы целиком, служебные артефакты, blob без FK, всё подряд из XML.
 
@@ -130,7 +130,7 @@ CREATE INDEX ix_mts_source ON metadata_type_slots(source_table, source_row_id);
    - составной → несколько слотов.
 3. Колонки `attribute_type` / `column_type` / `form_attributes.type` **убраны**; источник правды — слоты.
 
-**MVP типов:** примитивы с базовыми квалификаторами + ссылочные типы + составные слоты. `DefinedType`, `AnyRef`, `TypeSet` — итеративно.
+**MVP типов:** примитивы с базовыми квалификаторами + ссылочные типы + составные слоты + `DefinedType` (v16). `AnyRef`, безымянный `TypeSet` — итеративно.
 
 ---
 
@@ -228,7 +228,8 @@ SQL — **UNION** двух источников:
 | **1b** | 9 | формы: `form_attribute_columns`, `get_form_structure.types` — [`form-type-system.md`](form-type-system.md) | **готово** |
 | **2** | — | `find_referencing_objects` (слоты metadata + формы) | **готово** |
 | **3** | 10 | `metadata_relations`; whitelist `Subsystem` | **готово** |
-| **4** | +1 | whitelist `Role` — grants, restrictions, templates; MCP role tools | spec: [`roles-layer.md`](roles-layer.md) |
+| **4** | 11 | whitelist `Role` — grants, restrictions, templates; MCP role tools | **готово** |
+| **—** | 16 | `DefinedType` в whitelist; резолв `cfg:DefinedType.X`; фикс дублей реквизитов регистров | **готово** |
 | **5** | +1 | `EventSubscription` | blocked (выгрузка) |
 | **отдельно** | — | Поиск РЗ по `MethodName` | backlog |
 | **Tier 3** | — | СКД, RLS, code graph | отложено |

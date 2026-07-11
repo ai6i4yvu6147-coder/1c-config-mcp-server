@@ -57,7 +57,7 @@ Do not start implementation from the list without explicit user request.
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
 | Admin GUI: build stage log / timings | **done** — validated on real exports and live in the rebuilt admin GUI; see `gui-build-log-timings` |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` (phase 3), `Role` (phase 4); see `dependency-layer.md` phase 5 |
-| Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–9; current index format — `INDEXER_VERSION` 11; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
+| Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–16; current index format — `INDEXER_VERSION` 16; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
 | `metadata_relations` / role grants | **done** — subsystems (phase 3); roles via `role_grants` (phase 4); role UX polish (layer naming, merge, relation_kinds) — see CHANGELOG 2026-07-08 |
 
 ---

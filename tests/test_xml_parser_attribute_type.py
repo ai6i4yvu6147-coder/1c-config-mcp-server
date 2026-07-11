@@ -141,7 +141,7 @@ class TestExtractTypeSlots(unittest.TestCase):
         self.assertEqual(slots[0]['qualifiers']['digits'], 10)
         self.assertEqual(slots[0]['qualifiers']['fraction'], 2)
 
-    def test_typeset_unknown(self):
+    def test_typeset_defined_type_ref(self):
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Attribute xmlns="{MD}" xmlns:v8="{V8}">
   <Properties>
@@ -154,7 +154,9 @@ class TestExtractTypeSlots(unittest.TestCase):
         root = ET.fromstring(xml)
         slots = _parser()._extract_type_slots(root)
         self.assertEqual(len(slots), 1)
-        self.assertEqual(slots[0]['kind'], 'unknown')
+        self.assertEqual(slots[0]['kind'], 'object_ref')
+        self.assertEqual(slots[0]['object_type_hint'], 'DefinedType')
+        self.assertEqual(slots[0]['ref_name'], 'МойТип')
 
 
 if __name__ == '__main__':

@@ -73,7 +73,13 @@ def parse_cfg_type_string(type_str):
             if wrapper_base:
                 return {'kind': 'primitive', 'raw': type_str, 'base_type': wrapper_base}
             if suffix == 'DefinedType':
-                return {'kind': 'unknown', 'raw': type_str, 'ref_suffix': suffix, 'ref_name': name}
+                return {
+                    'kind': 'object_ref',
+                    'raw': type_str,
+                    'ref_suffix': suffix,
+                    'ref_name': name,
+                    'object_type_hint': 'DefinedType',
+                }
             return {'kind': 'unknown', 'raw': type_str, 'ref_suffix': suffix, 'ref_name': name}
         wrapper_base = CFG_FORM_WRAPPER_TO_BASE.get(body)
         if wrapper_base:

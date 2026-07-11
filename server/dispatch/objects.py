@@ -147,6 +147,14 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
                 if structure.get('restart_interval_on_failure') is not None:
                     response += f"  Интервал перезапуска (с): {structure['restart_interval_on_failure']}\n"
                 response += "\n"
+            if structure['type'] == 'DefinedType':
+                if structure.get('types'):
+                    response += f"  Состав типа ({len(structure['types'])}):\n"
+                    for member in structure['types']:
+                        response += f"    - {format_types_for_text([member])}\n"
+                else:
+                    response += "  Состав типа: (тип не определён)\n"
+                response += "\n"
             if structure.get('attributes'):
                 response += _capped_header("Реквизиты", structure['attributes'], structure.get('attributes_total_count'))
                 for attr in structure['attributes']:

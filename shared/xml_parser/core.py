@@ -7,6 +7,14 @@ from pathlib import Path
 from .xml_helpers import _winlong
 
 
+REGISTER_TYPES = (
+    'InformationRegister',
+    'AccumulationRegister',
+    'AccountingRegister',
+    'CalculationRegister',
+)
+
+
 class ConfigurationParserCore:
     """Configuration.xml top-level parsing, per-object dispatch, subsystems, properties/attributes."""
 
@@ -101,6 +109,7 @@ class ConfigurationParserCore:
             'CommonCommand': 'CommonCommands',
             'CommonForm': 'CommonForms',
             'ScheduledJob': 'ScheduledJobs',
+            'DefinedType': 'DefinedTypes',
         }
 
         for obj_type, folder_name in object_types.items():
@@ -208,7 +217,7 @@ class ConfigurationParserCore:
             modules = []
             with self._accumulate('forms'):
                 forms = self._parse_common_form(name, folder_name, uuid)
-        elif obj_type == 'ScheduledJob':
+        elif obj_type in ('ScheduledJob', 'DefinedType'):
             modules = []
             forms = []
         else:
@@ -230,18 +239,22 @@ class ConfigurationParserCore:
                 forms = self._parse_forms(name, folder_name, default_forms)
 
         # Парсим дополнительные структуры по типу объекта
-        register_types = ('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')
         if obj_type == 'CommonForm':
             tabular_sections = []
             dimensions = []
             resources = []
             enum_values = []
-        elif obj_type in register_types:
+        elif obj_type in REGISTER_TYPES:
             tabular_sections = []
             with self._accumulate('sections'):
                 dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
                 resources = self._parse_register_section(root, 'Resources', obj_type)
                 attributes = self._parse_register_section(root, 'Attributes', obj_type)
+            enum_values = []
+        elif obj_type == 'DefinedType':
+            tabular_sections = []
+            dimensions = []
+            resources = []
             enum_values = []
         elif obj_type == 'Enum':
             tabular_sections = []
@@ -265,7 +278,7 @@ class ConfigurationParserCore:
             route_transitions = flowchart['route_transitions']
 
         with self._accumulate('commands'):
-            commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob') else self._parse_object_commands(root, name, folder_name, obj_type)
+            commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob', 'DefinedType') else self._parse_object_commands(root, name, folder_name, obj_type)
 
         result = {
             'name': name,
@@ -280,8 +293,12 @@ class ConfigurationParserCore:
             'enum_values': enum_values,
             'commands': commands,
         }
-        if obj_type in register_types:
+        if obj_type in REGISTER_TYPES:
             result['attributes'] = attributes
+        if obj_type == 'DefinedType':
+            result['type_slots'] = (
+                self._extract_type_slots(obj_elem) if obj_elem is not None else []
+            )
         if obj_type == 'BusinessProcess':
             result['route_points'] = route_points
             result['route_transitions'] = route_transitions
@@ -384,8 +401,15 @@ class ConfigurationParserCore:
                     props['content_refs'] = content_refs
             return props
 
-        # Стандартные атрибуты
-        if obj_type:
+        # Стандартные и кастомные реквизиты
+        if obj_type == 'DefinedType':
+            props['standard_attributes'] = []
+            props['custom_attributes'] = []
+        elif obj_type in REGISTER_TYPES:
+            props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)
+            # Реквизиты регистра — в obj['attributes'] (_parse_register_section); не дублировать здесь.
+            props['custom_attributes'] = []
+        elif obj_type:
             props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)
             props['custom_attributes'] = self._parse_custom_attributes(root, obj_type)
         else:

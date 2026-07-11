@@ -30,9 +30,11 @@ class TestParseCfgTypeString(unittest.TestCase):
         self.assertEqual(slot['kind'], 'primitive')
         self.assertEqual(slot['base_type'], 'Boolean')
 
-    def test_defined_type_unknown(self):
+    def test_defined_type_ref(self):
         slot = parse_cfg_type_string('cfg:DefinedType.МойТип')
-        self.assertEqual(slot['kind'], 'unknown')
+        self.assertEqual(slot['kind'], 'object_ref')
+        self.assertEqual(slot['object_type_hint'], 'DefinedType')
+        self.assertEqual(slot['ref_name'], 'МойТип')
 
     def test_document_ref_without_name_unknown(self):
         slot = parse_cfg_type_string('cfg:DocumentRef')
@@ -117,6 +119,10 @@ class TestTypeDescriptor(unittest.TestCase):
             INSERT INTO metadata_objects (uuid, object_type, name, object_kind)
             VALUES ('u2', 'Document', 'Реализация', 'ConfigObject')
         ''')
+        cur.execute('''
+            INSERT INTO metadata_objects (uuid, object_type, name, object_kind)
+            VALUES ('u3', 'DefinedType', 'МойТип', 'ConfigObject')
+        ''')
         cur.execute("INSERT INTO attributes (object_id, name) VALUES (1, 'Owner')")
         self.conn.commit()
 
@@ -163,6 +169,24 @@ class TestTypeDescriptor(unittest.TestCase):
             normalize_descriptor_storage('String', None, None, None),
             ('String', '', '', ''),
         )
+
+    def test_insert_slots_defined_type_ref(self):
+        resolver = MetadataTypeResolver()
+        cur = self.conn.cursor()
+        type_name_to_id = {
+            ('Catalog', 'Контрагенты'): 1,
+            ('Document', 'Реализация'): 2,
+            ('DefinedType', 'МойТип'): 3,
+        }
+        pending = [{
+            'source_table': 'attributes',
+            'source_row_id': 1,
+            'src_object_id': 1,
+            'type_slots': [parse_cfg_type_string('cfg:DefinedType.МойТип')],
+        }]
+        resolver.insert_slots(cur, pending, type_name_to_id)
+        cur.execute('SELECT object_id FROM metadata_type_slots')
+        self.assertEqual(cur.fetchone()[0], 3)
 
     def test_insert_slots_composite(self):
         resolver = MetadataTypeResolver()

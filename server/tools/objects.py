@@ -8,7 +8,7 @@ _CAPPED_SECTION_KEYS = ('attributes', 'dimensions', 'resources')
 # All optional section keys agents can restrict via `sections`.
 _STRUCTURE_SECTION_KEYS = (
     'attributes', 'dimensions', 'resources', 'tabular_sections',
-    'enum_values', 'commands', 'forms', 'modules', 'route_points',
+    'enum_values', 'commands', 'forms', 'modules', 'route_points', 'types',
 )
 
 
@@ -293,6 +293,21 @@ class ObjectsMixin:
                     'content_refs': content_refs,
                     'privileged_get_mode': privileged_get_mode,
                     'used_in': used_in,
+                    'modules': [],
+                    'commands': [],
+                    'forms': [],
+                }
+            elif obj_type == 'DefinedType':
+                member_types = _load_resolved_types_map(
+                    cursor, 'metadata_objects', [object_id],
+                ).get(object_id, [])
+                structure = {
+                    'name': obj_row['name'],
+                    'type': obj_type,
+                    'uuid': obj_row['uuid'],
+                    'synonym': obj_row['synonym'],
+                    'comment': obj_row['comment'],
+                    'types': member_types,
                     'modules': [],
                     'commands': [],
                     'forms': [],

@@ -70,6 +70,16 @@ class ObjectInsertionMixin:
             if obj['type'] == 'Role':
                 self._insert_role_data(cursor, object_id, obj, source_db_name)
 
+            if obj['type'] == 'DefinedType':
+                type_slots = obj.get('type_slots') or []
+                if type_slots:
+                    pending_type_slots.append({
+                        'source_table': 'metadata_objects',
+                        'source_row_id': object_id,
+                        'src_object_id': object_id,
+                        'type_slots': type_slots,
+                    })
+
             for module in obj['modules']:
                 cursor.execute('''
                     INSERT INTO modules (object_id, form_id, command_id, module_type, code)
@@ -129,7 +139,7 @@ class ObjectInsertionMixin:
                 self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
             for attr in obj['properties'].get('custom_attributes', []):
                 self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
-            if obj['type'] not in ('ScheduledJob', 'Subsystem'):
+            if obj['type'] not in ('ScheduledJob', 'Subsystem', 'DefinedType'):
                 for dim in obj.get('dimensions', []):
                     self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
                 for res in obj.get('resources', []):

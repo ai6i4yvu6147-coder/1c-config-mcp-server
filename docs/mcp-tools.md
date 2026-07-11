@@ -24,7 +24,7 @@
 - **`get_object_structure`** для широких объектов ограничивает списки реквизитов/измерений/ресурсов: `max_attributes` (по умолчанию 50; `0` — без лимита). При обрезке в ответе — `<section>_total_count` и `is_truncated`, в тексте «показаны N из M … увеличьте max_attributes или find_attribute». Параметр `sections` (`attributes`, `dimensions`, `resources`, `tabular_sections`, `enum_values`, `commands`, `forms`, `modules`, `route_points`) возвращает только указанные секции. Точечный поиск реквизита — `find_attribute`.
 - **`get_form_item` / `get_form_attribute`** по умолчанию **курируют** свойства EAV (`verbose=false`): скрыт служебный шум (`*.item.lang`, пустые значения, неустановленные даты), локализованные строки схлопнуты (`ToolTip.item.content` → `ToolTip`), профильные свойства элемента — первыми; у реквизита-DynamicList `Settings.Field.*` не дублируются в `properties` (они в индексе колонок). Полный дамп EAV — `verbose=true`. Число скрытых строк — в пометке `(+N служебных свойств скрыто)`.
 - **`search_form_properties`** ищет UI-элементы по **любому** `property_path` из EAV (не только `Visible`/`Enabled`): `value_match=exact|contains`, лимит `max_results` (по умолчанию 100) с `total_count`/`is_truncated`. Регистронезависимое сравнение по кириллице — через Unicode-функцию `py_lower` на соединении.
-- **Тип не резолвится → явная пометка, не пусто (P-3).** Когда реквизит/измерение/ресурс/колонка ссылается на тип, который резолвер не может сопоставить объекту метаданных (`cfg:DefinedType.X`, полностью пустой `<Type/>`), `get_object_structure` и `get_form_structure`/`get_form_attribute` показывают `(тип не определён)` вместо пустой строки после двоеточия. Большинство «пустых» типов (32% реквизитов форм на Планете) на самом деле были известными платформенными типами под нестандартными namespace-алиасами (`v8:Color`, `pl:Planner`, `dcsset:SettingsComposer`, `mxl:SpreadsheetDocument`, …) — теперь резолвятся по имени; см. [`form-type-system.md`](form-type-system.md).
+- **Тип не резолвится → явная пометка (P-3).** Пустой `<Type/>` и прочие нерезолвленные случаи показывают `(тип не определён)`. **`cfg:DefinedType.X`** резолвится с `INDEXER_VERSION` **16** (объект в индексе) → `DefinedType.Имя` в `get_object_structure` / `find_attribute` / формах. Bare платформенные типы (`v8:Color`, `pl:Planner`, …) — см. [`form-type-system.md`](form-type-system.md).
 - **Схема `active_databases` подрезана (T-6).** Описание инструмента избавлено от повторяющегося перечисления синонимов «список проектов»; поведение и параметры не изменились.
 
 ### Команды объектов и общие команды (`CommandModule`)
@@ -63,7 +63,7 @@
   - `route_points` — `{name, type, synonym, uuid, true_port?, false_port?}` (type: Start, Activity, Condition, Completion, Split, Join, …);
   - `route_transitions` — `{from, to, from_port?, title?}`.
 - В **текстовом ответе MCP**: компактный индекс точек по типам и **adjacency list** переходов (полный граф, включая Split/Join). Подписи веток условий — из `title` линии или «Да»/«Нет» по портам Condition.
-- После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **12**).
+- После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **16**).
 
 ### Type system (фаза 1 — реализовано)
 
@@ -78,7 +78,9 @@
 - **`find_attribute`** — поле **`types`** вместо строки `attribute_type`.
 - **`list_objects` / `find_object`** — только `ConfigObject`; `TypeDescriptor` (примитивы) не показываются. `find_object` ищет по **имени и синониму** объекта.
 
-**Не материализуются (MVP):** `DefinedType`, `AnyRef`, безымянный `TypeSet`.
+**`DefinedType` (`INDEXER_VERSION` 16):** индексируется как `ConfigObject`. `get_object_structure` → секция «Состав типа» (члены из `Properties/Type`). Ссылки `cfg:DefinedType.X` у реквизитов/измерений/ресурсов и форм → `DefinedType.X` в `types[]`. `find_referencing_objects` — обратный поиск на DefinedType.
+
+**Не материализуются (MVP):** `AnyRef`, безымянный `TypeSet`.
 
 ### Обратный поиск (`find_referencing_objects`, фазы 2–4 — реализовано)
 
@@ -108,7 +110,7 @@
 - **`find_roles_for_object`** — обратный поиск ролей с явным grant на объект; `merge=true` — сводка по проекту (main + расширения); `merge=false` — по базам; `admin_roles_note` при наличии `ПолныеПрава`.
 - **`active_databases`** — у расширений дополнительно `extension_purpose` (`Customization` / `AddOn` / `Patch`).
 
-После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **12**).
+После изменений схемы — пересоздать БД через `admin_tool` (актуальный `INDEXER_VERSION` в `shared/indexer_version.py`, сейчас **16**).
 
 ### Планируемые tools (relations, фаза 5+)
 

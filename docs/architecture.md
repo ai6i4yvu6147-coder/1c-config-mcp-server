@@ -77,7 +77,7 @@ Full spec: [`dependency-layer.md`](dependency-layer.md). **Type system (metadata
 
 ### Rules for inclusion in `metadata_objects`
 
-Only what **has reference relations**: whitelist objects, `TypeDescriptor`, later `DefinedType`.
+Only what **has reference relations**: whitelist objects, `TypeDescriptor`, `DefinedType` (`INDEXER_VERSION` 16).
 
 **Do not add by default:** XDTO wholesale, service artifacts without FK.
 

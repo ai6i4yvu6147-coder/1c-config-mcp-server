@@ -6,6 +6,13 @@
 
 ---
 
+## 2026-07-11
+
+- **DefinedType в whitelist + фикс дублей реквизитов регистров (`INDEXER_VERSION` 16 — требует пересборки БД):**
+  - **DefinedType:** парсинг `DefinedTypes/*.xml`, объекты в `metadata_objects`, состав типа в `metadata_type_slots` (`source_table='metadata_objects'`); `cfg:DefinedType.X` резолвится в слоты (`DefinedType.Имя` в `get_object_structure` / `find_attribute` / формах). У самого DefinedType — секция «Состав типа» (члены составного типа). `list_objects` / `find_object` / `find_referencing_objects` работают с DefinedType как с обычным `ConfigObject`. Adopted DefinedType в расширении без `<Type>` в XML может показывать пустой состав — ожидаемо.
+  - **Дубли реквизитов регистров:** в формате выгрузки 2.20 (и классическом) реквизиты регистра попадали и в `custom_attributes`, и в `obj['attributes']` — в БД каждый реквизит вставлялся дважды (`InformationRegister`, `AccumulationRegister`, `AccountingRegister`, `CalculationRegister`). Исправлено: для регистров `custom_attributes` пуст, реквизиты только через `_parse_register_section`.
+  - Тесты: `tests/test_defined_type_and_registers.py`, `tests/test_get_object_structure_defined_type.py`; обновлены `test_metadata_type_resolver.py`, `test_xml_parser_attribute_type.py`.
+
 ## 2026-07-10
 
 - **MCP: экономия ответов `get_object_structure` и form drill-down (аудит T-1/T-2, только `server/`, без пересборки БД):** реализованы «быстрые победы» из [`docs/architecture-audit-2026-07.md`](docs/architecture-audit-2026-07.md).

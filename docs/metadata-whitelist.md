@@ -35,12 +35,15 @@
 - `CommonCommand` (общие команды: один `CommandModule.bsl` в `CommonCommands/<Имя>/Ext/`)
 - `CommonForm` (общие формы: `CommonForms/<Имя>.xml`, структура в `CommonForms/<Имя>/Ext/Form.xml`, модуль в `Ext/Form/Module.bsl`)
 - `ScheduledJob` (регламентные задания: один `ScheduledJobs/<Имя>.xml`, без модулей; свойства `MethodName`, `Use`, `Predefined`, …)
+- `DefinedType` (определяемые типы: `DefinedTypes/<Имя>.xml`, состав из `Properties/Type`; без модулей и форм)
 
 Подсистемы (`Subsystem`) **не** в `ChildObjects` — парсятся отдельно из каталога `Subsystems/` (включая вложенные; квалифицированные имена из пути файла).
 
+Тип `Role` **не** в `ChildObjects` — парсится отдельно из каталога `Roles/`.
+
 ### Связь с type system и relations
 
-Тип `Subsystem` **индексируется** (фаза 3): связи Content и вложенность — в `metadata_relations` (`subsystem_member`). Тип `Role` **индексируется** (фаза 4): grants/RLS — в `role_grants` и связанных таблицах ([`roles-layer.md`](roles-layer.md)). `EventSubscription` — фаза 5.
+Тип `Subsystem` **индексируется** (фаза 3): связи Content и вложенность — в `metadata_relations` (`subsystem_member`). Тип `Role` **индексируется** (фаза 4): grants/RLS — в `role_grants` и связанных таблицах ([`roles-layer.md`](roles-layer.md)). Тип `DefinedType` **индексируется** (`INDEXER_VERSION` 16): объект в `metadata_objects`, члены состава — в `metadata_type_slots`; ссылки `cfg:DefinedType.X` резолвятся в слоты. `EventSubscription` — фаза 5.
 
 ### Как добавить новый тип
 
@@ -57,12 +60,9 @@
 
 В одной из выгрузок в `Configuration.xml` встречаются типы, которых сейчас нет в whitelist, например:
 
-- `Subsystem`
-- `Role`
 - `HTTPService`
 - `EventSubscription`
 - `CommonPicture`
-- `DefinedType`
 - `XDTOPackage`
 
 Это **не баг**, а ожидаемое поведение whitelist: такие типы не индексируются, пока не добавлены осознанно.
