@@ -10,7 +10,7 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 2. [`todo.md`](todo.md) — backlog; **`## Hub pending`** for group sync
 3. [`architecture.md`](architecture.md) — data flow, components, product policies
 4. Domain specs (below)
-5. [`group/integration.md`](group/integration.md) — Head link, protocol state
+5. [`group/integration.md`](group/integration.md) — Head link, sync state
 
 ### Domain specs
 
@@ -32,20 +32,19 @@ Structured context for AI and developers. Root overview: [`../README.md`](../REA
 
 | Document | Contents |
 |----------|----------|
-| [`group/integration.md`](group/integration.md) | Head hub link, protocol state, local deviations |
-| [`group/protocol-ref/epoch0/`](group/protocol-ref/epoch0/) | Stable protocol snapshot (v1 + addenda v1.0.1–v1.0.3) |
+| [`group/integration.md`](group/integration.md) | Head hub link, sync state, local deviations |
+| Head `docs/group/shared/` at `head.path` | Group protocol canon (read directly, no local copy) |
 | [`group/OPERATOR-HANDOFF.md`](group/OPERATOR-HANDOFF.md) | Operator credentials/deploy (human tier) |
 | [`canons/`](canons/) | Local WI canon copy |
 | [`normalize-record.md`](normalize-record.md) | Last normalize metadata |
 
-**Subagents and skills (canon 2.5.0):** `.cursor/agents/` — 5 (`doc-librarian` + dev pipeline); `.cursor/skills/` — 4 (`normalize-project`, `canon-align`, `maintain-docs`, `sync`).
+**Subagents and skills (canon 2.6.0):** `.cursor/agents/` — 5 (`doc-librarian` + dev pipeline); `.cursor/skills/` — 4 (`normalize-project`, `canon-align`, `maintain-docs`, `sync`).
 
 ### Group sync tools
 
 ```powershell
 python scripts/project-doctor.py --type Sub
 python scripts/sync-status.py --repo .
-python scripts/protocol-snapshot.py --status --repo .
 ```
 
 Hub state: `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md`. Sync — skill **`sync`** when `## Hub pending` is non-empty.

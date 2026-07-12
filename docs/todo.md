@@ -10,7 +10,7 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 ## Admin Hub / group integration
 
-- **Status:** `stable`, epoch 0 (see [`group/integration.md`](group/integration.md))
+- **Status:** `stable` (`sync_state`; see [`group/integration.md`](group/integration.md))
 - Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — **done**
 
 ## How to use

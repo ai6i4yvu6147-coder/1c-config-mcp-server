@@ -5,21 +5,20 @@
 - **group id:** `1c-cursor`
 - **head id:** `1c-admin-tool`
 - **hub:** `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md`
+- **shared canon:** `C:/projects/1c-admin-tool/docs/group/shared/` · `C:/repo/1c-config-admin-tool/docs/group/shared/` (read directly, no local copy)
 
-## Protocol state
+## Sync state
 
 | Field | Value |
 |-------|-------|
-| protocol_epoch | 0 |
-| protocol_sync_state | stable (THR-009 proposed — role block ripple to data-mcp) |
-| stable_at | 2026-07-03T11:15:00Z |
-| protocol_ref | `docs/group/protocol-ref/epoch0/` |
-| open_disputes | 0 |
-| dispute_round | 0 |
+| sync_state | stable |
+| last_event | 20260711T053100Z |
+
+Mirrors this Sub's `GROUP-HUB.md` registry row — the hub is the source of truth; this is a local read-cache, not a pinned protocol version.
 
 ## Sync (hub)
 
-State lives in the Head hub (`head.paths` in `group.manifest.yaml`): `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md`. This project edits only its own `sub_id` (`1c-config-mcp`) registry row and threads.
+State lives in the Head hub at `head.paths` in `group.manifest.yaml`. This project edits only its own `sub_id` (`1c-config-mcp`) registry row and threads.
 
 Session start: if `docs/todo.md` has `## Hub pending`, run skill **`sync`**.
 
@@ -31,7 +30,6 @@ Session start: if `docs/todo.md` has `## Hub pending`, run skill **`sync`**.
 - **Ephemeral handoff:** reports for other teams — `HANDOFF-*.md` in repo root (gitignored); rule `.cursor/rules/cross-team-handoff.mdc`.
 - **Code layout:** `admin_tool/`, `server/`, `shared/` (not `src/`).
 - **Role block (phase 4 + UX polish):** implemented on Sub; cross-MCP contract in [`roles-layer.md`](../roles-layer.md). **THR-009** proposed to Head (`awaiting_head`) — ripple to `1c-data-mcp` pending Head `docs/group/shared/roles-cross-mcp.md`.
-- **protocol-ref:** `docs/group/protocol-ref/epoch0/` — Head baseline @ `cf3336a` (v1.0.6 + registry-mapping-data-mcp); local operational detail — `admin-hub-integration.md`.
 
 ## Status
 

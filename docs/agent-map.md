@@ -23,14 +23,13 @@ admin_tool/               # GUI and CLI (hub_protocol, db_manager)
 server/                   # MCP server (server.py, tools.py)
 shared/                   # XML parser, ProjectManager, hub_protocol
 tests/
-scripts/                  # project-doctor, sync-status, protocol-snapshot
+scripts/                  # project-doctor, sync-status
 docs/
   agent-map.md            # this file
   architecture.md         # data flow, product policies
   todo.md                 # backlog + ## Hub pending
   admin-hub-integration.md
   group/integration.md
-  group/protocol-ref/epoch0/
 .tasks/                   # subagent handoff (gitignored)
 ```
 
@@ -70,10 +69,10 @@ build_all.bat   # portable: Admin/, Server/, Tools/
 ## Hub (Sub)
 
 - **Hub file:** `C:/projects/1c-admin-tool/GROUP-HUB.md` · `C:/repo/1c-config-admin-tool/GROUP-HUB.md` — edit only `1c-config-mcp` registry row and own threads.
-- **Protocol snapshot:** `docs/group/protocol-ref/epoch0/` (reference; Head canon in `docs/group/shared/`).
+- **Shared canon:** Head `docs/group/shared/` at `head.path` (read directly, no local copy).
 - **Local adaptation:** [`admin-hub-integration.md`](admin-hub-integration.md); group link — [`group/integration.md`](group/integration.md).
 
-**Sync triggers:** `## Hub pending` in todo, user `/sync 1c-config-mcp <topic>`, registry `stale`, or group-critical change in Head `shared/`.
+**Sync triggers:** `## Hub pending` in todo, user `/sync 1c-config-mcp <topic>`, or contract change in Head `docs/group/shared/`.
 
 ## Key policies (do not violate)
 

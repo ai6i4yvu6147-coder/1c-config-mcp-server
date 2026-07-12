@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Group sync status (hub model, canon 2.5.0).
+Group sync status (hub model, canon 2.6.0).
 
 Reports the lightweight ## Hub pending signal from docs/todo.md, plus the
 GROUP-HUB.md registry (Head) or integration.md protocol fields (Sub).
@@ -78,7 +78,7 @@ def _integration_fields(repo: Path) -> dict[str, str]:
     path = repo / GROUP / "integration.md"
     if not path.is_file():
         return {}
-    keys = ("protocol_epoch", "protocol_sync_state", "stable_at", "dispute_round", "open_disputes")
+    keys = ("sync_state", "last_event")
     fields: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if "|" not in line:

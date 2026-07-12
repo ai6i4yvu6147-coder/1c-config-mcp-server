@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка репозитория на соответствие канонам (2.5.3). Типы: S, H, Sub.
+Проверка репозитория на соответствие канонам (2.6.0). Типы: S, H, Sub.
 
 Usage:
   python project-doctor.py
@@ -49,10 +49,9 @@ REQUIRED: dict[str, list[str]] = {
     ],
 }
 
-GROUP_SCRIPTS = ("protocol-snapshot.py", "sync-status.py")
+GROUP_SCRIPTS = ("sync-status.py",)
 INTEGRATION_FIELDS = (
-    "protocol_epoch",
-    "protocol_sync_state",
+    "sync_state",
 )
 
 FORBIDDEN_ROOT = ["readme.txt"]
@@ -76,7 +75,6 @@ UNIVERSAL_RULE_NAMES = ("docs-in-english.mdc", "keep-repo-current.mdc", "prompt-
 CANON_MANAGED_GIT_PATHS = [
     "docs/canons",
     "group.manifest.yaml",
-    "docs/group/protocol-ref",
     "docs/group/shared",
     "GROUP-HUB.md",
 ]
@@ -511,7 +509,7 @@ def main() -> int:
             wi = None  # WI checking itself — no external source to compare against
 
     print(f"project-doctor: {repo}")
-    print(f"  type: {repo_type} (canon 2.5.3)")
+    print(f"  type: {repo_type} (canon 2.6.0)")
 
     errors, warnings, healed = check_repo(repo, repo_type, wi=wi, heal=args.heal)
 

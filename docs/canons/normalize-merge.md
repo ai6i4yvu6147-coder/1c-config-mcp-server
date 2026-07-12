@@ -1,6 +1,6 @@
 # Merge policy for normalization
 
-Version: **2.4.0** (canon 2.5.0)
+Version: **2.5.0** (canon 2.6.0)
 
 Normalization is **merge** with an existing repository, not replacement. The agent follows canon and role checklist while preserving project value.
 
@@ -12,7 +12,6 @@ See `normalize-governance.md`, `normalize.bundle.yaml`, `<WI>/normalize.deprecat
 
 1. Add and update what canon requires. Do **not** delete arbitrary project files — except paths in `normalize.deprecations.yaml` for versions being applied.
 2. Respect project context: product code, docs, and dependencies stay meaningful for this repo.
-3. `protocol-ref/` appears on protocol reconcile (group-sync), not on first normalize.
 
 ---
 

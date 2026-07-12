@@ -1,6 +1,6 @@
 # Canon: normalization
 
-Version: **1.11.0** (canon 2.5.3)
+Version: **1.12.0** (canon 2.6.0)
 
 Normalization brings a repository to the **role structure** (S / H / Sub) per Workspace improve canons.
 
@@ -91,7 +91,6 @@ Run normalize in **one pass**, then start a **fresh session** for real work — 
 | Script | Purpose |
 |--------|---------|
 | `project-doctor.py` | Structure check |
-| `protocol-snapshot.py` | Baseline / review-snapshot (H/Sub) |
 | `sync-status.py` | Hub pending + registry (Head) / integration state (Sub) |
 
 ---
@@ -108,7 +107,7 @@ Canon drift between full normalize passes is expected — WI keeps moving after 
 Everything else the doctor finds is **flag-only, by design** — fixing it requires a judgment call, not a lookup:
 
 - **Rule hygiene (project-local rules only)** — `.cursor/rules/*` outside the 3 universal ones that isn't `.mdc`, has invalid/missing frontmatter, or has a non-descriptive name (Cursor likely won't load it as a rule, or a future normalize pass won't recognize it as intentional). Whether to reformat, rename, or retire the rule is a per-repo decision.
-- **Dirty canon-managed paths** — uncommitted changes under `docs/canons/`, `group.manifest.yaml`, `docs/group/protocol-ref/`, `docs/group/shared/`, `GROUP-HUB.md`. This means the Hub registry's `stable`/`negotiating`/`stale` label may not match what's actually in git history for that repo yet. When to commit is the operator's call (see `WORKFLOW.md`), not something normalize should force.
+- **Dirty canon-managed paths** — uncommitted changes under `docs/canons/`, `group.manifest.yaml`, `docs/group/shared/`, `GROUP-HUB.md`. This means the Hub registry's `stable`/`negotiating` label may not match what's actually in git history for that repo yet. When to commit is the operator's call (see `WORKFLOW.md`), not something normalize should force.
 
 Running `--heal` is safe to do **outside** a full re-normalize pass too — it's cheap enough to run any time canon drift is suspected, not just at role-checklist time.
 

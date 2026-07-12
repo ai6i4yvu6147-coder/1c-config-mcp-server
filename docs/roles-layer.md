@@ -69,7 +69,7 @@ For adopted extension roles: extension `Role.xml` has its own `uuid` and `Extend
 
 **Adopted identity (agreed):** merge and lookup by role **`Name`**. API also returns `extended_configuration_object_uuid` when `ObjectBelonging=Adopted` (link to main role uuid).
 
-**Layer identity (agreed):** config-mcp MCP responses use `db_name` from `projects.json` / `active_databases` — the same value as `extension_filter` and Hub `configMcp.instances[].extensionFilter` ([`registry-mapping-data-mcp.md`](group/protocol-ref/epoch0/registry-mapping-data-mcp.md) § C-MCP refs). data-mcp does not need `Configuration.xml` `Name` for layer disambiguation.
+**Layer identity (agreed):** config-mcp MCP responses use `db_name` from `projects.json` / `active_databases` — the same value as `extension_filter` and Hub `configMcp.instances[].extensionFilter` (Head `docs/group/shared/registry-mapping-data-mcp.md` at `head.path` § C-MCP refs). data-mcp does not need `Configuration.xml` `Name` for layer disambiguation.
 
 ---
 

@@ -23,6 +23,7 @@ Universal standards for **all** repositories.
 | 2.4.0 | 2026-07-02 | Agent-cache tier English; language migration on re-normalize |
 | 2.5.0 | 2026-07-02 | Hub sync model (`GROUP-HUB.md`); `agent-map.md` entry; dev pipeline agents |
 | 2.5.1 | 2026-07-04 | `group-sync.md` 2.5.1: explicit Sub write-surface boundary at Head; delivery-notice thread for Sub-completed work |
+| 2.6.0 | 2026-07-12 | Drop protocol epochs, `dispute_round` registry field, and the `protocol-ref`/`exports` snapshot mechanism; Sub reads `shared/` at `head.path` directly; `protocol-snapshot.py` removed |
 
 ## Artifacts
 
@@ -33,4 +34,4 @@ Universal standards for **all** repositories.
 | Checklist | `../../normalize.bundle.yaml` |
 | Deprecations | `../../normalize.deprecations.yaml` |
 | Check | `../../scripts/project-doctor.py` |
-| Snapshot / status | `../../scripts/protocol-snapshot.py`, `../../scripts/sync-status.py` |
+| Status | `../../scripts/sync-status.py` |

@@ -26,7 +26,7 @@ Details: [`admin-hub-integration.md`](admin-hub-integration.md).
 - **Responsibility split**: the agent changes sources; the user rebuilds portable/server and databases; the agent verifies results on the connected MCP via tool calls.
 - **Parser: rely on real exports**: when extending `shared/xml_parser.py` and import in `admin_tool/db_manager.py`, rely on real XML/BSL export files. If export paths are not provided, ask the user. External materials — only after reviewing a real file or explicit user confirmation.
 - **Testing**: functional verification on the **working MCP** (connected in IDE) via **actual tool calls**, always starting with `active_databases`; no parser simulation, no direct SQLite reads ([`testing-protocol.md`](testing-protocol.md)).
-- **Group sync**: shared protocol canon — Head `docs/group/shared/`; local snapshot — `docs/group/protocol-ref/epoch<N>/`; hub at `<head.path>/GROUP-HUB.md`; skill **`sync`**.
+- **Group sync**: shared protocol canon — Head `docs/group/shared/` at `head.path` (read directly, no local copy); hub at `<head.path>/GROUP-HUB.md`; skill **`sync`**.
 
 ### Terms
 
@@ -103,5 +103,5 @@ See [`mcp-tools.md`](mcp-tools.md).
 | [`testing-protocol.md`](testing-protocol.md) | MCP verification protocol |
 | [`performance.md`](performance.md) | Performance notes |
 | [`admin-hub-integration.md`](admin-hub-integration.md) | Admin Hub managed-tool roadmap and CLI |
-| [`group/integration.md`](group/integration.md) | Group hub link and protocol state |
-| [`group/protocol-ref/epoch0/`](group/protocol-ref/epoch0/) | Protocol snapshot (reference only) |
+| [`group/integration.md`](group/integration.md) | Group hub link and sync state (`sync_state`, `last_event`) |
+| Head `docs/group/shared/` at `head.path` | Group protocol canon (contract source) |

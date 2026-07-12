@@ -1,6 +1,6 @@
 # Project structure canons
 
-Version: **2.5.0**
+Version: **2.6.0**
 
 Universal standard for **any** repository. Not tied to a specific stack or domain.
 
@@ -48,7 +48,6 @@ Every project **first** matches base **S**. H and Sub are extensions on top.
 - `venv/`, `node_modules/`, `build/`, `dist/`
 - Runtime configs — only `*.example.json` / `.env.example`
 - `plans/`, `scratch/`, `.tasks/` (subagent handoff artifacts)
-- `docs/group/exports/` (ephemeral sync snapshots)
 - `.cursor/settings.local.json` and Cursor runtime state (personal)
 
 **Commit** the materialized `.cursor/agents/` and `.cursor/skills/` — they are agent-cache tier and travel with the repo, so `git`-ignoring `.cursor/*` wholesale is wrong. Ignore only the personal/runtime pieces above.
@@ -66,12 +65,9 @@ Every project **first** matches base **S**. H and Sub are extensions on top.
     └── group/
         ├── README.md       # sub registry mirror
         ├── shared/         # SHARED canon (edited only here)
-        ├── exports/        # snapshot staging per sub (ephemeral, gitignored)
         └── archive/
             └── <sub-id>/   # closed-thread summaries
 ```
-
-`docs/group/exports/<sub-id>/` holds protocol/review snapshots the hub thread points to; the Sub reads them via `head.path` and installs into its own `protocol-ref/`.
 
 **Required:** `GROUP-HUB.md`, `group.manifest.yaml` (`role: head`), `docs/group/README.md`, `docs/group/shared/`
 
@@ -85,14 +81,12 @@ Every project **first** matches base **S**. H and Sub are extensions on top.
 ├── group.manifest.yaml     # role: subordinate + head.path (required for hub access)
 └── docs/
     └── group/
-        ├── integration.md  # link to Head, local deviations, protocol state
-        └── protocol-ref/
-            └── epoch<N>/   # stable snapshot, in git
+        └── integration.md  # link to Head, local deviations, protocol state
 ```
 
 **Required:** `docs/group/integration.md`
 
-The Sub reads/writes the hub at `<head.path>/GROUP-HUB.md` in its own `sub_id` sections only. It never holds a copy of `shared/` or talks to other Subs directly.
+The Sub reads/writes the hub at `<head.path>/GROUP-HUB.md` in its own `sub_id` sections only. It never holds a copy of `shared/` — it reads it at `head.path` directly — and never talks to other Subs directly.
 
 ---
 
@@ -118,7 +112,7 @@ The Sub reads/writes the hub at `<head.path>/GROUP-HUB.md` in its own `sub_id` s
 | Inbox/outbox packet dirs | `GROUP-HUB.md` threads |
 | Inlining contracts in the hub | pointers by path + commit |
 | Sub ↔ Sub directly | only via Head |
-| Mirror copy of `shared/` in Sub | `protocol-ref/` snapshot + local adaptation |
+| Mirror copy of `shared/` in Sub | read `shared/` at `head.path` directly |
 | Full canons in the default session path | `docs/agent-map.md` entry |
 
 Templates: `../../templates/standalone/`, `head/`, `subordinate/`

@@ -1,6 +1,6 @@
 # Canon: documentation
 
-Version: **2.3.0**
+Version: **2.4.0**
 
 Unified documentation order for **any** project. Material in the **agent-cache tier** is **English**. Russian is allowed for **human-tier** docs and **product UI** (see below).
 
@@ -21,7 +21,7 @@ Paths the agent reads repeatedly in the pipeline. Full list also in `<WI>/normal
 | All roles | `docs/canons/**` |
 | All roles | `.cursor/skills/**`, `.cursor/agents/**` |
 | Head (H) | `docs/group/README.md`, `docs/group/shared/**` |
-| Sub | `docs/group/integration.md`, `docs/group/protocol-ref/**` |
+| Sub | `docs/group/integration.md` |
 
 `GROUP-HUB.md` is **on-demand** (read on sync), not agent-cache tier — kept English when agent-read but outside the repeated-read list.
 
@@ -54,16 +54,15 @@ flowchart TB
 
  subgraph sub [Sub]
  Integ[integration.md]
- Ref[protocol-ref/epoch N]
  end
 
  Shared -->|critical change| Hub
  Hub -->|thread awaiting_sub| Integ
  Integ -->|skill sync: ack / dispute| Hub
- Hub -->|on ack| Ref
+ Integ -.->|reads directly| Shared
 ```
 
-A critical change from Sub A reaches Sub B **only through Head**. State is thread metadata in `GROUP-HUB.md`; contracts are committed in `shared/` and referenced by path + commit.
+A critical change from Sub A reaches Sub B **only through Head**. State is thread metadata in `GROUP-HUB.md`; contracts are committed in `shared/` and referenced by path + commit — Sub reads them at `head.path`, it never mirrors them.
 
 ---
 
@@ -100,7 +99,7 @@ Normalization **consolidates** accumulated ad-hoc documentation into this struct
 | Group map | `docs/group/README.md` | link in `integration.md` |
 | Sync state | `GROUP-HUB.md` (owner) | own `sub_id` sections in Head hub |
 
-**Rule:** group-wide canon lives in Head `shared/`. Sub owns **its** direction in local specs; it installs a `protocol-ref/` snapshot rather than copying all of `shared/`.
+**Rule:** group-wide canon lives in Head `shared/`. Sub owns **its** direction in local specs; it reads `shared/` at `head.path` directly rather than copying it.
 
 ---
 
@@ -117,6 +116,6 @@ Normalization **consolidates** accumulated ad-hoc documentation into this struct
 
 - [ ] S/H/Sub type stated in `docs/agent-map.md`
 - [ ] `.tasks/` in `.gitignore`
-- [ ] Sub: no committed copy of `shared/`
+- [ ] Sub: no local copy of `shared/` (reads it at `head.path` directly)
 - [ ] H: shared specs only in `shared/`; `GROUP-HUB.md` carries pointers, not contract bodies
 - [ ] Agent-cache tier in English (`agent_docs_lang: en` in normalize-record)

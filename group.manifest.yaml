@@ -2,7 +2,7 @@ id: 1c-config-mcp
 
 group:
   id: 1c-cursor
-  canon_version: "2.5.3"
+  canon_version: "2.6.0"
 
 role: subordinate
 

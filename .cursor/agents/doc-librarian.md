@@ -38,14 +38,13 @@ Detect role from `group.manifest.yaml` (`role: head|subordinate`), else treat as
 ### Head (H) — S plus:
 
 - `docs/group/shared/` (group protocol canon)
-- `docs/group/README.md` (sub table, `protocol_epoch`, sync states)
+- `docs/group/README.md` (sub table, sync states)
 - `docs/group/archive/` after closed cycles
 - `GROUP-HUB.md` doc pointers when skill `sync` passes a thread scope — protocol `status` stays with the skill
 
 ### Subordinate (Sub) — S plus:
 
-- `docs/group/integration.md` (protocol state fields)
-- `docs/group/protocol-ref/epoch<N>/` when installing snapshots
+- `docs/group/integration.md` (sync state fields) — no local copy of `shared/`, read it at `head.path` directly
 - Head hub at `<head.path>/GROUP-HUB.md` — your `sub_id` registry row and threads, only when the parent passes that path in scope
 
 ## Group sync
@@ -56,5 +55,4 @@ Negotiation and onboarding run through skills `sync` / `sync-base` (hub model). 
 
 ```powershell
 python scripts/sync-status.py --repo .
-python scripts/protocol-snapshot.py --status --repo .
 ```
