@@ -132,3 +132,31 @@ def restriction_preview(text, include_mode, max_chars=200):
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + '…'
+
+
+def filter_used_templates(templates, restrictions):
+    """Keep only templates actually referenced (by #BaseName( call) in the given restrictions' text.
+
+    `template_name` is stored as declared, e.g. "ДляОбъекта(ПолеОбъекта)" (with its formal
+    parameter list); the call site in restriction_text uses just "#ДляОбъекта(...)" with actual
+    arguments, so match on the name portion before the first "(".
+
+    Restriction templates are role-wide (not tied to a specific grant), so without this,
+    object_name/rights filtering on grants/restrictions has no effect on the templates payload —
+    a role used across many objects (e.g. a base role) always dumps every template's full text.
+    """
+    if not templates:
+        return []
+    known = {
+        t['template_name']: f"#{t['template_name'].split('(', 1)[0]}("
+        for t in templates
+    }
+    used = set()
+    for restr in restrictions:
+        text = restr.get('restriction_text') or ''
+        if not text:
+            continue
+        for name, marker in known.items():
+            if name not in used and marker in text:
+                used.add(name)
+    return [t for t in templates if t['template_name'] in used]

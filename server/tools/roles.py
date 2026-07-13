@@ -2,6 +2,7 @@ from server.role_db import fetch_role_layer, fetch_role_row, read_index_metadata
 from server.role_merge import (
     filter_grants,
     filter_restrictions,
+    filter_used_templates,
     grant_stats,
     merge_grants,
     merge_restrictions,
@@ -35,6 +36,23 @@ def _with_agent_db_name(item, layer_map, fallback_db_name=None):
     db_name = _agent_db_name(config_name, layer_map, fallback_db_name)
     if db_name:
         out['db_name'] = db_name
+    return out
+
+
+def _restriction_templates_out(templates, include_restriction_text, layer_map, fallback_db):
+    out = []
+    for t in templates:
+        item = _with_agent_db_name(
+            {'template_name': t['template_name'], 'source_db_name': t.get('source_db_name')},
+            layer_map, fallback_db,
+        )
+        preview = restriction_preview(t.get('condition_text'), include_restriction_text)
+        if preview is not None:
+            if include_restriction_text == 'full':
+                item['condition_text'] = preview
+            else:
+                item['condition_text_preview'] = preview
+        out.append(item)
     return out
 
 
@@ -241,6 +259,7 @@ class RolesMixin:
 
         grants = filter_grants(all_grants, object_name=object_name, rights=rights, depth=depth)
         restrictions = filter_restrictions(all_restrictions, rls=rls, object_name=object_name)
+        used_templates = filter_used_templates(all_templates, restrictions)
 
         total_grant_count = len(grants)
         use_summary = should_use_summary_mode(
@@ -273,9 +292,9 @@ class RolesMixin:
             'settings': settings,
             'merge': bool(merge),
             'layers': [layer['db_name'] for layer in layer_payloads],
-            'restriction_templates': [
-                _with_agent_db_name(t, layer_map, fallback_db) for t in all_templates
-            ],
+            'restriction_templates': _restriction_templates_out(
+                used_templates, include_restriction_text, layer_map, fallback_db
+            ),
         }
 
         if role_row['object_belonging']:

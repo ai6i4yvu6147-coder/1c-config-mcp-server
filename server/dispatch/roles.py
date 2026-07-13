@@ -167,8 +167,9 @@ async def handle_get_role_rights(tools, arguments: dict) -> list[TextContent]:
         response += f"\n  Шаблоны ограничений ({len(templates)}):\n"
         for t in templates:
             response += f"    • {t.get('template_name')}\n"
-            if t.get('condition_text'):
-                response += f"        {t['condition_text']}\n"
+            preview = t.get('condition_text') or t.get('condition_text_preview')
+            if preview:
+                response += f"        {preview}\n"
 
     return [TextContent(type="text", text=response)]
 

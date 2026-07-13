@@ -165,6 +165,8 @@ One grant : N restrictions (0..N).
 
 `role_object_id`, `template_name`, `condition_text`, `source_db_name`.
 
+**`get_role_rights` filtering (2026-07-14):** templates are role-wide, not grant-specific, so the response only includes templates actually referenced (`#BaseName(` call, matched against the *filtered* `access_restrictions`) rather than the role's full template set — otherwise `object_name`/`rights`/`response_mode` narrowed `grants`/`access_restrictions` but not `restriction_templates`, and a cross-cutting role (used across ~100 profiles, e.g. a base rights role) always dumped every template's full text regardless of how narrow the filter was. `include_restriction_text` applies to `condition_text` the same way it applies to `restriction_text` (`false` omits it, string gives a preview, `'full'` gives the full text). See `server/role_merge.py::filter_used_templates`.
+
 ### Reverse lookup (phase 4)
 
 **Agreed:** `find_roles_for_object` and `find_referencing_objects` (`via: role_grant`) query **`role_grants`** directly (JOIN on parent object qname). Do **not** materialize `metadata_relations.role_grant` in phase 4 — avoids duplicate data (~17k+ object rows). Revisit denormalized index only if profiling requires it.

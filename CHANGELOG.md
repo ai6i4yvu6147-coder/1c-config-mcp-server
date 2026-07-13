@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-07-14
+
+- **Фикс: `get_role_rights` игнорировал фильтры для `restriction_templates` (найдено при разборе кейса Планеты в `1c-data-mcp`, только `server/`, без пересборки БД):** `restriction_templates` собирался из **всех** шаблонов роли независимо от `object_name`/`rights`/`response_mode`/`include_restriction_text` — эти параметры фильтровали `grants`/`access_restrictions`, но не шаблоны. На сквозных ролях (используются в ~100 профилях, напр. базовая роль прав) это гарантированно пробивало лимит токенов на любом, сколь угодно узком запросе (317 034 симв. на реальном кейсе). Исправлено: `filter_used_templates` (`server/role_merge.py`) оставляет только шаблоны, реально referenced (`#BaseName(` вызов) в отфильтрованных `restriction_text`; `_restriction_templates_out` (`server/tools/roles.py`) применяет `include_restriction_text`/`restriction_preview` к `condition_text` шаблона так же, как к `restriction_text` ограничений; текстовый вывод (`server/dispatch/roles.py`) учитывает `condition_text_preview`. Тесты: `tests/test_role_merge.py` (2 новых юнит-теста), `tests/test_role_tools.py` (интеграционный тест на фикстуре `ФТ_Бюджетирование`) — весь набор зелёный (173 passed, 9 skipped). Подтверждено вживую на роли `БазовыеПраваУХ`. Доки: [`roles-layer.md`](docs/roles-layer.md).
+
 ## 2026-07-11
 
 - **DefinedType в whitelist + фикс дублей реквизитов регистров (`INDEXER_VERSION` 16 — требует пересборки БД):**

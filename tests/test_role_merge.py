@@ -1,6 +1,7 @@
 import unittest
 
 from server.role_merge import (
+    filter_used_templates,
     merge_grants,
     merge_restrictions,
     merge_role_settings,
@@ -65,6 +66,21 @@ class TestRoleMerge(unittest.TestCase):
         ]
         merged = merge_restrictions(layers)
         self.assertEqual(len(merged), 2)
+
+    def test_filter_used_templates_drops_unreferenced(self):
+        templates = [
+            {'template_name': 'ДляОбъекта(ПолеОбъекта)', 'condition_text': '...'},
+            {'template_name': 'ПоЗначениям(Таблица, Право)', 'condition_text': '...'},
+        ]
+        restrictions = [
+            {'restriction_text': 'ТекущаяТаблица ГДЕ #ДляОбъекта(Ссылка)'},
+        ]
+        used = filter_used_templates(templates, restrictions)
+        self.assertEqual([t['template_name'] for t in used], ['ДляОбъекта(ПолеОбъекта)'])
+
+    def test_filter_used_templates_empty_restrictions_drops_all(self):
+        templates = [{'template_name': 'ДляОбъекта(ПолеОбъекта)', 'condition_text': '...'}]
+        self.assertEqual(filter_used_templates(templates, []), [])
 
 
 if __name__ == '__main__':

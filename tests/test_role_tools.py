@@ -88,6 +88,38 @@ class TestRoleToolsLayerNaming(unittest.TestCase):
                 self.assertNotIn('source_db_name', grant)
             tools.close_all()
 
+    def test_restriction_templates_filtered_to_object_name(self):
+        """restriction_templates must not dump role-wide templates unrelated to the filtered object.
+
+        Fixture role ФТ_Бюджетирование declares a restrictionTemplate ("ДляОбъекта(ПолеОбъекта)")
+        that no restriction in the role actually calls (its one restricted grant, on
+        Catalog.БанковскиеСчета, uses literal inline conditions, not a "#ДляОбъекта(" macro call).
+        Previously get_role_rights returned every restriction_templates row for the role
+        unconditionally; it must now reflect actual usage instead.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / 'main.db'
+            _build_db(db_path)
+            tools = _tools_with_databases(tmp_path, [
+                ('Основная конфигурация', 'base', db_path, None),
+            ])
+            payload = tools.get_role_rights(
+                'ФТ_Бюджетирование',
+                project_filter='RolesProject',
+                object_name='БанковскиеСчета',
+                response_mode='full',
+            )
+            self.assertEqual(payload['restriction_templates'], [])
+
+            payload_unfiltered = tools.get_role_rights(
+                'ФТ_Бюджетирование',
+                project_filter='RolesProject',
+                response_mode='full',
+            )
+            self.assertEqual(payload_unfiltered['restriction_templates'], [])
+            tools.close_all()
+
 
 class TestFindRolesForObjectMerge(unittest.TestCase):
     def test_merge_returns_flat_project_list(self):
