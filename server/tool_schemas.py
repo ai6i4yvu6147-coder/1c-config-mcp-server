@@ -6,8 +6,8 @@ TOOL_SCHEMAS = [
         description=(
             "Список проектов и баз данных 1С (основная конфигурация и расширения). Первый шаг работы: "
             "вызывайте без аргументов, чтобы узнать допустимые project_filter/extension_filter для остальных "
-            "инструментов (search_code, find_object, get_module_code и др.). Передавайте возвращённые имена "
-            "без изменений (точное совпадение)."
+            "инструментов (search_code, list_objects, find_object, get_module_code и др.). Передавайте "
+            "возвращённые имена без изменений (точное совпадение)."
         ),
         inputSchema={
             "type": "object",
@@ -22,7 +22,11 @@ TOOL_SCHEMAS = [
     ),
     Tool(
         name="search_code",
-        description="Поиск по коду конфигурации. project_filter обязателен; extension_filter опционален. Используйте active_databases для списка проектов и баз.",
+        description=(
+            "Инструмент search_code: поиск фрагмента в BSL-коде модулей (ManagerModule, ObjectModule, "
+            "FormModule и др.) и в QueryText форм. project_filter обязателен; extension_filter опционален. "
+            "Список проектов и баз — active_databases."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -79,7 +83,12 @@ TOOL_SCHEMAS = [
     ),
     Tool(
         name="list_objects",
-        description="Список объектов метаданных. project_filter обязателен. Для расширений в ответе — object_belonging (Own/Adopted). В ответе по каждой базе: total_count, returned_count, is_truncated; при is_truncated: true увеличьте limit или сообщите пользователю о неполном списке.",
+        description=(
+            "Инструмент list_objects: перечень объектов метаданных конфигурации (Catalog, Document, "
+            "CommonModule и др.); опционально object_type. project_filter обязателен. Для расширений в ответе "
+            "— object_belonging (Own/Adopted). По каждой базе: total_count, returned_count, is_truncated; "
+            "при is_truncated: true увеличьте limit или сообщите пользователю о неполном списке."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
