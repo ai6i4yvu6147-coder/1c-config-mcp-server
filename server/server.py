@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from pathlib import Path
 from mcp.server import Server
 from mcp.types import Tool, TextContent
@@ -12,6 +13,12 @@ from server.tools import ConfigurationTools
 from server.tool_schemas import TOOL_SCHEMAS
 from server.dispatch import HANDLERS, handle_active_databases
 from shared.runtime_paths import get_paths
+from shared.tool_calls_log import (
+    ToolCallLogger,
+    inject_correlation_properties,
+    tool_calls_db_path,
+    utc_now_iso,
+)
 
 _module_paths = get_paths()
 
@@ -24,27 +31,67 @@ tools = ConfigurationTools(
     databases_dir=str(_module_paths.data_dir),
 )
 
+# Журнал вызовов инструментов (protocol v1.0.7 §3): <logsDir>/tool-calls.db
+_call_logger = ToolCallLogger(tool_calls_db_path(_module_paths.logs_dir))
+
+
+def _response_bytes(response: list[TextContent] | None) -> int | None:
+    """Serialized response size for the journal (sum of TextContent utf-8 bytes)."""
+    if not response:
+        return None
+    total = 0
+    for item in response:
+        text = getattr(item, "text", None)
+        if text:
+            total += len(text.encode("utf-8"))
+    return total or None
+
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """Список доступных инструментов"""
-    return TOOL_SCHEMAS
+    return inject_correlation_properties(TOOL_SCHEMAS)
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Обработка вызова инструмента"""
-
-    if name == "active_databases":
-        return await handle_active_databases(tools, arguments)
+    args = arguments or {}
+    started_at = utc_now_iso()
+    started_mono = time.monotonic()
+    success = True
+    error_code = None
+    response: list[TextContent] | None = None
 
     try:
-        handler = HANDLERS.get(name)
-        if handler is not None:
-            return await handler(tools, arguments)
-        return [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
-    except ValueError as e:
-        return [TextContent(type="text", text=str(e))]
+        if name == "active_databases":
+            response = await handle_active_databases(tools, args)
+        else:
+            try:
+                handler = HANDLERS.get(name)
+                if handler is not None:
+                    response = await handler(tools, args)
+                else:
+                    response = [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
+            except ValueError as e:
+                success = False
+                error_code = type(e).__name__
+                response = [TextContent(type="text", text=str(e))]
+        return response
+    except Exception as e:
+        success = False
+        error_code = type(e).__name__
+        raise
+    finally:
+        _call_logger.log(
+            tool=name,
+            started_at=started_at,
+            started_mono=started_mono,
+            args=args,
+            success=success,
+            error_code=error_code,
+            result_bytes=_response_bytes(response),
+        )
 
 
 async def main():
