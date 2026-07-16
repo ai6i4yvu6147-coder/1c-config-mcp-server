@@ -17,6 +17,8 @@ from shared.hub_rebuild import (
     run_reconcile_markers,
     run_triggered_rebuilds,
 )
+from shared.runtime_paths import get_paths
+from shared.tool_calls_log import READ_DEFAULT_LIMIT, read_tool_calls, tool_calls_db_path
 
 EXIT_SUCCESS = 0
 EXIT_VALIDATION = 1
@@ -90,7 +92,59 @@ def _build_parser() -> argparse.ArgumentParser:
         help="JSON output on stdout (default: true)",
     )
 
+    calls_sp = sub.add_parser("tool-calls", help="Read tool-call journal rows (JSON)")
+    calls_sp.add_argument("--task-id", default=None, help="Filter by task_id (exact)")
+    calls_sp.add_argument("--tool", default=None, help="Filter by tool name (exact)")
+    calls_sp.add_argument("--since", default=None, help="Keep rows with ts_utc >= SINCE (ISO-8601 Z)")
+    calls_sp.add_argument("--until", default=None, help="Keep rows with ts_utc <= UNTIL (ISO-8601 Z)")
+    calls_sp.add_argument("--only-errors", action="store_true", help="Only failed calls (success = 0)")
+    calls_sp.add_argument(
+        "--limit",
+        type=int,
+        default=READ_DEFAULT_LIMIT,
+        help=f"Max rows, newest first (default: {READ_DEFAULT_LIMIT})",
+    )
+    calls_sp.add_argument("--offset", type=int, default=0, help="Rows to skip (pagination)")
+    calls_sp.add_argument(
+        "--json",
+        action="store_true",
+        default=True,
+        help="JSON output on stdout (default: true)",
+    )
+
     return parser
+
+
+def run_tool_calls(args: argparse.Namespace) -> dict:
+    """Read the module's tool-call journal into a Hub-uniform JSON envelope."""
+    paths = get_paths(args.root)
+    db_path = tool_calls_db_path(paths.logs_dir)
+    rows = read_tool_calls(
+        db_path,
+        task_id=args.task_id,
+        tool=args.tool,
+        since=args.since,
+        until=args.until,
+        only_errors=args.only_errors,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    return {
+        "module": paths.module_id,
+        "moduleType": paths.module_type,
+        "db": str(db_path),
+        "query": {
+            "taskId": args.task_id,
+            "tool": args.tool,
+            "since": args.since,
+            "until": args.until,
+            "onlyErrors": bool(args.only_errors),
+            "limit": args.limit,
+            "offset": args.offset,
+        },
+        "count": len(rows),
+        "rows": rows,
+    }
 
 
 def _emit_json(payload: object, use_json: bool) -> None:
@@ -133,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_SUCCESS if payload.get("success") else EXIT_RUNTIME
         elif command == "reconcile-markers":
             payload = run_reconcile_markers(args.root)
+        elif command == "tool-calls":
+            payload = run_tool_calls(args)
         elif command == "apply-registry":
             payload = run_apply_registry(args.input, args.root, apply_mode=args.apply_mode)
             if payload.get("success") and args.trigger_rebuild:

@@ -8,6 +8,7 @@ from shared.tool_calls_log import (
     build_args_summary,
     extract_correlation,
     inject_correlation_properties,
+    read_tool_calls,
     tool_calls_db_path,
 )
 
@@ -135,3 +136,77 @@ def test_logger_swallows_write_errors(tmp_path: Path) -> None:
         args={"project_filter": "ТГ"},
         success=True,
     )  # must not raise
+
+
+def _seed(db_path: Path) -> ToolCallLogger:
+    logger = ToolCallLogger(db_path)
+    logger.log(
+        tool="search_code",
+        started_at="2026-07-16T07:00:00Z",
+        started_mono=0.0,
+        args={"task_id": "T-1", "project_filter": "ТГ"},
+        success=True,
+        result_bytes=100,
+    )
+    logger.log(
+        tool="get_module_code",
+        started_at="2026-07-16T07:05:00Z",
+        started_mono=0.0,
+        args={"task_id": "T-2"},
+        success=False,
+        error_code="ValueError",
+    )
+    logger.log(
+        tool="search_code",
+        started_at="2026-07-16T07:10:00Z",
+        started_mono=0.0,
+        args={"task_id": "T-1"},
+        success=True,
+    )
+    return logger
+
+
+def test_read_missing_db_returns_empty(tmp_path: Path) -> None:
+    assert read_tool_calls(tmp_path / "logs" / "tool-calls.db") == []
+
+
+def test_read_returns_newest_first_camelcase(tmp_path: Path) -> None:
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    _seed(db_path)
+    rows = read_tool_calls(db_path)
+    assert [r["tool"] for r in rows] == ["search_code", "get_module_code", "search_code"]
+    top = rows[0]
+    assert top["tsUtc"] == "2026-07-16T07:10:00Z"
+    assert top["taskId"] == "T-1"
+    assert top["success"] is True
+    assert set(top) == {
+        "id", "tsUtc", "tool", "taskId", "agent", "model",
+        "elapsedMs", "resultBytes", "success", "errorCode", "argsSummary", "pid",
+    }
+
+
+def test_read_filter_by_task_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    _seed(db_path)
+    rows = read_tool_calls(db_path, task_id="T-1")
+    assert len(rows) == 2
+    assert {r["taskId"] for r in rows} == {"T-1"}
+
+
+def test_read_filter_by_tool_and_only_errors(tmp_path: Path) -> None:
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    _seed(db_path)
+    assert len(read_tool_calls(db_path, tool="search_code")) == 2
+    errors = read_tool_calls(db_path, only_errors=True)
+    assert len(errors) == 1
+    assert errors[0]["success"] is False
+    assert errors[0]["errorCode"] == "ValueError"
+
+
+def test_read_time_window_and_limit_offset(tmp_path: Path) -> None:
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    _seed(db_path)
+    windowed = read_tool_calls(db_path, since="2026-07-16T07:05:00Z", until="2026-07-16T07:05:00Z")
+    assert [r["tool"] for r in windowed] == ["get_module_code"]
+    assert len(read_tool_calls(db_path, limit=1)) == 1
+    assert read_tool_calls(db_path, limit=1, offset=1)[0]["tool"] == "get_module_code"

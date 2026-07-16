@@ -205,3 +205,101 @@ class ToolCallLogger:
                     conn.close()
         except (OSError, sqlite3.Error):
             return
+
+
+# Column order returned by the reader; also the ``rows[]`` object keys (camelCase)
+# consumed by the Hub «журнал по задаче» viewer (protocol v1.0.7 §3.4).
+_READ_COLUMNS = (
+    "id",
+    "ts_utc",
+    "tool",
+    "task_id",
+    "agent",
+    "model",
+    "elapsed_ms",
+    "result_bytes",
+    "success",
+    "error_code",
+    "args_summary",
+    "pid",
+)
+
+# Newest-first default page size and hard cap for a single read.
+READ_DEFAULT_LIMIT = 200
+READ_MAX_LIMIT = 5000
+
+
+def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "tsUtc": row["ts_utc"],
+        "tool": row["tool"],
+        "taskId": row["task_id"],
+        "agent": row["agent"],
+        "model": row["model"],
+        "elapsedMs": row["elapsed_ms"],
+        "resultBytes": row["result_bytes"],
+        "success": None if row["success"] is None else bool(row["success"]),
+        "errorCode": row["error_code"],
+        "argsSummary": row["args_summary"],
+        "pid": row["pid"],
+    }
+
+
+def read_tool_calls(
+    db_path: PathLike,
+    *,
+    task_id: str | None = None,
+    tool: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    only_errors: bool = False,
+    limit: int = READ_DEFAULT_LIMIT,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Read journal rows newest-first as camelCase dicts. Failure-isolated.
+
+    Absent store (Sub never called), a missing ``tool_calls`` table, or any
+    sqlite/OS error yields ``[]`` — never raises. ``since``/``until`` compare
+    lexicographically against the ISO-8601 Z ``ts_utc`` (correct for that form).
+    """
+    path = Path(db_path)
+    if not path.is_file():
+        return []
+
+    clauses: list[str] = []
+    params: list[Any] = []
+    if task_id:
+        clauses.append("task_id = ?")
+        params.append(task_id)
+    if tool:
+        clauses.append("tool = ?")
+        params.append(tool)
+    if since:
+        clauses.append("ts_utc >= ?")
+        params.append(since)
+    if until:
+        clauses.append("ts_utc <= ?")
+        params.append(until)
+    if only_errors:
+        clauses.append("success = 0")
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    capped_limit = max(1, min(int(limit), READ_MAX_LIMIT))
+    safe_offset = max(0, int(offset))
+    sql = (
+        f"SELECT {', '.join(_READ_COLUMNS)} FROM tool_calls"
+        f"{where} ORDER BY id DESC LIMIT ? OFFSET ?"
+    )
+    params.extend([capped_limit, safe_offset])
+
+    try:
+        conn = sqlite3.connect(str(path), timeout=1.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(sql, params)
+            return [_row_to_dict(r) for r in cursor.fetchall()]
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error):
+        return []
