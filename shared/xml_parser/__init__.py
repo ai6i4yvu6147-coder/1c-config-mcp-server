@@ -5,6 +5,7 @@ from .flowchart import FlowchartMixin
 from .modules import ModulesMixin
 from .forms import FormsMixin
 from .roles import RolesMixin
+from .external_processor import ExternalProcessorMixin
 from .xml_helpers import XmlHelpersMixin, get_configuration_name, get_configuration_type
 
 
@@ -15,10 +16,11 @@ class ConfigurationParser(
     SectionsMixin,
     TypeSlotsMixin,
     RolesMixin,
+    ExternalProcessorMixin,
     XmlHelpersMixin,
     ConfigurationParserCore,
 ):
-    """Парсер XML-выгрузки конфигурации 1С"""
+    """Парсер XML-выгрузки конфигурации 1С (+ внешние обработки, external_processor.py)"""
 
 
 def test_parser(config_path):

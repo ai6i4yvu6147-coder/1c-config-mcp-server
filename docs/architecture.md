@@ -4,10 +4,11 @@
 
 ```mermaid
 flowchart LR
-  Export[1C XML+BSL export] --> Parser[shared/xml_parser.py]
-  Parser --> DbBuilder[admin_tool/db_manager.py]
+  Export[1C XML+BSL export: Configuration.xml or ExternalDataProcessor Name.xml] --> Parser[shared/xml_parser/]
+  Lib[onec_metadata_schema] -. external processor descriptor .-> Parser
+  Parser --> DbBuilder[admin_tool/db_manager/]
   DbBuilder --> SQLite[(portable/databases/*.db)]
-  MCP[server/server.py] --> Tools[server/tools.py]
+  MCP[server/server.py] --> Tools[server/tools/]
   Tools --> SQLite
 ```
 
@@ -21,7 +22,7 @@ Details: [`admin-hub-integration.md`](admin-hub-integration.md).
 
 - **NO_DB_MIGRATIONS**: never write migrations for existing SQLite databases in `databases/`. After schema/import logic changes, databases are **always recreated** via `admin_tool` from the source export. See [`database.md`](database.md).
 - **`INDEXER_VERSION`**: on incompatible schema/data changes, bump the constant in `shared/indexer_version.py` (`.cursor/rules/bump-indexer-version.mdc`).
-- **Metadata type whitelist**: the parser handles only types from `shared/xml_parser.py` (`object_types`). New types are added incrementally with type-specific considerations ([`metadata-whitelist.md`](metadata-whitelist.md)). **External data processors** are a separate mechanism — third project-root kind via `1c-metadata-schema`, not a whitelist entry (Head `docs/group/shared/metadata-library-cluster.md`; local track `external-processor-root` in [`todo.md`](todo.md)).
+- **Metadata type whitelist**: the parser handles only types from `shared/xml_parser.py` (`object_types`). New types are added incrementally with type-specific considerations ([`metadata-whitelist.md`](metadata-whitelist.md)). **External data processors and reports** are a separate mechanism — additional project-root kinds via `1c-metadata-schema`, not whitelist entries (Head `docs/group/shared/metadata-library-cluster.md`; **implemented, read side** — `shared/xml_parser/external_processor.py`, db_type `processor`/`report`). DCS-schema indexing for reports — separate epic.
 - **Sources vs runtime (portable)**: sources must not contain runtime state (`projects.json`, `databases/*.db`). These live next to the portable instance and are changed via `admin_tool`.
 - **Responsibility split**: the agent changes sources; the user rebuilds portable/server and databases; the agent verifies results on the connected MCP via tool calls.
 - **Parser: rely on real exports**: when extending `shared/xml_parser.py` and import in `admin_tool/db_manager.py`, rely on real XML/BSL export files. If export paths are not provided, ask the user. External materials — only after reviewing a real file or explicit user confirmation.
@@ -35,10 +36,11 @@ Details: [`admin-hub-integration.md`](admin-hub-integration.md).
 
 ### Main components
 
-- **1C export parser**: `shared/xml_parser/` (package: `core.py` dispatch, `forms.py`, `sections.py`, `flowchart.py`, `modules.py`, `types.py`, `xml_helpers.py` — mixins composed into `ConfigurationParser`)
-  - Input: path to `Configuration.xml` in the export directory.
+- **1C export parser**: `shared/xml_parser/` (package: `core.py` dispatch, `forms.py`, `sections.py`, `flowchart.py`, `modules.py`, `types.py`, `roles.py`, `external_processor.py`, `xml_helpers.py` — mixins composed into `ConfigurationParser`)
+  - Input: path to `Configuration.xml` (configuration/extension), or to an external data processor `<Name>.xml` (root `MetaDataObject/ExternalDataProcessor`). `core.py parse()` dispatches on the root kind.
   - Output: `data` structure (configuration, object list, properties/forms/modules).
   - Important: metadata type handling is limited to the `object_types` whitelist.
+  - **External data processor / report (project-root kinds, Variant B):** `external_processor.py` reads the descriptor through the shared `1c-metadata-schema` library (`onec_metadata_schema.parse()` → generic `Node`) and adapts it to the same dict a `DataProcessor` / `Report` produces; modules/forms/commands reuse the existing file-walk methods; insert pipeline unchanged. Not whitelist entries ([`metadata-whitelist.md`](metadata-whitelist.md)); db_type `processor`/`report`. External report **DCS/templates are not indexed** (parity with embedded `Report`; separate epic).
 
 - **SQLite DB builder**: `admin_tool/db_manager/` (package: `core.py`, `schema.py`, `insert_objects.py`, `insert_forms.py`, `relations.py`, `file_ops.py`, `bsl.py` — mixins composed into `DatabaseManager`)
   - Creates table schema and loads data.

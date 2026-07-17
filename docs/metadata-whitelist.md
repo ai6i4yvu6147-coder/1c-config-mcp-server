@@ -10,7 +10,9 @@
 
 ### Внешняя обработка — не whitelist
 
-Файл внешней обработки (`<Имя>.xml`) имеет корень `MetaDataObject/ExternalDataProcessor`, а не `Configuration`. Это **третий вид корня проекта** (наряду с конфигурацией и расширением), не тип внутри `ChildObjects`. Индексация — отдельный трек `external-processor-root` в [`todo.md`](todo.md) через библиотеку `1c-metadata-schema` (Head `metadata-library-cluster.md`). Whitelist `DataProcessor` — только для встроенных обработок внутри конфигурации.
+Файл внешней обработки (`<Имя>.xml`) имеет корень `MetaDataObject/ExternalDataProcessor`, а не `Configuration`. Это **третий вид корня проекта** (наряду с конфигурацией и расширением), не тип внутри `ChildObjects`. Whitelist `DataProcessor` — только для встроенных обработок внутри конфигурации.
+
+**Реализовано (read-сторона, Variant B):** root-dispatch в `shared/xml_parser/core.py` при корне `ExternalDataProcessor` / `ExternalReport` уходит в `shared/xml_parser/external_processor.py`, который читает дескриптор через библиотеку `1c-metadata-schema` (`onec_metadata_schema.parse()` → `Node`) и адаптирует его в ту же dict-структуру, что и встроенный `DataProcessor` / `Report`; модули/формы/команды — существующими файловыми обходами (`folder_name=''`); insert-пайплайн без изменений. Тип базы — `processor` / `report` (`get_configuration_type`). Канон — Head `metadata-library-cluster.md`. **СКД/шаблоны** внешнего отчёта не индексируются (паритет со встроенными `Report`; отдельный эпик `dcs-schema-indexing` в [`todo.md`](todo.md)). Полная миграция остальных whitelist-типов на библиотеку — Stage G в `1c-metadata-schema`, отдельно.
 
 ### Текущий whitelist (`shared/xml_parser.py`)
 

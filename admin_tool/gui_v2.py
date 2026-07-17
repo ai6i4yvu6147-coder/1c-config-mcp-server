@@ -191,7 +191,7 @@ class AdminAppV2:
             
             # Добавляем базы данных
             for db in project["databases"]:
-                db_icon = "📁" if db["type"] == "base" else "📦"
+                db_icon = {"base": "📁", "processor": "⚙", "report": "📊"}.get(db["type"], "📦")
                 db_text = f"{db_icon} {db['name']}"
                 db_path = self.db_dir / db["db_file"]
                 if is_building(db_path):
@@ -341,7 +341,8 @@ class AdminAppV2:
             
             msg = f"База данных: {db['name']}\n"
             msg += f"Проект: {project['name']}\n"
-            msg += f"Тип: {'Основная' if db['type'] == 'base' else 'Расширение'}\n\n"
+            type_label = {'base': 'Основная', 'processor': 'Внешняя обработка', 'report': 'Внешний отчёт'}.get(db['type'], 'Расширение')
+            msg += f"Тип: {type_label}\n\n"
             msg += f"Всего объектов: {stats['total_objects']}\n"
             msg += f"Всего модулей: {stats['total_modules']}\n\n"
             msg += "По типам:\n"
@@ -475,6 +476,8 @@ class AddDatabaseWindow:
         type_frame.pack(padx=20, pady=5, anchor=tk.W)
         tk.Radiobutton(type_frame, text="Основная конфигурация", variable=self.type_var, value="base").pack(side=tk.LEFT, padx=10)
         tk.Radiobutton(type_frame, text="Расширение", variable=self.type_var, value="extension").pack(side=tk.LEFT, padx=10)
+        tk.Radiobutton(type_frame, text="Внешняя обработка", variable=self.type_var, value="processor").pack(side=tk.LEFT, padx=10)
+        tk.Radiobutton(type_frame, text="Внешний отчёт", variable=self.type_var, value="report").pack(side=tk.LEFT, padx=10)
         
         tk.Label(self.window, text="XML файл конфигурации:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 5))
         xml_frame = tk.Frame(self.window)

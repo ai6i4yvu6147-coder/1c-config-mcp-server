@@ -43,16 +43,33 @@ class ConfigurationParserCore:
             self.stage_seconds[stage_name] = self.stage_seconds.get(stage_name, 0.0) + (time.perf_counter() - t0)
 
     def parse(self):
-        """Парсит конфигурацию и возвращает структуру данных"""
+        """Парсит корень выгрузки и возвращает структуру данных.
+
+        Виды корня: `MetaDataObject/Configuration` (конфигурация и расширение — один тег,
+        различаются по ConfigurationExtensionPurpose/ObjectBelonging),
+        `MetaDataObject/ExternalDataProcessor` (внешняя обработка) и
+        `MetaDataObject/ExternalReport` (внешний отчёт) — внешние объекты читаются через
+        библиотеку onec_metadata_schema, см. external_processor.py.
+        """
         tree = ET.parse(_winlong(self.config_path))
         root = tree.getroot()
 
         ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
         config = root.find('md:Configuration', ns)
 
-        if config is None:
-            return {'name': '', 'objects': []}
+        if config is not None:
+            return self._parse_configuration(config, ns)
 
+        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+        if self._get_object_element(root, 'ExternalDataProcessor', md_ns) is not None:
+            return self._parse_external_data_processor(root)
+        if self._get_object_element(root, 'ExternalReport', md_ns) is not None:
+            return self._parse_external_report(root)
+
+        return {'name': '', 'objects': []}
+
+    def _parse_configuration(self, config, ns):
+        """Разбор корня `MetaDataObject/Configuration` (конфигурация или расширение)."""
         properties = config.find('md:Properties', ns)
         config_name = ''
         if properties is not None:

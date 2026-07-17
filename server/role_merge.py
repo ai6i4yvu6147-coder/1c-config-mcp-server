@@ -13,7 +13,9 @@ def sort_layers_for_merge(layers):
     (Customization < AddOn < Patch), tie-break by source_db_name.
     """
     main_layers = [layer for layer in layers if layer.get('db_type') == 'base']
-    ext_layers = [layer for layer in layers if layer.get('db_type') != 'base']
+    # Only 'extension' layers overlay the base; other db_type values (e.g. 'processor' —
+    # external data processor) are not role layers and are excluded from the merge.
+    ext_layers = [layer for layer in layers if layer.get('db_type') == 'extension']
     ext_layers.sort(
         key=lambda layer: (
             PURPOSE_ORDER.get(layer.get('extension_purpose') or '', 99),

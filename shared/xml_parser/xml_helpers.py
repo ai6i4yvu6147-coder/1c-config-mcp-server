@@ -79,6 +79,19 @@ def get_configuration_name(config_path):
         if config is None:
             config = root.find('.//{http://v8.1c.ru/8.3/MDClasses}Configuration')
         if config is None:
+            # External object root (no Configuration node): fall back to its own Name so the
+            # Admin GUI prefills the DB name when picking <Name>.xml directly.
+            for tag in ('ExternalDataProcessor', 'ExternalReport'):
+                ext = root.find(f'{{{md_ns}}}{tag}')
+                if ext is None:
+                    ext = root.find(f'.//{{{md_ns}}}{tag}')
+                if ext is not None:
+                    ext_props = ext.find(f'{{{md_ns}}}Properties')
+                    if ext_props is not None:
+                        ext_name = ext_props.find(f'{{{md_ns}}}Name')
+                        if ext_name is not None and ext_name.text:
+                            return ext_name.text.strip()
+                    return ext.get('name', '') or ''
             return ''
         properties = config.find(f'{{{md_ns}}}Properties')
         if properties is None:
@@ -95,8 +108,10 @@ def get_configuration_name(config_path):
 
 def get_configuration_type(config_path):
     """
-    Возвращает тип конфигурации: 'extension' или 'base'.
-    Расширение определяется по наличию ConfigurationExtensionPurpose в Configuration.xml.
+    Возвращает тип базы: 'extension', 'processor', 'report' или 'base'.
+    Расширение — по наличию ConfigurationExtensionPurpose в Configuration.xml;
+    'processor' / 'report' — корень MetaDataObject/ExternalDataProcessor или
+    /ExternalReport (внешние объекты, см. external_processor.py).
     """
     path = Path(config_path)
     if not os.path.exists(_winlong(path)) or path.suffix.lower() != '.xml':
@@ -107,6 +122,11 @@ def get_configuration_type(config_path):
         ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
         config = root.find('md:Configuration', ns)
         if config is None:
+            md_ns = 'http://v8.1c.ru/8.3/MDClasses'
+            for tag, db_type in (('ExternalDataProcessor', 'processor'), ('ExternalReport', 'report')):
+                if root.find(f'{{{md_ns}}}{tag}') is not None \
+                        or root.find(f'.//{{{md_ns}}}{tag}') is not None:
+                    return db_type
             return 'base'
         properties = config.find('md:Properties', ns)
         if properties is None:

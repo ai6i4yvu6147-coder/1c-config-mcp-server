@@ -66,23 +66,15 @@ Do not start implementation from the list without explicit user request.
 
 <!-- id | status | brief | context / links -->
 
-- **external-processor-root** · `ready` · External data processor as third project-root kind (Variant B)
+- **dcs-schema-indexing** · `idea` · Index DataCompositionSchema (СКД) of reports — embedded + external
 
-  - **Why:** today `parse()` only accepts `Configuration` root; external processors (`MetaDataObject/ExternalDataProcessor` in `<Name>.xml`) are invisible — **not** a whitelist entry (see [`metadata-whitelist.md`](metadata-whitelist.md))
+  - **Why:** внешний **отчёт** уже читается как объект `Report` (реквизиты/ТЧ/формы/модули — `external_processor.py`, CHANGELOG 2026-07-18), но **СКД не индексируется** — ни у внешних, ни у встроенных отчётов (`_parse_object` не читает `Templates/`). У чистого СКД-отчёта (напр. `РВП`) индекс поэтому тонкий: вся логика (источники данных, запросы, поля) — в схеме
 
-  - **Canon:** Head `docs/group/shared/metadata-library-cluster.md`; library `C:/projects/1c-metadata-schema` (`onec_metadata_schema.parse()` → generic `Node`)
+  - **Scope (draft):** `Templates/<Схема>.xml` + `Ext/Template.xml`, `DataCompositionSchema` — `dataSource`/`dataSet`/`DataSetQuery` (текст запроса → в `code_search`?), вычисляемые/итоговые поля; общий эпик для встроенных `Report` и внешних (`obj_type='Report'`)
 
-  - **Approach:** root dispatch in `shared/xml_parser/core.py` → `onec_metadata_schema.parse()` → adapter `Node → dict` matching `_parse_object(..., obj_type='DataProcessor')` → existing `insert_objects.py` pipeline unchanged
+  - **Reference:** `РВП отчет/РВП.xml`, `БДР/ФТ_ОтчетБДР.xml` (доступны); библиотека `onec_metadata_schema.dcs` уже знает write-сторону СКД, read round-trip на `Template.xml` неполный
 
-  - **Recon first:** (1) dict shape from `_parse_object` for embedded `DataProcessor`; (2) which `_insert_*` paths apply for a single-object “configuration”
-
-  - **Also:** `project_manager.py` `source_xml` may need to accept external processor file path; verify form EAV compatibility with adapter output
-
-  - **Verify:** real MCP tool calls per [`testing-protocol.md`](testing-protocol.md) — not Configurator load (that is library criterion)
-
-  - **Docs on completion:** `architecture.md`, `mcp-tools.md`, `metadata-whitelist.md`
-
-  - **Not in this track:** full whitelist migration (Stage G in metadata-schema); other 14+ types stay on current parser
+  - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; может требовать `bump-indexer-version` и новые таблицы/поля
 
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 

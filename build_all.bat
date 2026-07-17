@@ -3,7 +3,28 @@ echo Building all components...
 
 echo.
 call venv\Scripts\activate.bat
+
+echo.
+echo Resolving 1c-metadata-schema...
+set "METADATA_SCHEMA="
+if exist "C:\repo\1c-metadata-schema\pyproject.toml" set "METADATA_SCHEMA=C:\repo\1c-metadata-schema"
+if not defined METADATA_SCHEMA if exist "C:\projects\1c-metadata-schema\pyproject.toml" set "METADATA_SCHEMA=C:\projects\1c-metadata-schema"
+if not defined METADATA_SCHEMA (
+    echo ERROR: 1c-metadata-schema not found. Checked:
+    echo   C:\repo\1c-metadata-schema
+    echo   C:\projects\1c-metadata-schema
+    exit /b 1
+)
+echo Using: %METADATA_SCHEMA%
+pip install -e "%METADATA_SCHEMA%"
+if errorlevel 1 (
+    echo ERROR: pip install -e failed for %METADATA_SCHEMA%
+    exit /b 1
+)
+
+echo.
 echo [1/3] Building Admin Tool v2...
+rem External data processor read side needs onec_metadata_schema bundled (Admin builds DBs).
 pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=uuid ^
@@ -11,6 +32,7 @@ pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
     --hidden-import=xml.etree.ElementTree ^
     --hidden-import=xml.etree ^
     --collect-all xml ^
+    --collect-submodules onec_metadata_schema ^
     --add-data "admin_tool;admin_tool" ^
     --add-data "shared;shared" ^
     admin_tool/gui_v2.py
@@ -31,9 +53,12 @@ pyinstaller --onedir --name "1c-config-server" --noconfirm ^
 
 echo.
 echo [3/3] Building Admin Hub CLI...
+rem CLI `rebuild-index` rebuilds DBs (hub_rebuild -> DatabaseManager -> parser), so it needs
+rem onec_metadata_schema bundled for external data processors too.
 pyinstaller --onefile --name "1c-config-cli" --noconfirm ^
     --hidden-import=sqlite3 ^
     --hidden-import=json ^
+    --collect-submodules onec_metadata_schema ^
     --add-data "shared;shared" ^
     admin_tool/cli.py
 
