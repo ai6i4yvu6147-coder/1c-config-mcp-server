@@ -104,6 +104,7 @@ See [`mcp-tools.md`](mcp-tools.md).
 | [`form-type-system.md`](form-type-system.md) | Form field types in slots |
 | [`testing-protocol.md`](testing-protocol.md) | MCP verification protocol |
 | [`performance.md`](performance.md) | Performance notes |
+| [`library-migration.md`](library-migration.md) | Переход на единый движок `1c-metadata-schema`; СКД как первый шаг |
 | [`admin-hub-integration.md`](admin-hub-integration.md) | Admin Hub managed-tool roadmap and CLI |
 | [`group/integration.md`](group/integration.md) | Group hub link and sync state (`sync_state`, `last_event`) |
 | Head `docs/group/shared/` at `head.path` | Group protocol canon (contract source) |

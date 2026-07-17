@@ -66,15 +66,17 @@ Do not start implementation from the list without explicit user request.
 
 <!-- id | status | brief | context / links -->
 
-- **dcs-schema-indexing** · `idea` · Index DataCompositionSchema (СКД) of reports — embedded + external
+- **dcs-schema-indexing** · `idea` · Index DataCompositionSchema (СКД) — первый шаг «единого движка»
 
-  - **Why:** внешний **отчёт** уже читается как объект `Report` (реквизиты/ТЧ/формы/модули — `external_processor.py`, CHANGELOG 2026-07-18), но **СКД не индексируется** — ни у внешних, ни у встроенных отчётов (`_parse_object` не читает `Templates/`). У чистого СКД-отчёта (напр. `РВП`) индекс поэтому тонкий: вся логика (источники данных, запросы, поля) — в схеме
+  - **Design/стратегия:** [`library-migration.md`](library-migration.md) — почему СКД первый (старый парсер СКД не читает → нулевой риск; библиотека уже пишет СКД), первая разведка областей, открытые вопросы схемы
 
-  - **Scope (draft):** `Templates/<Схема>.xml` + `Ext/Template.xml`, `DataCompositionSchema` — `dataSource`/`dataSet`/`DataSetQuery` (текст запроса → в `code_search`?), вычисляемые/итоговые поля; общий эпик для встроенных `Report` и внешних (`obj_type='Report'`)
+  - **Why:** внешний/встроенный отчёт читается как объект, но **СКД не индексируется** (`_parse_object` не читает `Templates/`). У чистого СКД-отчёта (напр. `РВП`) индекс тонкий — вся логика (источники, запрос, поля) в схеме
 
-  - **Reference:** `РВП отчет/РВП.xml`, `БДР/ФТ_ОтчетБДР.xml` (доступны); библиотека `onec_metadata_schema.dcs` уже знает write-сторону СКД, read round-trip на `Template.xml` неполный
+  - **Scope (draft):** `Templates/<Схема>/Ext/Template.xml`, `DataCompositionSchema` — области: `dataSet`+текст запроса (первый срез → `code_search`), `field`/`dataPath`, `dataSource`, `calculatedField`/`totalField`, `parameter`, `settingsVariant`. **Много новых таблиц** — нужен качественный анализ. **СКД не только у отчётов** — встречается на Catalog/Document/BusinessProcess/CommonTemplates
 
-  - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; может требовать `bump-indexer-version` и новые таблицы/поля
+  - **Reference (СКД):** `РВП отчет/РВП.xml` (чистый СКД), СКД-шаблоны в `Расш бюдж/Catalogs|Documents`; библиотека `onec_metadata_schema.dcs` знает write-сторону. NB: `ФТ_ОтчетБДР` — MXL-макет, **не** СКД
+
+  - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; `bump-indexer-version` при новой схеме
 
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
