@@ -32,6 +32,9 @@ class ConfigurationParserCore:
         # во время parse(), используется вызывающей стороной для отчёта в progress_callback
         # (P-2: ошибка раньше уходила только в stdout print и терялась в GUI-сборке).
         self.skipped_forms = []
+        # СКД-схемы, не прочитанные из-за исключения (см. TemplatesDcsMixin._parse_dcs_schemas)
+        # — тот же контракт «пропуск, не падение», что и для форм.
+        self.skipped_dcs = []
 
     @contextmanager
     def _accumulate(self, stage_name):
@@ -297,6 +300,11 @@ class ConfigurationParserCore:
         with self._accumulate('commands'):
             commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob', 'DefinedType') else self._parse_object_commands(root, name, folder_name, obj_type)
 
+        # DCS schemas owned via Templates/ (new read path; self-guards on the dir, so
+        # object types that never own templates just get []). See TemplatesDcsMixin.
+        with self._accumulate('dcs'):
+            dcs_schemas = self._parse_dcs_schemas(name, folder_name)
+
         result = {
             'name': name,
             'type': obj_type,
@@ -309,6 +317,7 @@ class ConfigurationParserCore:
             'resources': resources,
             'enum_values': enum_values,
             'commands': commands,
+            'dcs_schemas': dcs_schemas,
         }
         if obj_type in REGISTER_TYPES:
             result['attributes'] = attributes

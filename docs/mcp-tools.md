@@ -48,6 +48,14 @@
 4. **`search_code`** — также ищет фрагмент в `Settings.QueryText` → подсказка `get_form_attribute`.
 5. **`get_functional_options`** — `element_type=FormAttributeColumn` (нужны `attribute_name` + `column_name`).
 
+### СКД / схемы компоновки данных (dcs-schema-indexing, `INDEXER_VERSION` 17 — пересборка БД)
+
+Спека: [`dcs-schema-indexing.md`](dcs-schema-indexing.md). Симметрия с формами: `get_dcs_schema` — что `get_form_structure` для формы. СКД крепится **не только к отчётам** (тысячи схем на Catalog/Document/регистрах; часто встроенное правило отбора/выборки для BSL — см. shape-hint `has_query`).
+
+- **`get_dcs_schema`** (`object_name`, `project_filter` обязателен; опц. `template`, `extension_filter`) — семантический документ схемы: наборы (текст запроса, поля с ролями измерение/баланс/период), параметры, вычисляемые/итоговые поля, сводка вариантов настроек. Без `template` — обзор всех схем объекта (shape-hints `dataset_count`/`field_count`/`has_query`/`has_grouping`/…); полный документ отдаётся, когда цель одна (или указан `template`).
+- **`search_code` по тексту запроса СКД** — текст запроса набора индексируется как `module_type='DcsQuery'` (Срез 1), `object_name = <Объект>.<Шаблон>`. Сужение `module_type='DcsQuery'` — только СКД-запросы. Схемы без `<query>` (правила отбора каталогов) в FTS не попадают (документ второго среза всё равно сохраняется).
+- Хранение: `dcs_schema` (blob `schema_json` + денормализованные shape-hints), ключ `(object_id, template_name)`; MXL-макеты отсеиваются (`TemplateType != DataCompositionSchema`) — отдельный трек.
+
 ### Регламентные задания (`ScheduledJob`)
 
 - **Список:** `list_objects(object_type="ScheduledJob")`.

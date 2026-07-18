@@ -27,6 +27,7 @@ from .roles import (
     handle_get_role_rights,
     handle_find_roles_for_object,
 )
+from .dcs import handle_get_dcs_schema
 
 # Tool name -> async handler(tools, arguments) -> list[TextContent].
 # active_databases is dispatched separately in server.py (outside the ValueError try/except).
@@ -51,6 +52,7 @@ HANDLERS = {
     "list_roles": handle_list_roles,
     "get_role_rights": handle_get_role_rights,
     "find_roles_for_object": handle_find_roles_for_object,
+    "get_dcs_schema": handle_get_dcs_schema,
 }
 
 __all__ = ['HANDLERS', 'handle_active_databases']

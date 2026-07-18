@@ -5,6 +5,7 @@ from .flowchart import FlowchartMixin
 from .modules import ModulesMixin
 from .forms import FormsMixin
 from .roles import RolesMixin
+from .dcs import TemplatesDcsMixin
 from .external_processor import ExternalProcessorMixin
 from .xml_helpers import XmlHelpersMixin, get_configuration_name, get_configuration_type
 
@@ -16,6 +17,7 @@ class ConfigurationParser(
     SectionsMixin,
     TypeSlotsMixin,
     RolesMixin,
+    TemplatesDcsMixin,
     ExternalProcessorMixin,
     XmlHelpersMixin,
     ConfigurationParserCore,

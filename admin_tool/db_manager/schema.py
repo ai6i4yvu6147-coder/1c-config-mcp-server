@@ -560,6 +560,32 @@ class SchemaMixin:
             ON role_restriction_templates(role_object_id)
         ''')
 
+        # Схемы компоновки данных (СКД), Срез 2 (dcs-schema-indexing): один извлекаемый
+        # документ на схему (schema_json) + денормализованные shape-hint поля для дешёвого
+        # листинга/различения «запрос данных» vs «правило отбора» без выкачивания blob.
+        # Ключ (object_id, template_name); шаблон — принадлежность объекта-владельца.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dcs_schema (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                object_id INTEGER NOT NULL,
+                template_name TEXT NOT NULL,
+                has_query INTEGER NOT NULL DEFAULT 0,
+                dataset_count INTEGER NOT NULL DEFAULT 0,
+                field_count INTEGER NOT NULL DEFAULT 0,
+                parameter_count INTEGER NOT NULL DEFAULT 0,
+                calculated_count INTEGER NOT NULL DEFAULT 0,
+                total_count INTEGER NOT NULL DEFAULT 0,
+                has_grouping INTEGER NOT NULL DEFAULT 0,
+                filter_item_count INTEGER NOT NULL DEFAULT 0,
+                schema_json TEXT NOT NULL,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS ix_dcs_schema_object
+            ON dcs_schema(object_id)
+        ''')
+
         # Таблица для полнотекстового поиска по коду (FTS5)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search

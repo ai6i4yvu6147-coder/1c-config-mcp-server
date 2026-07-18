@@ -656,4 +656,42 @@ TOOL_SCHEMAS = [
             "required": ["object_name", "project_filter"],
         },
     ),
+    Tool(
+        name="get_dcs_schema",
+        description=(
+            "Схема компоновки данных (СКД, DataCompositionSchema) объекта-владельца: наборы "
+            "с текстом запроса и полями (роли: измерение/баланс/период), параметры, "
+            "вычисляемые/итоговые поля, сводка вариантов настроек. project_filter обязателен. "
+            "СКД крепится не только к отчётам — тысячи схем на Catalog/Document/регистрах "
+            "(часто это встроенные правила отбора/выборки для BSL, не вывод отчёта; см. "
+            "shape-hint has_query). Без template — обзор всех схем объекта (shape-hints: "
+            "dataset_count/field_count/parameter_count/has_query/has_grouping/…); полный "
+            "документ отдаётся, когда цель одна (или указан template). Межобъектный поиск по "
+            "тексту запроса СКД — search_code (module_type='DcsQuery')."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Имя объекта-владельца (можно частичное)",
+                },
+                "project_filter": {
+                    "type": "string",
+                    "description": "Фильтр по проекту (обязательно)",
+                },
+                "template": {
+                    "type": "string",
+                    "description": (
+                        "Имя шаблона схемы (частичное). Без него — обзор всех схем объекта."
+                    ),
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "description": "Точное имя базы из active_databases (опционально).",
+                },
+            },
+            "required": ["object_name", "project_filter"],
+        },
+    ),
 ]

@@ -1,3 +1,4 @@
+import json
 import time
 
 from .bsl import _parse_module_procedures
@@ -97,6 +98,12 @@ class ObjectInsertionMixin:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
                            p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
+
+            # Срез 1 (dcs-schema-indexing): текст запроса набора СКД -> code_search (FTS).
+            # code_search — внешнее содержимое над modules, поэтому кладём запрос строкой
+            # modules с module_type='DcsQuery' (владелец — объект шаблона). Схемы без
+            # <query> (правила отбора каталогов) не дают строки — деградация без ошибки.
+            self._insert_dcs_schemas(cursor, object_id, obj)
 
             # Команды объекта (не CommonCommand) + модули CommandModule
             if obj['type'] != 'CommonCommand':
@@ -249,6 +256,56 @@ class ObjectInsertionMixin:
 
         self.conn.commit()
         cursor.execute('PRAGMA synchronous=NORMAL')
+
+    def _insert_dcs_schemas(self, cursor, object_id, obj):
+        """DCS templates of an object (dcs-schema-indexing):
+
+        - Срез 1: each dataset query text -> code_search (FTS) as a 'DcsQuery' module row
+          (external content over modules); object_name = `<Object>.<Template>`. Query-less
+          schemas add no row (graceful degradation).
+        - Срез 2: one extractable document per schema -> dcs_schema (schema_json blob +
+          denormalised shape hints for cheap listing / query-vs-rule distinction).
+
+        See docs/dcs-schema-indexing.md."""
+        for dcs in obj.get('dcs_schemas', []):
+            template_name = dcs.get('template_name', '')
+
+            # Срез 1
+            for query_text in dcs.get('query_texts', []):
+                if not (query_text and query_text.strip()):
+                    continue
+                cursor.execute('''
+                    INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                    VALUES (?, NULL, NULL, 'DcsQuery', ?)
+                ''', (object_id, query_text))
+                module_id = cursor.lastrowid
+                cursor.execute('''
+                    INSERT INTO code_search (rowid, object_name, module_type, code)
+                    VALUES (?, ?, 'DcsQuery', ?)
+                ''', (module_id, f"{obj['name']}.{template_name}", query_text))
+
+            # Срез 2
+            shape = dcs.get('shape') or {}
+            cursor.execute('''
+                INSERT INTO dcs_schema (
+                    object_id, template_name, has_query, dataset_count, field_count,
+                    parameter_count, calculated_count, total_count, has_grouping,
+                    filter_item_count, schema_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                object_id,
+                template_name,
+                1 if shape.get('has_query') else 0,
+                shape.get('dataset_count', 0),
+                shape.get('field_count', 0),
+                shape.get('parameter_count', 0),
+                shape.get('calculated_count', 0),
+                shape.get('total_count', 0),
+                1 if shape.get('has_grouping') else 0,
+                shape.get('filter_item_count', 0),
+                json.dumps(dcs.get('schema') or {}, ensure_ascii=False),
+            ))
 
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute', pending_type_slots=None):
         """Вставляет атрибут объекта в БД"""
