@@ -82,4 +82,5 @@
    `onec_metadata_schema` (read-сторона `dcs`), не трогая старый путь.
 4. Верификация на живом MCP (`testing-protocol.md`).
 
-Трек — `dcs-schema-indexing` в [`todo.md`](todo.md).
+Трек — `dcs-schema-indexing` в [`todo.md`](todo.md). Детальный дизайн хранения и
+чтения — [`dcs-schema-indexing.md`](dcs-schema-indexing.md).
