@@ -53,10 +53,10 @@ class FormsMixin:
 
         skip-on-error (контракт P-2): битый Form.xml не валит всю сборку — ошибка пишется в
         ``self.skipped_forms`` и возвращается None. Отсутствие Form.xml — обычный no-op
-        (``_parse_form_via_library`` возвращает None до чтения, без записи в skipped_forms).
+        (``_read_form_record`` возвращает None до чтения, без записи в skipped_forms).
         """
         try:
-            return self._parse_form_via_library(form_dir, uuid=uuid, form_name=form_name)
+            return self._read_form_record(form_dir, uuid=uuid, form_name=form_name)
         except Exception as e:
             print(f"Ошибка парсинга формы {form_dir.name}: {e}")
             self.skipped_forms.append({'path': str(form_dir), 'error': str(e)})
@@ -76,7 +76,7 @@ class FormsMixin:
             pass
         return ''
 
-    def _parse_form_via_library(self, form_dir, uuid=None, form_name=None):
+    def _read_form_record(self, form_dir, uuid=None, form_name=None):
         """Читает Form.xml единым движком (``read_form``) → запись формы для индексации.
 
         Движок владеет форматом (контейнеры, дерево items, слоты типов, титулы, ФО,

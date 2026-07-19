@@ -17,7 +17,7 @@ REGISTER_TYPES = (
 # Виды объектов без реквизитов/секций/ТЧ: весь предметный смысл — в свойствах дескриптора
 # (+ соседние файлы модулей/форм/команд, читаемые file-walk). Собираются отдельным
 # ассемблером `_assemble_property_only_object`, чтобы не усложнять ветку типов-с-реквизитами
-# в `_parse_object_via_library`. См. docs/library-migration.md (шаг 3).
+# в `_parse_object`. См. docs/library-migration.md (шаг 3).
 PROPERTY_ONLY_MIGRATED_TYPES = frozenset({
     'CommonModule', 'CommonCommand', 'CommonForm',
     'ScheduledJob', 'FunctionalOption', 'DefinedType',
@@ -180,7 +180,7 @@ class ConfigurationParserCore:
         отдельным обходом каталога (`parse()` библиотеки — однофайловый, сборку папки не
         делает): имя подсистемы — квалифицированное из пути (`_subsystem_qualified_name`),
         не из дескриптора. Сам дескриптор `<Имя>.xml` читается единым движком
-        (`_parse_subsystem_via_library`); битый/нераспознанный дескриптор → None → подсистема
+        (`_parse_subsystem`); битый/нераспознанный дескриптор → None → подсистема
         пропускается (skip-on-error, как формы/СКД). См. docs/library-migration.md (шаг 4).
         """
         subsystems_root = self.root_dir / 'Subsystems'
@@ -191,12 +191,12 @@ class ConfigurationParserCore:
         for xml_file in sorted(subsystems_root.rglob('*.xml')):
             if 'Ext' in xml_file.parts:
                 continue
-            record = self._parse_subsystem_via_library(xml_file)
+            record = self._parse_subsystem(xml_file)
             if record is not None:
                 results.append(record)
         return results
 
-    def _parse_subsystem_via_library(self, xml_file):
+    def _parse_subsystem(self, xml_file):
         """Дескриптор подсистемы единым движком → dict-контракт `_subsystem_record`.
         Возвращает None, если файл битый/недоступен (Windows MAX_PATH) или библиотека не
         нашла дескриптор `Subsystem` — тогда подсистема пропускается вызывающим."""
@@ -273,19 +273,13 @@ class ConfigurationParserCore:
         }
 
     def _parse_object(self, name, obj_type, folder_name):
-        """Разбор объекта метаданных единым движком (onec_metadata_schema): дескриптор
-        `<Имя>.xml` → адаптеры (`_parse_object_via_library`, external_processor.py). Все
-        whitelist-типы дочерних объектов читаются движком; None (нет/битый дескриптор) →
-        объект пропускается вызывающим (`_parse_child_objects`). См. docs/library-migration.md.
-        """
-        return self._parse_object_via_library(name, obj_type, folder_name)
-
-    def _parse_object_via_library(self, name, obj_type, folder_name):
-        """Читает дескриптор `<Name>.xml` единым движком и собирает dict объекта. Дескриптор-
-        часть (uuid, properties, реквизиты/ТЧ/секции регистра/значения перечисления, слоты
-        типов) — из onec_metadata_schema; модули/формы/команды/СКД/flowchart — file-walk
-        методами по соседним файлам. Возвращает None, если дескриптор отсутствует или не
-        распознан библиотекой (объект тогда пропускается вызывающим).
+        """Читает дескриптор `<Name>.xml` единым движком (onec_metadata_schema) и собирает
+        dict объекта. Дескриптор-часть (uuid, properties, реквизиты/ТЧ/секции регистра/значения
+        перечисления, слоты типов) — из библиотеки через адаптеры (external_processor.py);
+        модули/формы/команды/СКД/flowchart — file-walk методами по соседним файлам. Все
+        whitelist-типы дочерних объектов читаются движком; None (дескриптор отсутствует или не
+        распознан библиотекой) → объект пропускается вызывающим (`_parse_child_objects`).
+        См. docs/library-migration.md.
         """
         xml_file = self.root_dir / folder_name / f"{name}.xml"
         if not os.path.exists(_winlong(xml_file)):
