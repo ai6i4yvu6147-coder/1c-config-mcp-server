@@ -100,7 +100,7 @@ Do not start implementation from the list without explicit user request.
 
   - **Ключевой нюанс A/B:** типы состава реквизита-DynamicList лежат в контейнере `Settings` и собираются рекурсивно (`.//TypeSet`/`.//Type`) — паритет с legacy `_extract_slots_from_v8_type_container` (первый прогон брал прямых потомков → терял их, исправлено)
 
-  - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы — round-trip round против `read_form` — потенциальная сверка)
+  - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы). Round-trip write↔read **покрыт** контракт-тестом `1c-help-mcp/tests/test_form_roundtrip.py` (конструктор → `Form.xml` → `read_form`) — пинит формат форм между репозиториями поверх незакреплённого editable-install библиотеки
 
   - **Очистка legacy (done, 2026-07-19):** `_via_library`/`_legacy`-форки всех переведённых поверхностей (объекты/подсистемы/формы/права) удалены — чтение только через движок (A/B дал 0 фолбэков). Снесены `_parse_object_legacy`+`LIBRARY_MIGRATED_TYPES`, `_parse_subsystem_legacy`, `_parse_form_legacy`+хелперы, `parse_rights_xml_legacy`, `SectionsMixin` (файл `sections.py`), logform-слоты в `types.py`. Живым оставлен только дескриптор роли (`_parse_properties`). См. CHANGELOG 2026-07-19
 
