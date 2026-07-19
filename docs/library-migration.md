@@ -50,19 +50,28 @@
 
 ## Граница единого движка (что мигрируем, а что нет)
 
-Библиотека `onec_metadata_schema` моделирует ровно две read-поверхности C-MCP:
+Библиотека `onec_metadata_schema` моделирует три read-поверхности C-MCP:
 
 - **Дескрипторы метаданных** (MDClasses, `parse`/`Node`) — **мигрировано** (шаги 1–4).
 - **СКД / DataCompositionSchema** (`dcs`/`dcs_read`) — **мигрировано** отдельным треком
   (`dcs-schema-indexing`, `shared/xml_parser/dcs.py` читает схему библиотекой). Старый парсер
   `Templates/` не читал вовсе — чистое добавление, нулевой риск.
+- **Права роли / РЛС** (`Rights.xml`, схема `8.2/roles`, `rights`/`read_rights`) —
+  **мигрировано** отдельным треком (`roles-engine-migration`,
+  [`roles-engine-migration.md`](roles-engine-migration.md); `shared/xml_parser/roles.py`
+  читает `Rights.xml` библиотекой за развилкой с legacy-фолбэком). A/B на 3010 файлах —
+  0 расхождений. `Rights.xml` — **другая схема, не MDClasses**; движок получил её read-сторону
+  так же, как ДКС: раньше write-round-trip, чтобы обслужить индексацию C-MCP.
 
 **Читаемый парсером single-engine — на этом всё.** Остальные поверхности C-MCP — **другие схемы,
 которые библиотека не моделирует**, и переводить их «на библиотеку» смысла нет (выигрыш единого
 движка есть только там, где на той же модели стоит и write-сторона):
 
 - **Формы** — `Form.xml`, свой формат (logform + EAV); `shared/xml_parser/forms.py`, остаётся как есть.
-- **Роли** — `Rights.xml`, схема прав (не MDClasses); `roles.py`/`role_qname.py`, остаётся как есть.
+- **Дескриптор роли** (`Roles/<Name>.xml`, корень `MetaDataObject/Role`) — это MDClasses, но
+  тривиальный property-only тип; C-MCP читает его своим `_parse_properties` в обходе `Roles/`.
+  Содержательная часть роли — `Rights.xml` — уже на движке (см. выше). Перевод самого дескриптора
+  — низкоценный микрослайс, не сделан намеренно.
 - **Flowchart** — `Ext/Flowchart.xml`, схема `xcf/scheme` (граф точек/переходов по uuid);
   `flowchart.py`, остаётся как есть (вызывается из обоих путей `_parse_object`).
 - **Модули** — BSL-исходники, вообще не XML; `modules.py`, вне зоны XML-библиотеки.

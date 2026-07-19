@@ -88,6 +88,12 @@ Do not start implementation from the list without explicit user request.
 
   - **Метод верификации (образец, если появятся новые библиотечные поверхности):** A/B-диф полного объекта старый↔новый на выгрузках в `C:\Users\Alex\Documents\1` → приёмка на живом MCP. `INDEXER_VERSION` поднимать только при смене формы записываемых данных (шаги 1–4 — не меняли, 17)
 
+- **roles-engine-migration** · `done` (2026-07-19) · Перевод чтения ролей/РЛС (`Rights.xml`) на единый движок (`onec_metadata_schema`)
+
+  - **Итог:** библиотека получила read-модуль `rights.py`/`read_rights` (нейтральный разбор `<Rights>`, схема `8.2/roles` — **другая, не MDClasses**); C-MCP `parse_rights_xml` переведён на движок за развилкой с legacy-фолбэком (`shared/xml_parser/roles.py`). Таксономия `classify_target_qname` (target_kind) — модель хранения C-MCP — осталась в C-MCP. A/B на **3010** `Rights.xml` (946k грантов / 12k РЛС / 3.5k шаблонов) — **0 расхождений**. `INDEXER_VERSION` не поднимался (17 — вывод парсера байт-идентичен). Дизайн и полная инвентаризация поверхности — [`roles-engine-migration.md`](roles-engine-migration.md)
+
+  - **Осталось за границей:** дескриптор роли (`Roles/<Name>.xml`, тривиальный property-only MDClasses — низкоценный микрослайс, не сделан); write-сторона `Rights.xml` (конструктор ролей/РЛС) — Stage G библиотеки; разбор внутренностей РЛС (`#ПоЗначениям`-пары) — Tier 3
+
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
   - **Why:** currently DynamicList in v1 — wrapper + `query_text` only; agent does not see main table/data source from Settings

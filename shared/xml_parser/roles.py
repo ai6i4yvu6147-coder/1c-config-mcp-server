@@ -42,13 +42,81 @@ def _bool_text(elem):
     return None
 
 
+def _reshape_rights_from_library(neutral):
+    """Turn ``onec_metadata_schema.read_rights``'s neutral dict (objects -> rights ->
+    restrictions, structurally faithful to the XML) into C-MCP's flat indexing shape.
+
+    The library owns the *format* (which tags, whitespace/bool rules, namespace tolerance);
+    the ``classify_target_qname`` taxonomy (``target_kind``/``parent_object_qname``) stays
+    here — it is C-MCP's storage model, not a fact about ``Rights.xml``. Output is
+    byte-for-byte the same dict the legacy hand-rolled parser produced (A/B verified)."""
+    grants = []
+    restrictions = []
+    for obj in neutral['objects']:
+        target_qname = obj['name']
+        target_kind, parent_object_qname = classify_target_qname(target_qname)
+        for right in obj['rights']:
+            right_name = right['name']
+            grants.append({
+                'target_qname': target_qname,
+                'target_kind': target_kind,
+                'parent_object_qname': parent_object_qname,
+                'right_name': right_name,
+                'granted': right['value'],
+            })
+            for restr in right['restrictions']:
+                restrictions.append({
+                    'target_qname': target_qname,
+                    'right_name': right_name,
+                    'field_scope': restr['field'],
+                    'restriction_text': restr['condition'],
+                })
+
+    templates = [
+        {'template_name': t['name'], 'condition_text': t['condition']}
+        for t in neutral['templates']
+    ]
+
+    return {
+        'role_settings': dict(neutral['settings']),
+        'role_grants': grants,
+        'role_access_restrictions': restrictions,
+        'role_restriction_templates': templates,
+    }
+
+
+def parse_rights_xml_via_library(rights_path):
+    """Library-backed path: read ``Rights.xml`` through ``onec_metadata_schema.read_rights``
+    (the single format engine), then reshape to C-MCP's indexing dict. Returns ``None`` if the
+    file is missing/unreadable, or raises if the library is absent (dispatcher falls back)."""
+    if not os.path.exists(_winlong(rights_path)):
+        return None
+    from onec_metadata_schema import read_rights
+    with open(_winlong(rights_path), 'rb') as f:
+        xml = f.read()
+    return _reshape_rights_from_library(read_rights(xml))
+
+
 def parse_rights_xml(rights_path):
     """
     Parse Roles/<Name>/Ext/Rights.xml.
 
     Returns dict with role_settings, role_grants, role_access_restrictions,
     role_restriction_templates — or None if file missing/unreadable.
+
+    Reads through the single format engine (``onec_metadata_schema``); on any failure
+    (library absent, unexpected shape) it falls back to the in-tree legacy parser so role
+    indexing never depends on the library being importable.
     """
+    try:
+        return parse_rights_xml_via_library(rights_path)
+    except Exception:
+        return parse_rights_xml_legacy(rights_path)
+
+
+def parse_rights_xml_legacy(rights_path):
+    """In-tree ElementTree parser (pre-single-engine). Retained as the fallback path and as
+    the A/B baseline for verifying ``parse_rights_xml_via_library`` on real exports."""
     if not os.path.exists(_winlong(rights_path)):
         return None
 
