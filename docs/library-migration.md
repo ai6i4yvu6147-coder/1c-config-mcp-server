@@ -34,7 +34,20 @@
   фикса резолвера типов (`cfg:DefinedType.X` → `object_ref`; разворот `ExtendedProperty`/
   `ExtendValue`). A/B на 15 426 объектах (5 проектов) — 0 ошибок, все дифы «новое ≥ старое»;
   приёмка на живом MCP пройдена (Catalog/Document/регистр/Enum/BusinessProcess, обратные ссылки).
-- **Дальше:** property-only типы, затем `Subsystem`. Формы(logform+EAV)/роли/модули(BSL) — эпики.
+- **Шаг 3 — property-only типы** (`CommonModule`/`CommonCommand`/`CommonForm`/`ScheduledJob`/
+  `FunctionalOption`/`DefinedType`): отдельный ассемблер `_assemble_property_only_object` (нет
+  реквизитов/секций/ТЧ; развилка модулей/форм/команд по виду объекта — паритет с legacy).
+  `_adapt_property_only_properties` = общая база + мелкие свойства SJ/FO; `DefinedType.type_slots`
+  из библиотечного `.Type`. `LIBRARY_MIGRATED_TYPES` = **20** — все whitelist-типы дочерних
+  объектов. A/B полного объекта на 14 705 объектах — 0 ошибок, 0 fallback, 2 дифа (обрезка
+  хвостового пробела в `comment`, единообразно с шагом 2).
+- **Шаг 4 — `Subsystem`** (последний whitelist-тип, отдельный обход `Subsystems/`, не через
+  `_parse_object`): `_parse_subsystem_via_library` за развилкой (фолбэк `_parse_subsystem_legacy`);
+  обход каталога и квалифицированное имя из пути остаются file-walk. `content_refs` из
+  `Content.Item[].value`, `child_subsystem_names` из `descriptor.children`. A/B на 2007 подсистемах —
+  0 ошибок, 0 fallback, 1 диф (пробельный `comment`). **Дескрипторная часть миграции завершена —
+  все whitelist-типы на библиотеке.**
+- **Дальше (отдельные эпики):** формы (logform+EAV), роли, модули (BSL), flowchart, команды.
 
 
 ## Почему СКД — первый шаг
