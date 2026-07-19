@@ -50,7 +50,7 @@
 
 ## Граница единого движка (что мигрируем, а что нет)
 
-Библиотека `onec_metadata_schema` моделирует три read-поверхности C-MCP:
+Библиотека `onec_metadata_schema` моделирует четыре read-поверхности C-MCP:
 
 - **Дескрипторы метаданных** (MDClasses, `parse`/`Node`) — **мигрировано** (шаги 1–4).
 - **СКД / DataCompositionSchema** (`dcs`/`dcs_read`) — **мигрировано** отдельным треком
@@ -62,12 +62,18 @@
   читает `Rights.xml` библиотекой за развилкой с legacy-фолбэком). A/B на 3010 файлах —
   0 расхождений. `Rights.xml` — **другая схема, не MDClasses**; движок получил её read-сторону
   так же, как ДКС: раньше write-round-trip, чтобы обслужить индексацию C-MCP.
+- **Формы** (`Form.xml`, схема logform `8.3/xcf/logform`, `form_read`/`read_form`) —
+  **мигрировано** отдельным треком (`forms-engine-migration`,
+  [`forms-engine-migration.md`](forms-engine-migration.md); `shared/xml_parser/forms.py` читает
+  формат формы движком за развилкой с legacy-фолбэком). Движок владеет форматом и отдаёт по
+  сущности нейтральное `RawElement`-зеркало subtree; **EAV-проекция (`form_property_flattener.py`)
+  остаётся в C-MCP** (storage-политика, не формат). A/B на 22 826 формах (3.1M EAV-строк) —
+  0 расхождений.
 
 **Читаемый парсером single-engine — на этом всё.** Остальные поверхности C-MCP — **другие схемы,
 которые библиотека не моделирует**, и переводить их «на библиотеку» смысла нет (выигрыш единого
 движка есть только там, где на той же модели стоит и write-сторона):
 
-- **Формы** — `Form.xml`, свой формат (logform + EAV); `shared/xml_parser/forms.py`, остаётся как есть.
 - **Дескриптор роли** (`Roles/<Name>.xml`, корень `MetaDataObject/Role`) — это MDClasses, но
   тривиальный property-only тип; C-MCP читает его своим `_parse_properties` в обходе `Roles/`.
   Содержательная часть роли — `Rights.xml` — уже на движке (см. выше). Перевод самого дескриптора

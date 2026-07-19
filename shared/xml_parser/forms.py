@@ -48,7 +48,97 @@ class FormsMixin:
         return []
 
     def _parse_form(self, form_dir, uuid=None, form_name=None):
-        """Парсит одну форму. uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml)."""
+        """Парсит одну форму. uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml).
+
+        Формат Form.xml (logform) читает единый движок (``onec_metadata_schema.read_form``);
+        при любой ошибке (движок недоступен/неожиданная форма) — фолбэк на встроенный парсер,
+        чтобы индексация форм не зависела от импортируемости библиотеки.
+        """
+        try:
+            return self._parse_form_via_library(form_dir, uuid=uuid, form_name=form_name)
+        except Exception:
+            return self._parse_form_legacy(form_dir, uuid=uuid, form_name=form_name)
+
+    def _read_form_uuid(self, form_dir, form_name):
+        """UUID формы из соседнего файла метаданных ИмяФормы.xml (в самом Form.xml его нет)."""
+        form_meta_xml = form_dir / f'{form_name}.xml'
+        if not os.path.exists(_winlong(form_meta_xml)):
+            return ''
+        try:
+            meta_root = ET.parse(_winlong(form_meta_xml)).getroot()
+            form_elem = meta_root.find('.//{http://v8.1c.ru/8.3/MDClasses}Form')
+            if form_elem is not None:
+                return form_elem.get('uuid', '')
+        except Exception:
+            pass
+        return ''
+
+    def _parse_form_via_library(self, form_dir, uuid=None, form_name=None):
+        """Читает Form.xml единым движком (``read_form``) → та же запись формы, что и legacy.
+
+        Движок владеет форматом (контейнеры, дерево items, слоты типов, титулы, ФО,
+        conditional appearance) и отдаёт по каждой сущности нейтральное ``RawElement``-зеркало
+        subtree — storage-политику не несёт. EAV (`entity_properties`) считает существующий
+        C-MCP-флэттенер (skip/value_type/UNSET_DATE/ordinals) по этому зеркалу; байт-паритет
+        с legacy — см. docs/forms-engine-migration.md. uuid/модуль — из соседних файлов."""
+        form_xml = form_dir / 'Ext' / 'Form.xml'
+        if not os.path.exists(_winlong(form_xml)):
+            return None
+        form_name = form_name or form_dir.name
+        if uuid is None:
+            uuid = self._read_form_uuid(form_dir, form_name)
+
+        from onec_metadata_schema import read_form
+        with open(_winlong(form_xml), 'rb') as f:
+            model = read_form(f.read())
+
+        attributes = []
+        for a in model['attributes']:
+            columns = None
+            if a['columns'] is not None:
+                columns = [{
+                    'table': c['table'],
+                    'name': c['name'],
+                    'title': c['title'],
+                    'type_slots': c['type_slots'],
+                    'entity_properties': flatten_attribute_column(c['property_tree']),
+                    'functional_options': c['functional_options'],
+                } for c in a['columns']]
+            attributes.append({
+                'name': a['name'],
+                'type_slots': a['type_slots'],
+                'title': a['title'],
+                'is_main': a['is_main'],
+                'columns': columns,
+                'entity_properties': flatten_attribute(a['property_tree']),
+                'functional_options': a['functional_options'],
+            })
+
+        items = [{
+            'name': i['name'],
+            'id': i['id'],
+            'type': i['type'],
+            'parent_id': i['parent_id'],
+            'entity_properties': flatten_item(i['property_tree']),
+            'events': i['events'],
+            'functional_options': i['functional_options'],
+        } for i in model['items']]
+
+        return {
+            'name': form_name,
+            'uuid': uuid,
+            'properties': model['properties'],
+            'events': model['events'],
+            'attributes': attributes,
+            'commands': model['commands'],
+            'items': items,
+            'conditional_appearance': model['conditional_appearance'],
+            'module': self._parse_form_module(form_dir),
+        }
+
+    def _parse_form_legacy(self, form_dir, uuid=None, form_name=None):
+        """Встроенный ElementTree-парсер Form.xml (до единого движка). Сохранён как фолбэк
+        и как A/B-эталон для проверки ``_parse_form_via_library`` на реальных выгрузках."""
         form_xml = form_dir / 'Ext' / 'Form.xml'
 
         if not os.path.exists(_winlong(form_xml)):
@@ -57,18 +147,7 @@ class FormsMixin:
         try:
             form_name = form_name or form_dir.name
             if uuid is None:
-                # UUID из файла метаданных формы (ИмяФормы.xml в каталоге формы объекта)
-                form_meta_xml = form_dir / f'{form_name}.xml'
-                uuid = ''
-                if os.path.exists(_winlong(form_meta_xml)):
-                    try:
-                        meta_tree = ET.parse(_winlong(form_meta_xml))
-                        meta_root = meta_tree.getroot()
-                        form_elem = meta_root.find('.//{http://v8.1c.ru/8.3/MDClasses}Form')
-                        if form_elem is not None:
-                            uuid = form_elem.get('uuid', '')
-                    except Exception:
-                        pass
+                uuid = self._read_form_uuid(form_dir, form_name)
 
             # Парсим структуру формы из Form.xml
             tree = ET.parse(_winlong(form_xml))

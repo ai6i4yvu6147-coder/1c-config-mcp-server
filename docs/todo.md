@@ -94,6 +94,14 @@ Do not start implementation from the list without explicit user request.
 
   - **Осталось за границей:** дескриптор роли (`Roles/<Name>.xml`, тривиальный property-only MDClasses — низкоценный микрослайс, не сделан); write-сторона `Rights.xml` (конструктор ролей/РЛС) — Stage G библиотеки; разбор внутренностей РЛС (`#ПоЗначениям`-пары) — Tier 3
 
+- **forms-engine-migration** · `done` (2026-07-19) · Перевод чтения форм (`Form.xml`, logform) на единый движок (`onec_metadata_schema`)
+
+  - **Итог:** библиотека получила read-модуль `form_read.py`/`read_form` (+`RawElement`) — читает logform-формат (контейнеры, дерево items, ~24 вида элементов, слоты типов, титулы, ФО, события, conditional appearance) и отдаёт нейтральную структурную модель, где свойства каждой сущности — policy-free `RawElement`-зеркало subtree. C-MCP `_parse_form` переведён на движок за развилкой `_parse_form_via_library` с legacy-фолбэком (`shared/xml_parser/forms.py`). **EAV-флэттенер (`form_property_flattener.py`) остался в C-MCP** — storage-политика (skip/value_type/UNSET_DATE/ordinals), не формат; ходит по `RawElement` без изменений. Слоты типов — резолвером движка. A/B на **22 826** формах (254k реквизитов, 636k элементов, **3.1M** EAV-строк) — **0 расхождений** (структура, EAV и слоты). `INDEXER_VERSION` не поднимался (17). Дизайн и инвентаризация — [`forms-engine-migration.md`](forms-engine-migration.md)
+
+  - **Ключевой нюанс A/B:** типы состава реквизита-DynamicList лежат в контейнере `Settings` и собираются рекурсивно (`.//TypeSet`/`.//Type`) — паритет с legacy `_extract_slots_from_v8_type_container` (первый прогон брал прямых потомков → терял их, исправлено)
+
+  - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы — round-trip round против `read_form` — потенциальная сверка); очистка legacy-дублирования форматного чтения (шаг 3, позже)
+
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
   - **Why:** currently DynamicList in v1 — wrapper + `query_text` only; agent does not see main table/data source from Settings
