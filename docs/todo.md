@@ -78,23 +78,15 @@ Do not start implementation from the list without explicit user request.
 
   - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; `bump-indexer-version` при новой схеме
 
-- **library-engine-migration** · `in progress` · Перевод парсера whitelist-типов на единый движок (`onec_metadata_schema`), по одному типу за развилкой
+- **library-engine-migration** · `done` (2026-07-19) · Перевод read-парсера на единый движок (`onec_metadata_schema`)
 
-  - **Стратегия:** [`library-migration.md`](library-migration.md) — инкрементально, за развилкой `старый путь / библиотека`; сначала где ломать нечего. Гранулярность форка — по типу (`LIBRARY_MIGRATED_TYPES` в `shared/xml_parser/core.py`), реализация — один общий `Node`-адаптер `_adapt_object_descriptor` (`external_processor.py`), наращиваемый по блокам
+  - **Итог:** мигрировано всё, что моделирует библиотека, — **дескрипторы метаданных** (все whitelist-типы, шаги 1–4 за развилкой `_parse_object`/`LIBRARY_MIGRATED_TYPES`=20 + `Subsystem`) и **СКД** (трек `dcs-schema-indexing`, `dcs.py`). Пошаговая история и цифры A/B — в CHANGELOG (2026-07-18/19). Приёмка на живом MCP пройдена
 
-  - **Порядок:** 1) `DataProcessor`+`Report` — **done** → 2) все объектные типы с реквизитами (`Catalog`/`Document`/`Enum`/4 регистра/2 charts/`ExchangePlan`/`BusinessProcess`/`Task`) — **done** → 3) property-only (`ScheduledJob`/`FunctionalOption`/`CommonModule|Command|Form`/`DefinedType`) — **done** → 4) `Subsystem` — **done**. **Все whitelist-типы дескрипторов переведены.** **Отдельными эпиками (не в этом заходе):** формы (logform+EAV), роли, модули (BSL), flowchart, команды
+  - **Граница движка (важно, чтобы не мигрировать зря):** формы (`Form.xml`), роли (`Rights.xml`), flowchart (`xcf/scheme`), модули (BSL) — **другие схемы, библиотека их не моделирует** → остаются на своих парсерах (`forms.py`/`roles.py`/`flowchart.py`/`modules.py`); переводить их на библиотеку смысла нет, пока схемы не появятся в самой `1c-metadata-schema` (write-сторона). Подробно — [`library-migration.md`](library-migration.md) § «Граница единого движка»
 
-  - **Шаг 1 — done (2026-07-18, см. CHANGELOG):** `DataProcessor`/`Report` за развилкой; A/B на 3369 дескрипторах — 0 ошибок, 8 дифов «новое ≥ старое». Попутно закрыт DefinedType-разрыв резолвера в библиотеке
+  - **Не задействовано, но библиотекой поддержано:** MXL-макеты (`spreadsheet`) — потенциальное расширение, отложено (см. `dcs-schema-indexing`)
 
-  - **Шаг 2 — done (2026-07-18, см. CHANGELOG):** `LIBRARY_MIGRATED_TYPES` = 14 типов; `_parse_object_via_library` стал type-aware (регистры → секции + ключ `attributes`; `Enum` → значения; BP → flowchart). Находки: `standard_attributes` старого пути — мёртвый код (пусто на 600 объектах, паритет `[]`); библиотека дополнена разворотом `ExtendedProperty`/`ExtendValue` (реквизит-`Adopted` с переопределённым типом). A/B на **15 426** объектах — 0 ошибок, 185 дифов, все «новое ≥ старое»; полный диф 195 объектов (вкл. BP/регистры) — 0 в file-walk
-
-  - **Шаг 3 — done (2026-07-19, см. CHANGELOG):** property-only типы (`CommonModule`/`CommonCommand`/`CommonForm`/`ScheduledJob`/`FunctionalOption`/`DefinedType`) через `_assemble_property_only_object` + `_adapt_property_only_properties`; `LIBRARY_MIGRATED_TYPES` = **20** (все whitelist-типы). A/B полного дифа объекта на **14 705** объектах (5 проектов) — 0 ошибок, 0 fallback, 2 расхождения (только обрезка хвостового пробела в `comment` — тот же контракт, что на шаге 2). `DefinedType.type_slots` из библиотечного `.Type` — байт-идентичен старому. `INDEXER_VERSION` не поднимался (17)
-
-  - **Шаг 4 — done (2026-07-19, см. CHANGELOG):** `Subsystem` через `_parse_subsystem_via_library` за развилкой (фолбэк `_parse_subsystem_legacy` для корня `MetaDataObject.Subsystem`); обход каталога `Subsystems/` и квалифицированное имя из пути — остаются file-walk. `content_refs` из `Content.Item[].value`, `child_subsystem_names` из `descriptor.children` (`collection='ChildObjects'`); общий контракт в `_subsystem_record`. A/B на **2007** подсистемах — 0 ошибок, 0 fallback, 1 диф (пробельный `comment` отброшен, единообразно с шагами 2–3); интегрированный обход 2007/2007. Все whitelist-типы дескрипторов теперь на библиотеке
-
-  - **Статус трека:** дескрипторная часть завершена (объектные типы + property-only + Subsystem). Открытые эпики единого движка — **формы** (logform+EAV, `_parse_forms`/`_parse_common_form`), **роли** (`roles.py`), **модули** (BSL-парсинг), flowchart, команды — вынести в отдельные треки при необходимости
-
-  - **Метод верификации (образец для будущих эпиков):** A/B-диф полного объекта старый↔новый на выгрузках в `C:\Users\Alex\Documents\1` (скрипты `ab_step2*.py`/`ab_step3.py`/`ab_step4*.py`/`ab_full2.py` в scratchpad сессии) → приёмка на живом MCP. `INDEXER_VERSION` поднимать, только если меняется форма записываемых данных (шаги 1–4 — не меняли)
+  - **Метод верификации (образец, если появятся новые библиотечные поверхности):** A/B-диф полного объекта старый↔новый на выгрузках в `C:\Users\Alex\Documents\1` → приёмка на живом MCP. `INDEXER_VERSION` поднимать только при смене формы записываемых данных (шаги 1–4 — не меняли, 17)
 
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
