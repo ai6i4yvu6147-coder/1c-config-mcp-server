@@ -22,6 +22,21 @@
 - **Полная миграция остальных типов** осмысленна как часть Stage G (расширения) в
   `1c-metadata-schema`, а не как самоцель. См. `scope.md` там.
 
+## Прогресс (на 2026-07-18/19)
+
+Перевод read-парсера идёт треком `library-engine-migration` ([`todo.md`](todo.md)), развилка
+`_parse_object` по `LIBRARY_MIGRATED_TYPES` в `shared/xml_parser/core.py`:
+
+- **Шаг 1 — `DataProcessor`/`Report`** (через `_adapt_object_descriptor`).
+- **Шаг 2 — все объектные типы с реквизитами** (`Catalog`/`Document`/`Enum`/4 регистра/2 charts/
+  `ExchangePlan`/`BusinessProcess`/`Task`): `_parse_object_via_library` стал type-aware. Находки:
+  старый `_parse_standard_attributes` — мёртвый код (паритет `[]`); в библиотеку внесены два
+  фикса резолвера типов (`cfg:DefinedType.X` → `object_ref`; разворот `ExtendedProperty`/
+  `ExtendValue`). A/B на 15 426 объектах (5 проектов) — 0 ошибок, все дифы «новое ≥ старое»;
+  приёмка на живом MCP пройдена (Catalog/Document/регистр/Enum/BusinessProcess, обратные ссылки).
+- **Дальше:** property-only типы, затем `Subsystem`. Формы(logform+EAV)/роли/модули(BSL) — эпики.
+
+
 ## Почему СКД — первый шаг
 
 Идеальный первый кусок «через библиотеку»:

@@ -78,6 +78,20 @@ Do not start implementation from the list without explicit user request.
 
   - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; `bump-indexer-version` при новой схеме
 
+- **library-engine-migration** · `in progress` · Перевод парсера whitelist-типов на единый движок (`onec_metadata_schema`), по одному типу за развилкой
+
+  - **Стратегия:** [`library-migration.md`](library-migration.md) — инкрементально, за развилкой `старый путь / библиотека`; сначала где ломать нечего. Гранулярность форка — по типу (`LIBRARY_MIGRATED_TYPES` в `shared/xml_parser/core.py`), реализация — один общий `Node`-адаптер `_adapt_object_descriptor` (`external_processor.py`), наращиваемый по блокам
+
+  - **Порядок:** 1) `DataProcessor`+`Report` — **done** → 2) все объектные типы с реквизитами (`Catalog`/`Document`/`Enum`/4 регистра/2 charts/`ExchangePlan`/`BusinessProcess`/`Task`) — **done** → 3) property-only (`ScheduledJob`/`FunctionalOption`/`CommonModule|Command|Form`/`DefinedType`) → 4) `Subsystem`. **Отдельными эпиками (не в этом заходе):** формы (logform+EAV), роли, модули (BSL), flowchart, команды
+
+  - **Шаг 1 — done (2026-07-18, см. CHANGELOG):** `DataProcessor`/`Report` за развилкой; A/B на 3369 дескрипторах — 0 ошибок, 8 дифов «новое ≥ старое». Попутно закрыт DefinedType-разрыв резолвера в библиотеке
+
+  - **Шаг 2 — done (2026-07-18, см. CHANGELOG):** `LIBRARY_MIGRATED_TYPES` = 14 типов; `_parse_object_via_library` стал type-aware (регистры → секции + ключ `attributes`; `Enum` → значения; BP → flowchart). Находки: `standard_attributes` старого пути — мёртвый код (пусто на 600 объектах, паритет `[]`); библиотека дополнена разворотом `ExtendedProperty`/`ExtendValue` (реквизит-`Adopted` с переопределённым типом). A/B на **15 426** объектах — 0 ошибок, 185 дифов, все «новое ≥ старое»; полный диф 195 объектов (вкл. BP/регистры) — 0 в file-walk
+
+  - **Следующее (шаг 3):** property-only типы. У них нет реквизитов/секций — переносится `_adapt_descriptor_properties` + свои мелкие свойства: `ScheduledJob` (MethodName/Use/Predefined/Restart*), `FunctionalOption` (Location/PrivilegedGetMode/Content refs), `DefinedType` (object-level `type_slots`), `CommonModule`/`CommonCommand` (CommandModule.bsl), `CommonForm` (форма без реквизитов). Каждый — своя ветка `_parse_properties`, требует чтения из Node
+
+  - **Метод верификации (для каждого следующего типа):** A/B-диф дескриптор-полей старый↔новый на выгрузках в `C:\Users\Alex\Documents\1` (скрипты-образцы `ab_step2*.py`/`ab_full2.py` в scratchpad сессии) → полный диф объекта → приёмка на живом MCP. `INDEXER_VERSION` поднимать, только если меняется форма записываемых данных (шаги 1–2 — не меняли)
+
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
   - **Why:** currently DynamicList in v1 — wrapper + `query_text` only; agent does not see main table/data source from Settings

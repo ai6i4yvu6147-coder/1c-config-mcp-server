@@ -14,6 +14,19 @@ REGISTER_TYPES = (
     'CalculationRegister',
 )
 
+# Виды объектов, чей дескриптор читается единым движком формата (onec_metadata_schema)
+# вместо старого ручного обхода ElementTree. Растёт пачками за одной развилкой, каждый
+# перевод доказан A/B-дифом дескриптор-полей на реальных выгрузках. Пока НЕ переведены
+# property-only типы (CommonModule/CommonCommand/CommonForm/ScheduledJob/FunctionalOption/
+# DefinedType) и Subsystem (отдельный обход). См. docs/library-migration.md.
+LIBRARY_MIGRATED_TYPES = frozenset({
+    'DataProcessor', 'Report',
+    'Catalog', 'Document', 'Enum',
+    'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister',
+    'ChartOfAccounts', 'ChartOfCharacteristicTypes', 'ExchangePlan',
+    'BusinessProcess', 'Task',
+})
+
 
 class ConfigurationParserCore:
     """Configuration.xml top-level parsing, per-object dispatch, subsystems, properties/attributes."""
@@ -214,6 +227,195 @@ class ConfigurationParserCore:
         return results
 
     def _parse_object(self, name, obj_type, folder_name):
+        """Разбор объекта метаданных. Развилка единого движка: типы из
+        LIBRARY_MIGRATED_TYPES читаются через onec_metadata_schema (дескриптор → адаптер
+        из external_processor.py), остальные — старым путём `_parse_object_legacy`. Каждый
+        перевод типа доказан A/B-дифом дескриптор-полей на реальных выгрузках. См.
+        docs/library-migration.md.
+        """
+        if obj_type in LIBRARY_MIGRATED_TYPES:
+            obj = self._parse_object_via_library(name, obj_type, folder_name)
+            if obj is not None:
+                return obj
+            # Дескриптор не распознан библиотекой — не теряем объект молча, идём старым путём.
+        return self._parse_object_legacy(name, obj_type, folder_name)
+
+    def _parse_object_via_library(self, name, obj_type, folder_name):
+        """Читает дескриптор `<Name>.xml` единым движком и собирает тот же dict, что даёт
+        `_parse_object_legacy`. Дескриптор-часть (uuid, properties, реквизиты/ТЧ/секции
+        регистра/значения перечисления, слоты типов) — из onec_metadata_schema; модули/формы/
+        команды/СКД/flowchart — теми же file-walk методами, что и старый путь (побайтово те же
+        данные). Возвращает None, если библиотека не нашла дескриптор нужного вида (тогда
+        вызывающий откатывается на старый путь).
+        """
+        xml_file = self.root_dir / folder_name / f"{name}.xml"
+        if not os.path.exists(_winlong(xml_file)):
+            return None
+        try:
+            import onec_metadata_schema
+        except ImportError as exc:  # pragma: no cover - packaging guard
+            raise RuntimeError(
+                "Единый движок формата требует библиотеку '1c-metadata-schema' "
+                "(onec_metadata_schema). Установите её "
+                "(`pip install -e ../1c-metadata-schema`) и пересоберите portable."
+            ) from exc
+
+        node = onec_metadata_schema.parse(xml_file)
+        descriptor = self._find_descriptor_node(node, obj_type)
+        if descriptor is None:
+            return None
+
+        with self._accumulate('properties'):
+            properties = self._adapt_descriptor_properties(descriptor, obj_type)
+
+        # Дескриптор-блоки по виду объекта (то же дерево, что в _parse_object_legacy):
+        # регистры → секции Dimension/Resource/Attribute; Enum → значения; прочие → ТЧ.
+        tabular_sections = []
+        dimensions = []
+        resources = []
+        register_attributes = []
+        enum_values = []
+        with self._accumulate('sections'):
+            if obj_type in REGISTER_TYPES:
+                dimensions = self._adapt_register_section(descriptor, 'Dimension')
+                resources = self._adapt_register_section(descriptor, 'Resource')
+                register_attributes = self._adapt_register_section(descriptor, 'Attribute')
+            elif obj_type == 'Enum':
+                enum_values = [
+                    self._adapt_enum_value(c) for c in descriptor.children if c.tag == 'EnumValue'
+                ]
+            else:
+                tabular_sections = [
+                    self._adapt_tabular_section_node(c)
+                    for c in descriptor.children if c.tag == 'TabularSection'
+                ]
+
+        # Соседние файлы — те же методы, что в старом пути (побайтово те же данные).
+        with self._accumulate('modules'):
+            modules = self._parse_modules(name, folder_name)
+        default_forms = {
+            'Element': properties.get('default_object_form') or properties.get('auxiliary_object_form'),
+            'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
+            'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
+        }
+        with self._accumulate('forms'):
+            forms = self._parse_forms(name, folder_name, default_forms)
+        # Команды читаются из сырого XML — file-walk метод берёт ET-корень, как и старый путь.
+        root = ET.parse(_winlong(xml_file)).getroot()
+        with self._accumulate('commands'):
+            commands = self._parse_object_commands(root, name, folder_name, obj_type)
+        with self._accumulate('dcs'):
+            dcs_schemas = self._parse_dcs_schemas(name, folder_name)
+
+        route_points = []
+        route_transitions = []
+        if obj_type == 'BusinessProcess':
+            with self._accumulate('flowchart'):
+                flowchart = self._parse_flowchart(name, folder_name)
+            route_points = flowchart['route_points']
+            route_transitions = flowchart['route_transitions']
+
+        result = {
+            'name': name,
+            'type': obj_type,
+            'uuid': descriptor.uuid or '',
+            'properties': properties,
+            'modules': modules,
+            'forms': forms,
+            'tabular_sections': tabular_sections,
+            'dimensions': dimensions,
+            'resources': resources,
+            'enum_values': enum_values,
+            'commands': commands,
+            'dcs_schemas': dcs_schemas,
+        }
+        if obj_type in REGISTER_TYPES:
+            result['attributes'] = register_attributes
+        if obj_type == 'BusinessProcess':
+            result['route_points'] = route_points
+            result['route_transitions'] = route_transitions
+        return result
+
+    def _adapt_descriptor_properties(self, descriptor, obj_type):
+        """properties-dict дескриптора из библиотечного Node: синоним/комментарий/
+        принадлежность + имена форм по умолчанию (последний сегмент пути) + custom_attributes
+        (у регистров реквизиты уходят в obj['attributes'], поэтому здесь пусто).
+
+        `standard_attributes` — всегда []: старый `_parse_standard_attributes` на реальных
+        выгрузках тоже пуст (ищет теги `{MDClasses}Code/…`, тогда как стандартные реквизиты
+        лежат как `xcf:StandardAttribute name="Code"` — паритет подтверждён на 600 объектах).
+        """
+        properties = {'standard_attributes': [], 'custom_attributes': []}
+
+        synonym = self._node_synonym(descriptor)
+        if synonym:
+            properties['synonym'] = synonym
+        comment = descriptor.properties.get('Comment')
+        if comment:
+            properties['comment'] = comment
+        belonging = descriptor.properties.get('ObjectBelonging')
+        if isinstance(belonging, str) and belonging.strip():
+            properties['object_belonging'] = belonging.strip()
+        extended = descriptor.properties.get('ExtendedConfigurationObject')
+        if isinstance(extended, str) and extended.strip():
+            properties['extended_configuration_object'] = extended.strip()
+
+        # Имена форм по умолчанию (последний сегмент пути ObjectType.Name.Form.FormName) —
+        # только те 6 тегов, что читает старый _parse_properties (не Folder-варианты).
+        for tag, key in (
+            ('DefaultObjectForm', 'default_object_form'),
+            ('DefaultListForm', 'default_list_form'),
+            ('DefaultChoiceForm', 'default_choice_form'),
+            ('AuxiliaryObjectForm', 'auxiliary_object_form'),
+            ('AuxiliaryListForm', 'auxiliary_list_form'),
+            ('AuxiliaryChoiceForm', 'auxiliary_choice_form'),
+        ):
+            value = descriptor.properties.get(tag)
+            if isinstance(value, str) and value.strip():
+                path = value.strip()
+                properties[key] = path.split('.')[-1] if '.' in path else path
+
+        if obj_type not in REGISTER_TYPES:
+            properties['custom_attributes'] = [
+                self._adapt_attribute_node(c) for c in descriptor.children if c.tag == 'Attribute'
+            ]
+        return properties
+
+    def _adapt_register_section(self, descriptor, child_tag):
+        """Секция регистра (Dimension/Resource/Attribute) из детей Node →
+        [{name, type_slots, title, comment}] (как `_parse_register_section`)."""
+        return [
+            {
+                'name': c.properties.get('Name') or c.name or '',
+                'type_slots': c.properties.get('Type') or [],
+                'title': self._node_synonym(c),
+                'comment': c.properties.get('Comment') or '',
+            }
+            for c in descriptor.children if c.tag == child_tag
+        ]
+
+    def _adapt_enum_value(self, node):
+        """EnumValue-узел → dict как `_parse_enum_value_elem` (name/title/comment/order/
+        object_belonging/extended_configuration_object)."""
+        order = node.properties.get('Order')
+        try:
+            order = int(order) if order is not None and str(order).strip() != '' else None
+        except (TypeError, ValueError):
+            order = None
+        belonging = node.properties.get('ObjectBelonging')
+        belonging = belonging.strip() if isinstance(belonging, str) and belonging.strip() else None
+        extended = node.properties.get('ExtendedConfigurationObject')
+        extended = extended.strip() if isinstance(extended, str) and extended.strip() else None
+        return {
+            'name': node.properties.get('Name') or node.name or '',
+            'title': self._node_synonym(node),
+            'comment': node.properties.get('Comment') or '',
+            'order': order,
+            'object_belonging': belonging,
+            'extended_configuration_object': extended,
+        }
+
+    def _parse_object_legacy(self, name, obj_type, folder_name):
         """Парсит отдельный объект метаданных"""
         xml_file = self.root_dir / folder_name / f"{name}.xml"
 
