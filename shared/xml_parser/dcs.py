@@ -88,3 +88,64 @@ class TemplatesDcsMixin:
                 'shape': dcs_shape_hints(schema),
             })
         return schemas
+
+    def _spreadsheet_reader(self):
+        """Cached library ``read_spreadsheet_text`` (MXL macet text), or ``None`` when the
+        library is unavailable -- macet indexing then degrades to a no-op, mirroring
+        ``_dcs_reader`` (ordinary config parsing never depends on it)."""
+        cached = getattr(self, '_spreadsheet_reader_cache', False)
+        if cached is not False:
+            return cached
+        try:
+            from onec_metadata_schema import read_spreadsheet_text
+            cached = read_spreadsheet_text
+        except ImportError:
+            cached = None
+        self._spreadsheet_reader_cache = cached
+        return cached
+
+    def _is_spreadsheet_descriptor(self, descriptor_path):
+        """True only for a ``TemplateType=SpreadsheetDocument`` descriptor (the MXL macet
+        path; DCS and other template kinds are handled/skipped separately)."""
+        try:
+            root = ET.parse(_winlong(descriptor_path)).getroot()
+        except (ET.ParseError, OSError):
+            return False
+        ttype = root.find(f'.//{{{_MD_NS}}}TemplateType')
+        return ttype is not None and (ttype.text or '').strip() == 'SpreadsheetDocument'
+
+    def _parse_spreadsheet_templates(self, name, folder_name):
+        """MXL macets owned by ``<folder_name>/<name>/Templates/`` (mxl-macet-indexing).
+
+        Returns a list of ``{template_name, text}`` — the macet's visible text (cell text +
+        whole-cell parameters + named-area names) for FTS ``code_search`` (Срез 1). Empty when
+        the object owns no ``Templates/`` dir, no MXL template, or the library is absent. The
+        legacy parser never read ``Templates/`` at all → purely additive, skip-on-error like
+        ``_parse_dcs_schemas``. See docs/mxl-macet-indexing.md."""
+        templates_dir = self.root_dir / folder_name / name / 'Templates'
+        if not templates_dir.is_dir():
+            return []
+        read_spreadsheet_text = self._spreadsheet_reader()
+        if read_spreadsheet_text is None:
+            return []
+
+        macets = []
+        for descriptor in sorted(templates_dir.glob('*.xml')):
+            template_name = descriptor.stem
+            body = templates_dir / template_name / 'Ext' / 'Template.xml'
+            if not os.path.exists(_winlong(body)):
+                continue
+            if not self._is_spreadsheet_descriptor(descriptor):
+                continue
+            try:
+                with open(_winlong(body), 'rb') as f:
+                    text = read_spreadsheet_text(f.read())
+            except Exception as exc:  # skip-on-error: one bad macet must not fail the build
+                self.skipped_dcs.append({
+                    'object': f'{folder_name}/{name}',
+                    'template': template_name,
+                    'error': str(exc),
+                })
+                continue
+            macets.append({'template_name': template_name, 'text': text})
+        return macets

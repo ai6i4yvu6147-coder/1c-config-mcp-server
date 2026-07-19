@@ -104,6 +104,7 @@ class ObjectInsertionMixin:
             # modules с module_type='DcsQuery' (владелец — объект шаблона). Схемы без
             # <query> (правила отбора каталогов) не дают строки — деградация без ошибки.
             self._insert_dcs_schemas(cursor, object_id, obj)
+            self._insert_spreadsheet_templates(cursor, object_id, obj)
 
             # Команды объекта (не CommonCommand) + модули CommandModule
             if obj['type'] != 'CommonCommand':
@@ -306,6 +307,25 @@ class ObjectInsertionMixin:
                 shape.get('filter_item_count', 0),
                 json.dumps(dcs.get('schema') or {}, ensure_ascii=False),
             ))
+
+    def _insert_spreadsheet_templates(self, cursor, object_id, obj):
+        """MXL macets of an object (mxl-macet-indexing), Срез 1: the macet's visible text
+        (cell text + whole-cell parameters + named-area names) -> code_search (FTS) as an
+        'MxlText' module row (external content over modules); object_name = `<Object>.<Template>`.
+        Text-less macets add no row (graceful degradation). See docs/mxl-macet-indexing.md."""
+        for macet in obj.get('spreadsheet_templates', []):
+            text = macet.get('text')
+            if not (text and text.strip()):
+                continue
+            cursor.execute('''
+                INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                VALUES (?, NULL, NULL, 'MxlText', ?)
+            ''', (object_id, text))
+            module_id = cursor.lastrowid
+            cursor.execute('''
+                INSERT INTO code_search (rowid, object_name, module_type, code)
+                VALUES (?, ?, 'MxlText', ?)
+            ''', (module_id, f"{obj['name']}.{macet.get('template_name', '')}", text))
 
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute', pending_type_slots=None):
         """Вставляет атрибут объекта в БД"""

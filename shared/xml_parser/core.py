@@ -405,6 +405,7 @@ class ConfigurationParserCore:
             commands = self._parse_object_commands(root, name, folder_name, obj_type)
         with self._accumulate('dcs'):
             dcs_schemas = self._parse_dcs_schemas(name, folder_name)
+            spreadsheet_templates = self._parse_spreadsheet_templates(name, folder_name)
 
         route_points = []
         route_transitions = []
@@ -427,6 +428,7 @@ class ConfigurationParserCore:
             'enum_values': enum_values,
             'commands': commands,
             'dcs_schemas': dcs_schemas,
+            'spreadsheet_templates': spreadsheet_templates,
         }
         if obj_type in REGISTER_TYPES:
             result['attributes'] = register_attributes
@@ -483,6 +485,7 @@ class ConfigurationParserCore:
 
         with self._accumulate('dcs'):
             dcs_schemas = self._parse_dcs_schemas(name, folder_name)
+            spreadsheet_templates = self._parse_spreadsheet_templates(name, folder_name)
 
         result = {
             'name': name,
@@ -497,6 +500,7 @@ class ConfigurationParserCore:
             'enum_values': [],
             'commands': commands,
             'dcs_schemas': dcs_schemas,
+            'spreadsheet_templates': spreadsheet_templates,
         }
         if obj_type == 'DefinedType':
             # Тип на уровне объекта: библиотечный `.Type` байт-идентичен старому
@@ -738,6 +742,7 @@ class ConfigurationParserCore:
         # object types that never own templates just get []). See TemplatesDcsMixin.
         with self._accumulate('dcs'):
             dcs_schemas = self._parse_dcs_schemas(name, folder_name)
+            spreadsheet_templates = self._parse_spreadsheet_templates(name, folder_name)
 
         result = {
             'name': name,
@@ -752,6 +757,7 @@ class ConfigurationParserCore:
             'enum_values': enum_values,
             'commands': commands,
             'dcs_schemas': dcs_schemas,
+            'spreadsheet_templates': spreadsheet_templates,
         }
         if obj_type in REGISTER_TYPES:
             result['attributes'] = attributes

@@ -102,6 +102,12 @@ Do not start implementation from the list without explicit user request.
 
   - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы — round-trip round против `read_form` — потенциальная сверка); очистка legacy-дублирования форматного чтения (шаг 3, позже)
 
+- **mxl-macet-indexing** · срез 1 `done` (2026-07-19), срез 2 `idea` · Индексация MXL-макетов (`SpreadsheetDocument`) через движок
+
+  - **Срез 1 (done):** библиотека получила read-модуль `spreadsheet_read.py`/`read_spreadsheet` (+`read_spreadsheet_text`/`spreadsheet_shape_hints`); C-MCP индексирует видимый текст макета (ячейки+параметры+имена областей) в `code_search` FTS (`module_type='MxlText'`) — `search_code` находит макеты по содержимому. Обход `Templates/` отдельным `_parse_spreadsheet_templates` (развилка по `TemplateType=SpreadsheetDocument`, фолбэк), DCS-путь не тронут. Чистое добавление (старый парсер MXL не читал) — по плейбуку ДКС, 0 регресса. Проверено на АСБ main (12 545 макетов) — 0 ошибок парсинга; корпус ~22 264. `INDEXER_VERSION` 17→**18**. Дизайн — [`mxl-macet-indexing.md`](mxl-macet-indexing.md)
+
+  - **Срез 2 (idea):** таблица `spreadsheet_template` (shape-hints + области/параметры) + MCP-tool `get_spreadsheet` (по образцу `dcs_schema`/`get_dcs_schema`), чтобы агент видел области `ПолучитьОбласть` и параметры без FTS. `spreadsheet_shape_hints` уже отдаёт всё нужное; при добавлении — `bump-indexer-version`
+
 - **form-dynamiclist-settings** · `idea` · Parse DynamicList Settings on form (MainTable, DCS)
 
   - **Why:** currently DynamicList in v1 — wrapper + `query_text` only; agent does not see main table/data source from Settings
