@@ -2,6 +2,7 @@
 
 import sqlite3
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,6 +20,16 @@ V8 = 'http://v8.1c.ru/8.1/data/core'
 
 def _parser():
     return ConfigurationParser(str(ROOT / 'nonexistent' / 'Configuration.xml'))
+
+
+def _parse_register(tmp, xml):
+    """Write a register descriptor to disk and parse it through the production single-engine
+    path (`_parse_object` -> onec_metadata_schema), returning the object dict."""
+    reg_dir = Path(tmp) / 'InformationRegisters'
+    reg_dir.mkdir(parents=True, exist_ok=True)
+    (reg_dir / 'РегТест.xml').write_text(xml, encoding='utf-8')
+    parser = ConfigurationParser(str(Path(tmp) / 'Configuration.xml'))
+    return parser._parse_object('РегТест', 'InformationRegister', 'InformationRegisters')
 
 
 REGISTER_ATTR_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -69,12 +80,12 @@ DEFINED_TYPE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 
 class TestRegisterAttributeDedup(unittest.TestCase):
     def test_register_custom_attributes_empty_attributes_once(self):
-        root = ET.fromstring(REGISTER_ATTR_XML)
-        parser = _parser()
-        props = parser._parse_properties(root, 'InformationRegister')
-        self.assertEqual(props['custom_attributes'], [])
-        attrs = parser._parse_register_section(root, 'Attributes', 'InformationRegister')
-        self.assertEqual([a['name'] for a in attrs], ['Рекв1', 'Рекв2'])
+        """Register requisites land in obj['attributes'], not duplicated into
+        properties['custom_attributes'] (single-engine `_adapt_register_section`)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            obj = _parse_register(tmp, REGISTER_ATTR_XML)
+        self.assertEqual(obj['properties']['custom_attributes'], [])
+        self.assertEqual([a['name'] for a in obj['attributes']], ['Рекв1', 'Рекв2'])
 
 
 class TestDefinedTypeParse(unittest.TestCase):
@@ -90,9 +101,9 @@ class TestDefinedTypeParse(unittest.TestCase):
         )
 
     def test_dimension_typeset_parses_defined_type_ref(self):
-        root = ET.fromstring(REGISTER_ATTR_XML)
-        parser = _parser()
-        dims = parser._parse_register_section(root, 'Dimensions', 'InformationRegister')
+        with tempfile.TemporaryDirectory() as tmp:
+            obj = _parse_register(tmp, REGISTER_ATTR_XML)
+        dims = obj['dimensions']
         self.assertEqual(len(dims), 1)
         slot = dims[0]['type_slots'][0]
         self.assertEqual(slot['kind'], 'object_ref')

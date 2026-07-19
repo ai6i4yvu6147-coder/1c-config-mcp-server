@@ -4,8 +4,10 @@ from ..metadata_type_resolver import parse_cfg_type_string
 class TypeSlotsMixin:
     """Type-slot extraction: resolves BSL/metadata type strings into structured slots.
 
-    Used both by metadata parsing (attributes, tabular section columns, register
-    dimensions/resources) and by form parsing (form attributes, table columns).
+    Used by the descriptor property path (`_parse_properties` -> standard/custom attributes),
+    still live for the role descriptor (`Roles/<Name>.xml`), plus type-resolution tests.
+    Object and form type slots now come from the single format engine
+    (``onec_metadata_schema``), not from here.
     """
 
     def _dedupe_type_strings_preserve_order(self, items):
@@ -129,63 +131,3 @@ class TypeSlotsMixin:
         if raws:
             return ', '.join(self._dedupe_type_strings_preserve_order(raws))
         return ''
-
-    def _find_logform_type_container(self, elem, logform_ns):
-        """Контейнер Type в logform (прямой потомок или вложенный)."""
-        t = elem.find(f'{{{logform_ns}}}Type')
-        if t is not None:
-            return t
-        return elem.find(f'.//{{{logform_ns}}}Type')
-
-    def _extract_slots_from_v8_type_container(self, type_elem, v8_ns):
-        """Слоты из контейнера с v8:Type / v8:TypeSet (logform или Settings)."""
-        direct = []
-        for child in list(type_elem):
-            local_tag = child.tag.split('}')[-1] if child.tag else ''
-            if local_tag == 'Type' and child.text and child.text.strip():
-                direct.append(child.text.strip())
-        if direct:
-            qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
-            slots = []
-            for type_str in self._dedupe_type_strings_preserve_order(direct):
-                slot = self._slot_from_type_string(
-                    type_str,
-                    qualifiers if len(direct) == 1 else None,
-                )
-                slots.append(slot)
-            return slots
-
-        from_set = []
-        for ts in type_elem.findall(f'.//{{{v8_ns}}}TypeSet'):
-            if ts.text and ts.text.strip():
-                from_set.append(ts.text.strip())
-            for t in ts.findall(f'.//{{{v8_ns}}}Type'):
-                if t.text and t.text.strip():
-                    from_set.append(t.text.strip())
-        if from_set:
-            qualifiers = self._extract_qualifiers_from_type_container(type_elem, v8_ns)
-            slots = []
-            for type_str in self._dedupe_type_strings_preserve_order(from_set):
-                slot = parse_cfg_type_string(type_str)
-                if qualifiers and slot.get('kind') == 'primitive':
-                    slot = dict(slot)
-                    slot['qualifiers'] = qualifiers
-                slots.append(slot)
-            return slots
-        return []
-
-    def _extract_logform_type_slots(self, elem):
-        """Структурированные слоты типа реквизита/колонки формы (logform NS)."""
-        logform_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        v8_ns = 'http://v8.1c.ru/8.1/data/core'
-
-        slots = []
-        type_elem = self._find_logform_type_container(elem, logform_ns)
-        if type_elem is not None:
-            slots.extend(self._extract_slots_from_v8_type_container(type_elem, v8_ns))
-
-        settings_elem = elem.find(f'{{{logform_ns}}}Settings')
-        if settings_elem is not None:
-            slots.extend(self._extract_slots_from_v8_type_container(settings_elem, v8_ns))
-
-        return slots

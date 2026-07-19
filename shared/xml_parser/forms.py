@@ -48,16 +48,19 @@ class FormsMixin:
         return []
 
     def _parse_form(self, form_dir, uuid=None, form_name=None):
-        """Парсит одну форму. uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml).
+        """Парсит одну форму единым движком (``onec_metadata_schema.read_form``).
+        uuid/form_name — для CommonForm (метаданные в CommonForms/<Имя>.xml).
 
-        Формат Form.xml (logform) читает единый движок (``onec_metadata_schema.read_form``);
-        при любой ошибке (движок недоступен/неожиданная форма) — фолбэк на встроенный парсер,
-        чтобы индексация форм не зависела от импортируемости библиотеки.
+        skip-on-error (контракт P-2): битый Form.xml не валит всю сборку — ошибка пишется в
+        ``self.skipped_forms`` и возвращается None. Отсутствие Form.xml — обычный no-op
+        (``_parse_form_via_library`` возвращает None до чтения, без записи в skipped_forms).
         """
         try:
             return self._parse_form_via_library(form_dir, uuid=uuid, form_name=form_name)
-        except Exception:
-            return self._parse_form_legacy(form_dir, uuid=uuid, form_name=form_name)
+        except Exception as e:
+            print(f"Ошибка парсинга формы {form_dir.name}: {e}")
+            self.skipped_forms.append({'path': str(form_dir), 'error': str(e)})
+            return None
 
     def _read_form_uuid(self, form_dir, form_name):
         """UUID формы из соседнего файла метаданных ИмяФормы.xml (в самом Form.xml его нет)."""
@@ -74,13 +77,14 @@ class FormsMixin:
         return ''
 
     def _parse_form_via_library(self, form_dir, uuid=None, form_name=None):
-        """Читает Form.xml единым движком (``read_form``) → та же запись формы, что и legacy.
+        """Читает Form.xml единым движком (``read_form``) → запись формы для индексации.
 
         Движок владеет форматом (контейнеры, дерево items, слоты типов, титулы, ФО,
         conditional appearance) и отдаёт по каждой сущности нейтральное ``RawElement``-зеркало
         subtree — storage-политику не несёт. EAV (`entity_properties`) считает существующий
-        C-MCP-флэттенер (skip/value_type/UNSET_DATE/ordinals) по этому зеркалу; байт-паритет
-        с legacy — см. docs/forms-engine-migration.md. uuid/модуль — из соседних файлов."""
+        C-MCP-флэттенер (skip/value_type/UNSET_DATE/ordinals) по этому зеркалу (байт-паритет
+        со снятым legacy-путём подтверждён A/B — см. docs/forms-engine-migration.md).
+        uuid/модуль — из соседних файлов."""
         form_xml = form_dir / 'Ext' / 'Form.xml'
         if not os.path.exists(_winlong(form_xml)):
             return None
@@ -136,224 +140,6 @@ class FormsMixin:
             'module': self._parse_form_module(form_dir),
         }
 
-    def _parse_form_legacy(self, form_dir, uuid=None, form_name=None):
-        """Встроенный ElementTree-парсер Form.xml (до единого движка). Сохранён как фолбэк
-        и как A/B-эталон для проверки ``_parse_form_via_library`` на реальных выгрузках."""
-        form_xml = form_dir / 'Ext' / 'Form.xml'
-
-        if not os.path.exists(_winlong(form_xml)):
-            return None
-
-        try:
-            form_name = form_name or form_dir.name
-            if uuid is None:
-                uuid = self._read_form_uuid(form_dir, form_name)
-
-            # Парсим структуру формы из Form.xml
-            tree = ET.parse(_winlong(form_xml))
-            root = tree.getroot()
-
-            # Namespace для форм
-            ns = {'lf': 'http://v8.1c.ru/8.3/xcf/logform'}
-
-            # Properties формы (корневые элементы)
-            properties = self._parse_form_properties(root, ns)
-
-            # Events формы
-            events = self._parse_form_events(root, ns)
-
-            # Attributes
-            attributes = self._parse_form_attributes(root, ns)
-
-            # Commands
-            commands = self._parse_form_commands(root, ns)
-
-            # ChildItems (элементы UI)
-            items = self._parse_form_items(root, ns)
-
-            # ConditionalAppearance
-            conditional_appearance = self._parse_form_conditional_appearance(root, ns)
-
-            # Модуль формы
-            module = self._parse_form_module(form_dir)
-
-            return {
-                'name': form_name,
-                'uuid': uuid,
-                'properties': properties,
-                'events': events,
-                'attributes': attributes,
-                'commands': commands,
-                'items': items,
-                'conditional_appearance': conditional_appearance,
-                'module': module
-            }
-        except Exception as e:
-            print(f"Ошибка парсинга формы {form_dir.name}: {e}")
-            self.skipped_forms.append({'path': str(form_dir), 'error': str(e)})
-            return None
-
-    def _parse_form_properties(self, root, ns):
-        """Извлекает свойства формы"""
-        properties = {}
-
-        # Namespace по умолчанию для Form.xml
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-
-        # Список интересующих свойств
-        prop_names = [
-            'AutoSave', 'AutoTitle', 'CommandBarLocation',
-            'VerticalScroll', 'AutoTime', 'UsePostingMode',
-            'RepostOnWrite', 'AutoSaveDataInSettings'
-        ]
-
-        for prop_name in prop_names:
-            elem = root.find(f'{{{default_ns}}}{prop_name}')
-            if elem is not None and elem.text:
-                properties[prop_name] = elem.text
-
-        return properties
-
-    def _parse_form_events(self, root, ns):
-        """Извлекает события формы"""
-        events = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        events_elem = root.find(f'{{{default_ns}}}Events')
-
-        if events_elem is None:
-            return events
-
-        for event in events_elem.findall(f'{{{default_ns}}}Event'):
-            event_data = {
-                'name': event.get('name', ''),
-                'handler': event.text or '',
-                'call_type': event.get('callType', '')
-            }
-            events.append(event_data)
-
-        return events
-
-    def _parse_form_attributes(self, root, ns):
-        """Извлекает реквизиты формы"""
-        attributes = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        attrs_elem = root.find(f'{{{default_ns}}}Attributes')
-
-        if attrs_elem is None:
-            return attributes
-
-        for attr in attrs_elem.findall(f'{{{default_ns}}}Attribute'):
-            attr_data = {
-                'name': attr.get('name', ''),
-                'type_slots': self._extract_logform_type_slots(attr),
-                'title': self._extract_localized_string(attr, 'Title'),
-                'is_main': attr.find(f'{{{default_ns}}}MainAttribute') is not None,
-                'columns': self._extract_columns(attr),
-                'entity_properties': flatten_attribute(attr),
-                'functional_options': self._extract_form_functional_options(attr, default_ns),
-            }
-            attributes.append(attr_data)
-
-        return attributes
-
-    def _parse_form_commands(self, root, ns):
-        """Извлекает команды формы"""
-        commands = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        cmds_elem = root.find(f'{{{default_ns}}}Commands')
-
-        if cmds_elem is None:
-            return commands
-
-        for cmd in cmds_elem.findall(f'{{{default_ns}}}Command'):
-            cmd_data = {
-                'name': cmd.get('name', ''),
-                'title': self._extract_localized_string(cmd, 'Title'),
-                'action': self._get_element_text(cmd, 'Action'),
-                'shortcut': self._get_element_text(cmd, 'Shortcut'),
-                'representation': self._get_element_text(cmd, 'Representation'),
-                'functional_options': self._extract_form_functional_options(cmd, default_ns),
-            }
-            commands.append(cmd_data)
-
-        return commands
-
-    def _parse_form_items(self, root, ns):
-        """Извлекает элементы UI формы"""
-        items = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-
-        # Обрабатываем AutoCommandBar
-        auto_cmd_bar = root.find(f'{{{default_ns}}}AutoCommandBar')
-        if auto_cmd_bar is not None:
-            # Внутри AutoCommandBar реальные элементы лежат в контейнерах ChildItems/Items,
-            # сам AutoCommandBar — не элемент дерева UI.
-            auto_child = auto_cmd_bar.find(f'{{{default_ns}}}ChildItems')
-            if auto_child is not None:
-                items.extend(self._parse_child_items(auto_child, None))
-            auto_items = auto_cmd_bar.find(f'{{{default_ns}}}Items')
-            if auto_items is not None:
-                items.extend(self._parse_child_items(auto_items, None))
-
-        # Обрабатываем ChildItems
-        child_items = root.find(f'{{{default_ns}}}ChildItems')
-        if child_items is not None:
-            items.extend(self._parse_child_items(child_items, None))
-
-        return items
-
-    def _parse_child_items(self, parent_elem, parent_id):
-        """Рекурсивно парсит дочерние элементы в порядке появления в документе."""
-        items = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-
-        # Множество поддерживаемых типов элементов UI (для быстрой проверки)
-        item_types_set = {
-            'Button', 'InputField', 'Table', 'UsualGroup',
-            'ButtonGroup', 'Popup', 'LabelField', 'CheckBoxField',
-            'RadioButtonField', 'Pages', 'Page', 'CommandBar',
-            'LabelDecoration', 'PictureDecoration', 'SpreadSheetDocumentField',
-            'HTMLDocumentField', 'FormattedDocumentField', 'FlowchartField',
-            'PlannerField', 'GanttChartField', 'ExtendedTooltip', 'SearchControl',
-        }
-
-        for elem in parent_elem:
-            local_tag = elem.tag.split('}')[-1] if elem.tag else ''
-            if local_tag not in item_types_set:
-                continue
-            item_data = {
-                'name': elem.get('name', ''),
-                'id': elem.get('id', ''),
-                'type': local_tag,
-                'parent_id': parent_id,
-                'entity_properties': flatten_item(elem),
-                'events': self._extract_item_events(elem),
-                'functional_options': self._extract_form_functional_options(elem, default_ns),
-            }
-            items.append(item_data)
-            # В логформе дочерние элементы могут лежать в разных контейнерах:
-            # - ChildItems (обычное дерево UI)
-            # - Items (часто внутри CommandBar/панелей команд)
-            # Не обрабатывая Items, мы "теряем" кнопки командной панели.
-            child_items_elem = elem.find(f'{{{default_ns}}}ChildItems')
-            if child_items_elem is not None:
-                items.extend(self._parse_child_items(child_items_elem, item_data['id']))
-            items_elem = elem.find(f'{{{default_ns}}}Items')
-            if items_elem is not None:
-                items.extend(self._parse_child_items(items_elem, item_data['id']))
-        return items
-
-    def _parse_form_conditional_appearance(self, root, ns):
-        """Извлекает условное оформление"""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        cond_app_elem = root.find(f'.//{{{default_ns}}}ConditionalAppearance')
-
-        if cond_app_elem is None:
-            return None
-
-        # Сохраняем как XML строку
-        return ET.tostring(cond_app_elem, encoding='unicode')
-
     def _parse_form_module(self, form_dir):
         """Извлекает модуль формы"""
         module_path = form_dir / 'Ext' / 'Form' / 'Module.bsl'
@@ -367,85 +153,3 @@ class FormsMixin:
             return code
         except:
             return None
-
-    # Вспомогательные методы
-
-    def _extract_localized_string(self, elem, tag_name):
-        """Извлекает локализованную строку"""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        tag_elem = elem.find(f'{{{default_ns}}}{tag_name}')
-        if tag_elem is None:
-            return ''
-
-        # Ищем v8:content
-        content = tag_elem.find('.//{http://v8.1c.ru/8.1/data/core}content')
-        if content is not None and content.text:
-            return content.text
-
-        return ''
-
-    def _get_element_text(self, elem, tag_name):
-        """Получает текст элемента"""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        child = elem.find(f'{{{default_ns}}}{tag_name}')
-        return child.text if child is not None and child.text else ''
-
-    def _extract_form_functional_options(self, elem, default_ns='http://v8.1c.ru/8.3/xcf/logform'):
-        """Извлекает список FunctionalOptions/Item из элемента формы (Attribute, Command или UI element).
-        Item может быть UUID или строка вида FunctionalOption.Имя."""
-        fo_elem = elem.find(f'{{{default_ns}}}FunctionalOptions')
-        if fo_elem is None:
-            return []
-        result = []
-        for item in fo_elem.findall(f'{{{default_ns}}}Item'):
-            if item.text and item.text.strip():
-                result.append(item.text.strip())
-        return result
-
-    def _extract_columns(self, attr_elem):
-        """Извлекает колонки ValueTable (Column) и AdditionalColumns (DocumentObject)."""
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        columns_elem = attr_elem.find(f'{{{default_ns}}}Columns')
-        if columns_elem is None:
-            return None
-
-        columns = []
-        for col in columns_elem.findall(f'{{{default_ns}}}Column'):
-            columns.append({
-                'table': None,
-                'name': col.get('name', ''),
-                'title': self._extract_localized_string(col, 'Title'),
-                'type_slots': self._extract_logform_type_slots(col),
-                'entity_properties': flatten_attribute_column(col),
-                'functional_options': self._extract_form_functional_options(col, default_ns),
-            })
-        for add_col in columns_elem.findall(f'{{{default_ns}}}AdditionalColumns'):
-            table_name = add_col.get('table', '') or None
-            for col in add_col.findall(f'{{{default_ns}}}Column'):
-                columns.append({
-                    'table': table_name,
-                    'name': col.get('name', ''),
-                    'title': self._extract_localized_string(col, 'Title'),
-                    'type_slots': self._extract_logform_type_slots(col),
-                    'entity_properties': flatten_attribute_column(col),
-                    'functional_options': self._extract_form_functional_options(col, default_ns),
-                })
-
-        return columns if columns else None
-
-    def _extract_item_events(self, elem):
-        """Извлекает события элемента"""
-        events = []
-        default_ns = 'http://v8.1c.ru/8.3/xcf/logform'
-        events_elem = elem.find(f'{{{default_ns}}}Events')
-
-        if events_elem is None:
-            return events
-
-        for event in events_elem.findall(f'{{{default_ns}}}Event'):
-            events.append({
-                'name': event.get('name', ''),
-                'handler': event.text or ''
-            })
-
-        return events

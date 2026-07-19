@@ -1,6 +1,5 @@
 from .core import ConfigurationParserCore
 from .types import TypeSlotsMixin
-from .sections import SectionsMixin
 from .flowchart import FlowchartMixin
 from .modules import ModulesMixin
 from .forms import FormsMixin
@@ -14,7 +13,6 @@ class ConfigurationParser(
     FormsMixin,
     ModulesMixin,
     FlowchartMixin,
-    SectionsMixin,
     TypeSlotsMixin,
     RolesMixin,
     TemplatesDcsMixin,

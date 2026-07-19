@@ -2,44 +2,9 @@ import os
 import xml.etree.ElementTree as ET
 
 from .role_qname import classify_target_qname
-from .xml_helpers import _local_tag, _winlong
+from .xml_helpers import _winlong
 
-ROLES_NS = 'http://v8.1c.ru/8.2/roles'
 MD_NS = 'http://v8.1c.ru/8.3/MDClasses'
-
-
-def _roles_child(parent, local_name):
-    """Find direct child in Roles namespace or without namespace."""
-    if parent is None:
-        return None
-    elem = parent.find(f'{{{ROLES_NS}}}{local_name}')
-    if elem is None:
-        elem = parent.find(local_name)
-    return elem
-
-
-def _roles_children(parent, local_name):
-    if parent is None:
-        return []
-    elems = parent.findall(f'{{{ROLES_NS}}}{local_name}')
-    if not elems:
-        elems = parent.findall(local_name)
-    return elems
-
-
-def _text(elem):
-    if elem is None or elem.text is None:
-        return ''
-    return elem.text.strip()
-
-
-def _bool_text(elem):
-    text = _text(elem).lower()
-    if text == 'true':
-        return True
-    if text == 'false':
-        return False
-    return None
 
 
 def _reshape_rights_from_library(neutral):
@@ -85,103 +50,26 @@ def _reshape_rights_from_library(neutral):
     }
 
 
-def parse_rights_xml_via_library(rights_path):
-    """Library-backed path: read ``Rights.xml`` through ``onec_metadata_schema.read_rights``
-    (the single format engine), then reshape to C-MCP's indexing dict. Returns ``None`` if the
-    file is missing/unreadable, or raises if the library is absent (dispatcher falls back)."""
+def parse_rights_xml(rights_path):
+    """
+    Parse Roles/<Name>/Ext/Rights.xml through the single format engine
+    (``onec_metadata_schema.read_rights``), reshaped to C-MCP's flat indexing dict
+    (role_settings, role_grants, role_access_restrictions, role_restriction_templates).
+
+    Returns None if the file is missing or malformed (skip-on-error: one bad Rights.xml must
+    not fail the whole build — same contract as forms/DCS). Library absence surfaces loudly
+    via ImportError, but by the time roles are parsed the object pass has already required the
+    library, so it is guaranteed present.
+    """
     if not os.path.exists(_winlong(rights_path)):
         return None
     from onec_metadata_schema import read_rights
-    with open(_winlong(rights_path), 'rb') as f:
-        xml = f.read()
-    return _reshape_rights_from_library(read_rights(xml))
-
-
-def parse_rights_xml(rights_path):
-    """
-    Parse Roles/<Name>/Ext/Rights.xml.
-
-    Returns dict with role_settings, role_grants, role_access_restrictions,
-    role_restriction_templates — or None if file missing/unreadable.
-
-    Reads through the single format engine (``onec_metadata_schema``); on any failure
-    (library absent, unexpected shape) it falls back to the in-tree legacy parser so role
-    indexing never depends on the library being importable.
-    """
     try:
-        return parse_rights_xml_via_library(rights_path)
-    except Exception:
-        return parse_rights_xml_legacy(rights_path)
-
-
-def parse_rights_xml_legacy(rights_path):
-    """In-tree ElementTree parser (pre-single-engine). Retained as the fallback path and as
-    the A/B baseline for verifying ``parse_rights_xml_via_library`` on real exports."""
-    if not os.path.exists(_winlong(rights_path)):
-        return None
-
-    try:
-        root = ET.parse(_winlong(rights_path)).getroot()
+        with open(_winlong(rights_path), 'rb') as f:
+            xml = f.read()
+        return _reshape_rights_from_library(read_rights(xml))
     except (ET.ParseError, OSError):
         return None
-
-    settings = {
-        'set_for_new_objects': _bool_text(_roles_child(root, 'setForNewObjects')),
-        'set_for_attributes_by_default': _bool_text(_roles_child(root, 'setForAttributesByDefault')),
-        'independent_rights_of_child_objects': _bool_text(_roles_child(root, 'independentRightsOfChildObjects')),
-    }
-
-    grants = []
-    restrictions = []
-
-    for obj_elem in _roles_children(root, 'object'):
-        target_qname = _text(_roles_child(obj_elem, 'name'))
-        if not target_qname:
-            continue
-        target_kind, parent_object_qname = classify_target_qname(target_qname)
-
-        for right_elem in _roles_children(obj_elem, 'right'):
-            right_name = _text(_roles_child(right_elem, 'name'))
-            if not right_name:
-                continue
-            granted = _bool_text(_roles_child(right_elem, 'value'))
-            grants.append({
-                'target_qname': target_qname,
-                'target_kind': target_kind,
-                'parent_object_qname': parent_object_qname,
-                'right_name': right_name,
-                'granted': granted,
-            })
-
-            for restr_elem in _roles_children(right_elem, 'restrictionByCondition'):
-                field_elem = _roles_child(restr_elem, 'field')
-                field_scope = _text(field_elem) or None
-                condition_elem = _roles_child(restr_elem, 'condition')
-                restriction_text = condition_elem.text if condition_elem is not None and condition_elem.text else ''
-                restrictions.append({
-                    'target_qname': target_qname,
-                    'right_name': right_name,
-                    'field_scope': field_scope,
-                    'restriction_text': restriction_text,
-                })
-
-    templates = []
-    for tmpl_elem in _roles_children(root, 'restrictionTemplate'):
-        template_name = _text(_roles_child(tmpl_elem, 'name'))
-        condition_elem = _roles_child(tmpl_elem, 'condition')
-        condition_text = condition_elem.text if condition_elem is not None and condition_elem.text else ''
-        if template_name:
-            templates.append({
-                'template_name': template_name,
-                'condition_text': condition_text,
-            })
-
-    return {
-        'role_settings': settings,
-        'role_grants': grants,
-        'role_access_restrictions': restrictions,
-        'role_restriction_templates': templates,
-    }
 
 
 class RolesMixin:

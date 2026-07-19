@@ -119,9 +119,13 @@ class TemplatesDcsMixin:
 
         Returns a list of ``{template_name, text}`` — the macet's visible text (cell text +
         whole-cell parameters + named-area names) for FTS ``code_search`` (Срез 1). Empty when
-        the object owns no ``Templates/`` dir, no MXL template, or the library is absent. The
-        legacy parser never read ``Templates/`` at all → purely additive, skip-on-error like
-        ``_parse_dcs_schemas``. See docs/mxl-macet-indexing.md."""
+        macet indexing is off (``self.index_spreadsheet_templates`` — off for configurations/
+        extensions, on for external reports/processors), or the object owns no ``Templates/``
+        dir, no MXL template, or the library is absent. The legacy parser never read
+        ``Templates/`` at all → purely additive, skip-on-error like ``_parse_dcs_schemas``.
+        See docs/mxl-macet-indexing.md."""
+        if not self.index_spreadsheet_templates:
+            return []
         templates_dir = self.root_dir / folder_name / name / 'Templates'
         if not templates_dir.is_dir():
             return []

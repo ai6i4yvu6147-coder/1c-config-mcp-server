@@ -16,9 +16,15 @@
 
 ### Реализация
 
+> **Обновление 2026-07-19:** слоты типов форм больше не извлекаются парсером C-MCP —
+> их отдаёт единый движок (`onec_metadata_schema.read_form`, резолвер `parse_cfg_type_string`),
+> `_parse_form_via_library` пробрасывает `type_slots` без изменений. Старые logform-хелперы
+> (`_extract_logform_type_slots`/`_extract_columns`) удалены вместе с legacy-путём форм
+> (см. CHANGELOG 2026-07-19). Ниже — исходная схема фазы 1; поведение слотов/резолвера то же.
+
 ```mermaid
 flowchart LR
-  LogformParser[_extract_logform_type_slots] --> Resolver[MetadataTypeResolver]
+  LogformEngine[read_form: type_slots] --> Resolver[MetadataTypeResolver]
   Resolver --> MTS[metadata_type_slots]
   MTS --> FA[form_attributes]
   MTS --> FAC[form_attribute_columns]
@@ -27,7 +33,7 @@ flowchart LR
 
 | Компонент | Файл | Поведение |
 |-----------|------|-----------|
-| Парсер | `shared/xml_parser.py` — `_extract_logform_type_slots`, `_extract_columns` | `type_slots` у реквизитов и колонок; Column + AdditionalColumns |
+| Парсер | движок `onec_metadata_schema.read_form` → `_parse_form_via_library` (`shared/xml_parser/forms.py`) | `type_slots` у реквизитов и колонок (Column + AdditionalColumns) приходят из движка |
 | Resolver | `shared/metadata_type_resolver.py` | wrappers (`ValueListType`, `ValueTable`, `DynamicList`) + inner из Settings |
 | БД | `admin_tool/db_manager.py` | `form_attribute_columns`; слоты после insert форм |
 | MCP | `server/tools.py` — `get_form_structure` | `types[]` у attributes и columns; `table` для AdditionalColumns |

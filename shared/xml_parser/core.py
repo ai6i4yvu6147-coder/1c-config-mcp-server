@@ -14,24 +14,10 @@ REGISTER_TYPES = (
     'CalculationRegister',
 )
 
-# Виды объектов, чей дескриптор читается единым движком формата (onec_metadata_schema)
-# вместо старого ручного обхода ElementTree. Растёт пачками за одной развилкой, каждый
-# перевод доказан A/B-дифом дескриптор-полей на реальных выгрузках. Пока НЕ переведён
-# только Subsystem (отдельный обход каталога Subsystems/). См. docs/library-migration.md.
-LIBRARY_MIGRATED_TYPES = frozenset({
-    'DataProcessor', 'Report',
-    'Catalog', 'Document', 'Enum',
-    'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister',
-    'ChartOfAccounts', 'ChartOfCharacteristicTypes', 'ExchangePlan',
-    'BusinessProcess', 'Task',
-    'CommonModule', 'CommonCommand', 'CommonForm',
-    'ScheduledJob', 'FunctionalOption', 'DefinedType',
-})
-
-# Подмножество LIBRARY_MIGRATED_TYPES без реквизитов/секций/ТЧ: весь предметный смысл — в
-# свойствах дескриптора (+ соседние файлы модулей/форм/команд, читаемые тем же file-walk,
-# что и старый путь). Собираются отдельным ассемблером `_assemble_property_only_object`,
-# чтобы не усложнять ветку типов-с-реквизитами. См. docs/library-migration.md (шаг 3).
+# Виды объектов без реквизитов/секций/ТЧ: весь предметный смысл — в свойствах дескриптора
+# (+ соседние файлы модулей/форм/команд, читаемые file-walk). Собираются отдельным
+# ассемблером `_assemble_property_only_object`, чтобы не усложнять ветку типов-с-реквизитами
+# в `_parse_object_via_library`. См. docs/library-migration.md (шаг 3).
 PROPERTY_ONLY_MIGRATED_TYPES = frozenset({
     'CommonModule', 'CommonCommand', 'CommonForm',
     'ScheduledJob', 'FunctionalOption', 'DefinedType',
@@ -58,6 +44,12 @@ class ConfigurationParserCore:
         # СКД-схемы, не прочитанные из-за исключения (см. TemplatesDcsMixin._parse_dcs_schemas)
         # — тот же контракт «пропуск, не падение», что и для форм.
         self.skipped_dcs = []
+        # Индексировать ли MXL-макеты (SpreadsheetDocument). По умолчанию ВЫКЛ: у конфигураций/
+        # расширений макеты — это тысячи layout-only объектов (корпус ~22k), они кратно
+        # замедляют сборку и почти не несут семантики для анализа. Включается в parse() только
+        # для внешних отчётов/обработок, где макет — это и есть полезная нагрузка объекта.
+        # СКД (_parse_dcs_schemas) под этот флаг НЕ попадает — текст запроса ценен всегда.
+        self.index_spreadsheet_templates = False
 
     @contextmanager
     def _accumulate(self, stage_name):
@@ -86,10 +78,14 @@ class ConfigurationParserCore:
         if config is not None:
             return self._parse_configuration(config, ns)
 
+        # Внешние отчёты/обработки — отдельные файлы-объекты, где макет часто и есть суть
+        # объекта (печатная форма/СКД-отчёт), а число объектов мало → индексируем макеты.
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         if self._get_object_element(root, 'ExternalDataProcessor', md_ns) is not None:
+            self.index_spreadsheet_templates = True
             return self._parse_external_data_processor(root)
         if self._get_object_element(root, 'ExternalReport', md_ns) is not None:
+            self.index_spreadsheet_templates = True
             return self._parse_external_report(root)
 
         return {'name': '', 'objects': []}
@@ -184,8 +180,8 @@ class ConfigurationParserCore:
         отдельным обходом каталога (`parse()` библиотеки — однофайловый, сборку папки не
         делает): имя подсистемы — квалифицированное из пути (`_subsystem_qualified_name`),
         не из дескриптора. Сам дескриптор `<Имя>.xml` читается единым движком
-        (`_parse_subsystem_via_library`), при неудаче — старым ET-путём (`_parse_subsystem_legacy`),
-        как и прочие типы за развилкой. См. docs/library-migration.md (шаг 4).
+        (`_parse_subsystem_via_library`); битый/нераспознанный дескриптор → None → подсистема
+        пропускается (skip-on-error, как формы/СКД). См. docs/library-migration.md (шаг 4).
         """
         subsystems_root = self.root_dir / 'Subsystems'
         if not subsystems_root.is_dir():
@@ -196,17 +192,14 @@ class ConfigurationParserCore:
             if 'Ext' in xml_file.parts:
                 continue
             record = self._parse_subsystem_via_library(xml_file)
-            if record is None:
-                record = self._parse_subsystem_legacy(xml_file)
             if record is not None:
                 results.append(record)
         return results
 
     def _parse_subsystem_via_library(self, xml_file):
-        """Дескриптор подсистемы единым движком → тот же dict, что даёт
-        `_parse_subsystem_legacy`. Возвращает None, если библиотека не нашла дескриптор
-        `Subsystem` (тогда вызывающий откатывается на старый путь — напр. корень
-        `MetaDataObject.Subsystem`, который `_find_descriptor_node` не распознаёт)."""
+        """Дескриптор подсистемы единым движком → dict-контракт `_subsystem_record`.
+        Возвращает None, если файл битый/недоступен (Windows MAX_PATH) или библиотека не
+        нашла дескриптор `Subsystem` — тогда подсистема пропускается вызывающим."""
         try:
             import onec_metadata_schema
         except ImportError as exc:  # pragma: no cover - packaging guard
@@ -235,45 +228,6 @@ class ConfigurationParserCore:
         return self._subsystem_record(
             self._subsystem_qualified_name(xml_file),
             descriptor.uuid or '',
-            properties,
-            content_refs,
-            child_subsystem_names,
-        )
-
-    def _parse_subsystem_legacy(self, xml_file):
-        """Старый ET-путь разбора дескриптора подсистемы (фолбэк за развилкой)."""
-        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
-        try:
-            root = ET.parse(_winlong(xml_file)).getroot()
-        except (ET.ParseError, OSError):
-            return None
-        obj_elem = self._get_object_element(root, 'Subsystem', md_ns)
-        if obj_elem is None:
-            return None
-
-        properties = self._parse_properties(root, 'Subsystem')
-        uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
-
-        content_refs = []
-        properties_elem = root.find(f'.//{{{md_ns}}}Properties')
-        if properties_elem is not None:
-            content_elem = properties_elem.find(f'{{{md_ns}}}Content')
-            if content_elem is not None:
-                for item in content_elem:
-                    text = (item.text or '').strip()
-                    if text and '.' in text:
-                        content_refs.append(text)
-
-        child_subsystem_names = []
-        child_objects = root.find(f'.//{{{md_ns}}}ChildObjects')
-        if child_objects is not None:
-            for sub_elem in child_objects.findall(f'{{{md_ns}}}Subsystem'):
-                if sub_elem.text and sub_elem.text.strip():
-                    child_subsystem_names.append(sub_elem.text.strip())
-
-        return self._subsystem_record(
-            self._subsystem_qualified_name(xml_file),
-            uuid,
             properties,
             content_refs,
             child_subsystem_names,
@@ -319,26 +273,19 @@ class ConfigurationParserCore:
         }
 
     def _parse_object(self, name, obj_type, folder_name):
-        """Разбор объекта метаданных. Развилка единого движка: типы из
-        LIBRARY_MIGRATED_TYPES читаются через onec_metadata_schema (дескриптор → адаптер
-        из external_processor.py), остальные — старым путём `_parse_object_legacy`. Каждый
-        перевод типа доказан A/B-дифом дескриптор-полей на реальных выгрузках. См.
-        docs/library-migration.md.
+        """Разбор объекта метаданных единым движком (onec_metadata_schema): дескриптор
+        `<Имя>.xml` → адаптеры (`_parse_object_via_library`, external_processor.py). Все
+        whitelist-типы дочерних объектов читаются движком; None (нет/битый дескриптор) →
+        объект пропускается вызывающим (`_parse_child_objects`). См. docs/library-migration.md.
         """
-        if obj_type in LIBRARY_MIGRATED_TYPES:
-            obj = self._parse_object_via_library(name, obj_type, folder_name)
-            if obj is not None:
-                return obj
-            # Дескриптор не распознан библиотекой — не теряем объект молча, идём старым путём.
-        return self._parse_object_legacy(name, obj_type, folder_name)
+        return self._parse_object_via_library(name, obj_type, folder_name)
 
     def _parse_object_via_library(self, name, obj_type, folder_name):
-        """Читает дескриптор `<Name>.xml` единым движком и собирает тот же dict, что даёт
-        `_parse_object_legacy`. Дескриптор-часть (uuid, properties, реквизиты/ТЧ/секции
-        регистра/значения перечисления, слоты типов) — из onec_metadata_schema; модули/формы/
-        команды/СКД/flowchart — теми же file-walk методами, что и старый путь (побайтово те же
-        данные). Возвращает None, если библиотека не нашла дескриптор нужного вида (тогда
-        вызывающий откатывается на старый путь).
+        """Читает дескриптор `<Name>.xml` единым движком и собирает dict объекта. Дескриптор-
+        часть (uuid, properties, реквизиты/ТЧ/секции регистра/значения перечисления, слоты
+        типов) — из onec_metadata_schema; модули/формы/команды/СКД/flowchart — file-walk
+        методами по соседним файлам. Возвращает None, если дескриптор отсутствует или не
+        распознан библиотекой (объект тогда пропускается вызывающим).
         """
         xml_file = self.root_dir / folder_name / f"{name}.xml"
         if not os.path.exists(_winlong(xml_file)):
@@ -367,8 +314,8 @@ class ConfigurationParserCore:
         with self._accumulate('properties'):
             properties = self._adapt_descriptor_properties(descriptor, obj_type)
 
-        # Дескриптор-блоки по виду объекта (то же дерево, что в _parse_object_legacy):
-        # регистры → секции Dimension/Resource/Attribute; Enum → значения; прочие → ТЧ.
+        # Дескриптор-блоки по виду объекта: регистры → секции Dimension/Resource/Attribute;
+        # Enum → значения; прочие → ТЧ.
         tabular_sections = []
         dimensions = []
         resources = []
@@ -438,16 +385,15 @@ class ConfigurationParserCore:
         return result
 
     def _assemble_property_only_object(self, descriptor, name, obj_type, folder_name, xml_file):
-        """Собирает dict property-only объекта (тот же, что даёт `_parse_object_legacy`):
-        нет реквизитов/секций/ТЧ, весь смысл — в свойствах дескриптора. Соседние файлы
-        (модули/формы/команды/СКД) читаются теми же file-walk методами, что и старый путь
-        (побайтово те же данные). Развилка modules/forms/commands по виду объекта — точный
-        паритет с `_parse_object_legacy` (см. docs/library-migration.md, шаг 3).
+        """Собирает dict property-only объекта: нет реквизитов/секций/ТЧ, весь смысл — в
+        свойствах дескриптора. Соседние файлы (модули/формы/команды/СКД) читаются file-walk
+        методами по соседним файлам. Развилка modules/forms/commands по виду объекта — см.
+        docs/library-migration.md (шаг 3).
         """
         with self._accumulate('properties'):
             properties = self._adapt_property_only_properties(descriptor, obj_type)
 
-        # Модули/формы по виду объекта (как в _parse_object_legacy):
+        # Модули/формы по виду объекта:
         #   CommonForm — форма через _parse_common_form, модулей на уровне объекта нет;
         #   ScheduledJob/DefinedType — ни модулей, ни форм;
         #   CommonModule/CommonCommand/FunctionalOption — обычный file-walk (+CommandModule.bsl).
@@ -619,7 +565,7 @@ class ConfigurationParserCore:
 
     def _adapt_register_section(self, descriptor, child_tag):
         """Секция регистра (Dimension/Resource/Attribute) из детей Node →
-        [{name, type_slots, title, comment}] (как `_parse_register_section`)."""
+        [{name, type_slots, title, comment}]."""
         return [
             {
                 'name': c.properties.get('Name') or c.name or '',
@@ -631,8 +577,8 @@ class ConfigurationParserCore:
         ]
 
     def _adapt_enum_value(self, node):
-        """EnumValue-узел → dict как `_parse_enum_value_elem` (name/title/comment/order/
-        object_belonging/extended_configuration_object)."""
+        """EnumValue-узел → dict (name/title/comment/order/object_belonging/
+        extended_configuration_object)."""
         order = node.properties.get('Order')
         try:
             order = int(order) if order is not None and str(order).strip() != '' else None
@@ -650,125 +596,6 @@ class ConfigurationParserCore:
             'object_belonging': belonging,
             'extended_configuration_object': extended,
         }
-
-    def _parse_object_legacy(self, name, obj_type, folder_name):
-        """Парсит отдельный объект метаданных"""
-        xml_file = self.root_dir / folder_name / f"{name}.xml"
-
-        if not os.path.exists(_winlong(xml_file)):
-            return None
-
-        tree = ET.parse(_winlong(xml_file))
-        root = tree.getroot()
-
-        # Получаем UUID
-        md_ns = 'http://v8.1c.ru/8.3/MDClasses'
-        obj_elem = self._get_object_element(root, obj_type, md_ns)
-        uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
-
-        # Получаем свойства
-        with self._accumulate('properties'):
-            properties = self._parse_properties(root, obj_type)
-
-        # Получаем модули и формы
-        if obj_type == 'CommonForm':
-            modules = []
-            with self._accumulate('forms'):
-                forms = self._parse_common_form(name, folder_name, uuid)
-        elif obj_type in ('ScheduledJob', 'DefinedType'):
-            modules = []
-            forms = []
-        else:
-            with self._accumulate('modules'):
-                modules = self._parse_modules(name, folder_name)
-                if obj_type == 'CommonCommand':
-                    cmd_path = self.root_dir / folder_name / name / 'Ext' / 'CommandModule.bsl'
-                    if os.path.exists(_winlong(cmd_path)):
-                        with open(_winlong(cmd_path), 'r', encoding='utf-8-sig') as f:
-                            modules.append({'type': 'CommandModule', 'code': f.read()})
-
-            # Имена форм по умолчанию для определения form_kind
-            default_forms = {
-                'Element': properties.get('default_object_form') or properties.get('auxiliary_object_form'),
-                'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
-                'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
-            }
-            with self._accumulate('forms'):
-                forms = self._parse_forms(name, folder_name, default_forms)
-
-        # Парсим дополнительные структуры по типу объекта
-        if obj_type == 'CommonForm':
-            tabular_sections = []
-            dimensions = []
-            resources = []
-            enum_values = []
-        elif obj_type in REGISTER_TYPES:
-            tabular_sections = []
-            with self._accumulate('sections'):
-                dimensions = self._parse_register_section(root, 'Dimensions', obj_type)
-                resources = self._parse_register_section(root, 'Resources', obj_type)
-                attributes = self._parse_register_section(root, 'Attributes', obj_type)
-            enum_values = []
-        elif obj_type == 'DefinedType':
-            tabular_sections = []
-            dimensions = []
-            resources = []
-            enum_values = []
-        elif obj_type == 'Enum':
-            tabular_sections = []
-            dimensions = []
-            resources = []
-            with self._accumulate('sections'):
-                enum_values = self._parse_enum_values(root)
-        else:
-            with self._accumulate('sections'):
-                tabular_sections = self._parse_tabular_sections(root, obj_type)
-            dimensions = []
-            resources = []
-            enum_values = []
-
-        route_points = []
-        route_transitions = []
-        if obj_type == 'BusinessProcess':
-            with self._accumulate('flowchart'):
-                flowchart = self._parse_flowchart(name, folder_name)
-            route_points = flowchart['route_points']
-            route_transitions = flowchart['route_transitions']
-
-        with self._accumulate('commands'):
-            commands = [] if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob', 'DefinedType') else self._parse_object_commands(root, name, folder_name, obj_type)
-
-        # DCS schemas owned via Templates/ (new read path; self-guards on the dir, so
-        # object types that never own templates just get []). See TemplatesDcsMixin.
-        with self._accumulate('dcs'):
-            dcs_schemas = self._parse_dcs_schemas(name, folder_name)
-            spreadsheet_templates = self._parse_spreadsheet_templates(name, folder_name)
-
-        result = {
-            'name': name,
-            'type': obj_type,
-            'uuid': uuid,
-            'properties': properties,
-            'modules': modules,
-            'forms': forms,
-            'tabular_sections': tabular_sections,
-            'dimensions': dimensions,
-            'resources': resources,
-            'enum_values': enum_values,
-            'commands': commands,
-            'dcs_schemas': dcs_schemas,
-            'spreadsheet_templates': spreadsheet_templates,
-        }
-        if obj_type in REGISTER_TYPES:
-            result['attributes'] = attributes
-        if obj_type == 'DefinedType':
-            result['type_slots'] = (
-                self._extract_type_slots(obj_elem) if obj_elem is not None else []
-            )
-        if obj_type == 'BusinessProcess':
-            result['route_points'] = route_points
-            result['route_transitions'] = route_transitions
-        return result
 
     def _parse_properties(self, root, obj_type=None):
         """Извлекает свойства объекта"""
@@ -873,7 +700,7 @@ class ConfigurationParserCore:
             props['custom_attributes'] = []
         elif obj_type in REGISTER_TYPES:
             props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)
-            # Реквизиты регистра — в obj['attributes'] (_parse_register_section); не дублировать здесь.
+            # Реквизиты регистра — в obj['attributes'] (_adapt_register_section); не дублировать здесь.
             props['custom_attributes'] = []
         elif obj_type:
             props['standard_attributes'] = self._parse_standard_attributes(root, obj_type)

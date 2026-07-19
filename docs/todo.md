@@ -100,11 +100,15 @@ Do not start implementation from the list without explicit user request.
 
   - **Ключевой нюанс A/B:** типы состава реквизита-DynamicList лежат в контейнере `Settings` и собираются рекурсивно (`.//TypeSet`/`.//Type`) — паритет с legacy `_extract_slots_from_v8_type_container` (первый прогон брал прямых потомков → терял их, исправлено)
 
-  - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы — round-trip round против `read_form` — потенциальная сверка); очистка legacy-дублирования форматного чтения (шаг 3, позже)
+  - **Осталось за границей:** дескриптор роли (см. `roles-engine-migration`); write-сторона `Form.xml` (конструктор форм в `1c-help-mcp` уже пишет формы — round-trip round против `read_form` — потенциальная сверка)
+
+  - **Очистка legacy (done, 2026-07-19):** `_via_library`/`_legacy`-форки всех переведённых поверхностей (объекты/подсистемы/формы/права) удалены — чтение только через движок (A/B дал 0 фолбэков). Снесены `_parse_object_legacy`+`LIBRARY_MIGRATED_TYPES`, `_parse_subsystem_legacy`, `_parse_form_legacy`+хелперы, `parse_rights_xml_legacy`, `SectionsMixin` (файл `sections.py`), logform-слоты в `types.py`. Живым оставлен только дескриптор роли (`_parse_properties`). См. CHANGELOG 2026-07-19
 
 - **mxl-macet-indexing** · срез 1 `done` (2026-07-19), срез 2 `idea` · Индексация MXL-макетов (`SpreadsheetDocument`) через движок
 
   - **Срез 1 (done):** библиотека получила read-модуль `spreadsheet_read.py`/`read_spreadsheet` (+`read_spreadsheet_text`/`spreadsheet_shape_hints`); C-MCP индексирует видимый текст макета (ячейки+параметры+имена областей) в `code_search` FTS (`module_type='MxlText'`) — `search_code` находит макеты по содержимому. Обход `Templates/` отдельным `_parse_spreadsheet_templates` (развилка по `TemplateType=SpreadsheetDocument`, фолбэк), DCS-путь не тронут. Чистое добавление (старый парсер MXL не читал) — по плейбуку ДКС, 0 регресса. Проверено на АСБ main (12 545 макетов) — 0 ошибок парсинга; корпус ~22 264. `INDEXER_VERSION` 17→**18**. Дизайн — [`mxl-macet-indexing.md`](mxl-macet-indexing.md)
+
+  - **Политика по виду корня (done, 2026-07-19):** макеты у крупной конфигурации — тысячи layout-only объектов, кратно замедляли сборку при малой ценности → индексация MXL **по умолчанию выключена для конфигураций/расширений** и **включена для внешних отчётов/обработок** (там макет — суть объекта). Флаг `index_spreadsheet_templates` в `parse()` по виду корня; `_parse_spreadsheet_templates` self-gate. Внешним заодно включён и СКД (`_parse_external_root` читает `Templates/`). `INDEXER_VERSION` 18→**19**. Тесты `test_mxl_macet_policy.py`
 
   - **Срез 2 (idea):** таблица `spreadsheet_template` (shape-hints + области/параметры) + MCP-tool `get_spreadsheet` (по образцу `dcs_schema`/`get_dcs_schema`), чтобы агент видел области `ПолучитьОбласть` и параметры без FTS. `spreadsheet_shape_hints` уже отдаёт всё нужное; при добавлении — `bump-indexer-version`
 

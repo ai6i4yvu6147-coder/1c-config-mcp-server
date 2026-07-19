@@ -16,9 +16,12 @@ ported `parse_cfg_type_string` logic).
 
 An external report descriptor is structurally the same as a processor (uuid, object
 requisites, tabular sections, form name-refs) plus `Template` name-refs and DCS-related
-descriptor props (`MainDataCompositionSchema`, settings/variant forms). The **DCS schema /
-templates are deliberately not indexed** — parity with embedded `Report` objects, whose
-`_parse_object` path does not read `Templates/` either (DCS indexing is a separate epic).
+descriptor props (`MainDataCompositionSchema`, settings/variant forms). The `Template`
+name-refs in the descriptor are ignored, but the caller (`_parse_external_root`) reads the
+actual `Templates/` dir off disk for **both** DCS schemas and MXL macets: unlike an embedded
+`Report` (which indexes DCS but not MXL — macets there are layout-only noise at corpus
+scale), an external report/processor is a single object whose macet/schema is usually its
+whole payload, so both are indexed. See docs/mxl-macet-indexing.md.
 
 Modules (`.bsl`), form structure (`Form.xml`) and object commands are **separate files on
 disk**, not present in the descriptor Node — the library's `parse()` is single-file. They
@@ -82,6 +85,14 @@ class ExternalProcessorMixin:
             obj['forms'] = self._parse_forms(name, '', default_forms)
         with self._accumulate('commands'):
             obj['commands'] = self._parse_object_commands(root, name, '', descriptor_tag)
+        # Templates/ live at <root_dir>/<Name>/Templates/ (folder_name='') — same relative
+        # shape as the embedded path. Unlike embedded objects, external reports/processors DO
+        # index MXL macets (self.index_spreadsheet_templates set True in parse()): the macet is
+        # typically the object's payload. DCS too — a pure external DCS report carries all its
+        # meaning in the schema. See docs/mxl-macet-indexing.md, docs/dcs-schema-indexing.md.
+        with self._accumulate('dcs'):
+            obj['dcs_schemas'] = self._parse_dcs_schemas(name, '')
+            obj['spreadsheet_templates'] = self._parse_spreadsheet_templates(name, '')
 
         return {'name': name, 'extension_purpose': '', 'objects': [obj]}
 
@@ -98,9 +109,10 @@ class ExternalProcessorMixin:
     def _adapt_object_descriptor(self, descriptor, name, obj_type):
         """Node -> the descriptor-derived subset of the `_parse_object` dict.
 
-        `modules`/`forms`/`commands` are placeholders here — the caller fills them via the
-        existing file-walk methods. `Template` children (external report DCS/layout) are
-        intentionally ignored (see module docstring).
+        `modules`/`forms`/`commands`/`dcs_schemas`/`spreadsheet_templates` are placeholders
+        here — the caller (`_parse_external_root`) fills them via the existing file-walk
+        methods. `Template` name-ref children in the descriptor are ignored; the caller reads
+        the `Templates/` dir off disk instead (see module docstring).
         """
         properties = {'standard_attributes': [], 'custom_attributes': []}
 
