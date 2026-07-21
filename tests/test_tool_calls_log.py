@@ -124,6 +124,58 @@ def test_logger_writes_error_row(tmp_path: Path) -> None:
     assert row["task_id"] is None
 
 
+def test_logger_task_id_sticky_fallback(tmp_path: Path) -> None:
+    # A long tool-heavy session can drop task_id on some calls; the logger
+    # should carry forward the last non-empty value it saw in this process
+    # instead of leaving the row uncorrelated.
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    logger = ToolCallLogger(db_path)
+    logger.log(
+        tool="search_code",
+        started_at="2026-07-16T07:00:00Z",
+        started_mono=0.0,
+        args={"task_id": "42", "project_filter": "ТГ"},
+        success=True,
+    )
+    logger.log(
+        tool="get_module_code",
+        started_at="2026-07-16T07:00:01Z",
+        started_mono=0.0,
+        args={"project_filter": "ТГ"},  # task_id omitted
+        success=True,
+    )
+    logger.log(
+        tool="search_code",
+        started_at="2026-07-16T07:00:02Z",
+        started_mono=0.0,
+        args={"task_id": "43", "project_filter": "ТГ"},  # explicit switch overrides sticky
+        success=True,
+    )
+    logger.log(
+        tool="get_module_code",
+        started_at="2026-07-16T07:00:03Z",
+        started_mono=0.0,
+        args={"project_filter": "ТГ"},  # task_id omitted again, follows the new sticky value
+        success=True,
+    )
+
+    rows = _read_rows(db_path)
+    assert [r["task_id"] for r in rows] == ["42", "42", "43", "43"]
+
+
+def test_logger_task_id_none_when_never_seen(tmp_path: Path) -> None:
+    db_path = tmp_path / "logs" / "tool-calls.db"
+    logger = ToolCallLogger(db_path)
+    logger.log(
+        tool="search_code",
+        started_at="2026-07-16T07:00:00Z",
+        started_mono=0.0,
+        args={"project_filter": "ТГ"},
+        success=True,
+    )
+    assert _read_rows(db_path)[0]["task_id"] is None
+
+
 def test_logger_swallows_write_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "logs" / "tool-calls.db"
     db_path.parent.mkdir(parents=True)

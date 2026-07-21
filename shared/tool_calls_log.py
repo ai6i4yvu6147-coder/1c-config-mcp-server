@@ -162,6 +162,7 @@ class ToolCallLogger:
 
     def __init__(self, db_path: PathLike) -> None:
         self._db_path = Path(db_path)
+        self._last_task_id: str | None = None
 
     def log(
         self,
@@ -177,10 +178,11 @@ class ToolCallLogger:
         elapsed_ms = int((time.monotonic() - started_mono) * 1000)
         args = args or {}
         correlation = extract_correlation(args)
+        task_id = self._resolve_task_id(correlation["task_id"])
         record = (
             started_at,
             tool,
-            correlation["task_id"],
+            task_id,
             correlation["agent"],
             correlation["model"],
             elapsed_ms,
@@ -192,12 +194,29 @@ class ToolCallLogger:
         )
         self._write(record)
 
+    def _resolve_task_id(self, task_id: str | None) -> str | None:
+        """Sticky per-process fallback for the correlation ``task_id``.
+
+        ``task_id`` is self-reported by the calling agent on every call (protocol
+        v1.0.7 §2); over a long tool-heavy session it's easy to drop it on some
+        calls. The last non-empty value seen by this logger (one instance per
+        server process/session) carries forward to calls that omit it. An
+        explicit ``task_id`` always overrides and re-seeds it.
+        """
+        with _LOCK:
+            if task_id:
+                self._last_task_id = task_id
+                return task_id
+            return self._last_task_id
+
     def _write(self, record: tuple[Any, ...]) -> None:
         try:
             with _LOCK:
                 self._db_path.parent.mkdir(parents=True, exist_ok=True)
-                conn = sqlite3.connect(str(self._db_path), timeout=1.0)
+                conn = sqlite3.connect(str(self._db_path), timeout=2.0)
                 try:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA busy_timeout=2000")
                     conn.executescript(_SCHEMA)
                     conn.execute(_INSERT, record)
                     conn.commit()
@@ -294,8 +313,9 @@ def read_tool_calls(
     params.extend([capped_limit, safe_offset])
 
     try:
-        conn = sqlite3.connect(str(path), timeout=1.0)
+        conn = sqlite3.connect(str(path), timeout=2.0)
         try:
+            conn.execute("PRAGMA busy_timeout=2000")
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(sql, params)
             return [_row_to_dict(r) for r in cursor.fetchall()]

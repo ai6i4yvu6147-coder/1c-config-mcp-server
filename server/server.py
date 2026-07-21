@@ -83,6 +83,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         error_code = type(e).__name__
         raise
     finally:
+        if error_code is None and sys.exc_info()[0] is not None:
+            # A non-Exception BaseException (e.g. asyncio.CancelledError on a
+            # client-side timeout/disconnect) skips the `except` above; without
+            # this the row would be journaled as a misleading success=1.
+            success = False
+            error_code = sys.exc_info()[0].__name__
         _call_logger.log(
             tool=name,
             started_at=started_at,
