@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -64,7 +65,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     response: list[TextContent] | None = None
 
     try:
-        if name == "active_databases":
+        if name == "set_context":
+            context = _call_logger.set_context(
+                task_id=args.get("task_id"),
+                session_id=args.get("session_id"),
+                agent=args.get("agent"),
+                model=args.get("model"),
+            )
+            response = [TextContent(type="text", text=json.dumps({
+                "success": True,
+                "taskId": context["task_id"],
+                "sessionId": context["session_id"],
+                "agent": context["agent"],
+                "model": context["model"],
+            }, ensure_ascii=False))]
+        elif name == "active_databases":
             response = await handle_active_databases(tools, args)
         else:
             try:

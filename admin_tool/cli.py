@@ -94,6 +94,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     calls_sp = sub.add_parser("tool-calls", help="Read tool-call journal rows (JSON)")
     calls_sp.add_argument("--task-id", default=None, help="Filter by task_id (exact)")
+    calls_sp.add_argument("--session-id", default=None, help="Filter by session_id (exact)")
     calls_sp.add_argument("--tool", default=None, help="Filter by tool name (exact)")
     calls_sp.add_argument("--since", default=None, help="Keep rows with ts_utc >= SINCE (ISO-8601 Z)")
     calls_sp.add_argument("--until", default=None, help="Keep rows with ts_utc <= UNTIL (ISO-8601 Z)")
@@ -122,6 +123,7 @@ def run_tool_calls(args: argparse.Namespace) -> dict:
     rows = read_tool_calls(
         db_path,
         task_id=args.task_id,
+        session_id=args.session_id,
         tool=args.tool,
         since=args.since,
         until=args.until,
@@ -135,6 +137,7 @@ def run_tool_calls(args: argparse.Namespace) -> dict:
         "db": str(db_path),
         "query": {
             "taskId": args.task_id,
+            "sessionId": args.session_id,
             "tool": args.tool,
             "since": args.since,
             "until": args.until,

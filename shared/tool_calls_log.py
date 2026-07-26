@@ -1,14 +1,20 @@
 """Per-server SQLite journal of MCP tool invocations.
 
 Shared, uniform implementation across the 1C MCP cluster (Admin Hub protocol
-v1.0.7 addendum §3). One row per tool call, written at the central ``call_tool``
-dispatch after the handler completes. Failure-isolated: a journal write MUST NOT
-break, materially slow, or change the tool result.
+v1.0.7 addendum §3, v1.0.8 addendum §1-2). One row per tool call, written at the
+central ``call_tool`` dispatch after the handler completes. Failure-isolated: a
+journal write MUST NOT break, materially slow, or change the tool result.
 
-Cluster-wide columns are the correlation token ``task_id`` plus the self-reported
-caller identity ``agent`` / ``model``. Server-specific scope (``database_id``,
-project/extension filters, help version, …) is NOT a column — it is captured
-inside the masked, length-capped ``args_summary``.
+Cluster-wide columns are the correlation quartet: ``task_id`` / ``session_id``
+plus the self-reported caller identity ``agent`` / ``model``. Server-specific
+scope (``database_id``, project/extension filters, help version, …) is NOT a
+column — it is captured inside the masked, length-capped ``args_summary``.
+
+Each field is a per-process sticky value (see ``ToolCallLogger._resolve``): the
+last non-empty value seen carries forward to calls that omit it. The
+``set_context`` tool (exposed by the server, not this module) deterministically
+seeds all four via ``ToolCallLogger.set_context`` instead of relying on whichever
+ordinary call happens to carry them first.
 """
 
 from __future__ import annotations
@@ -28,9 +34,9 @@ PathLike = str | Path
 
 _LOCK = threading.Lock()
 
-# Reserved cluster-wide correlation params (protocol v1.0.7 §2). Optional
-# everywhere; their absence preserves current behavior.
-CORRELATION_KEYS = ("task_id", "agent", "model")
+# Reserved cluster-wide correlation params (protocol v1.0.7 §2 trio + v1.0.8 §1
+# session_id). Optional everywhere; their absence preserves prior behavior.
+CORRELATION_KEYS = ("task_id", "session_id", "agent", "model")
 
 # Args whose values must never reach the journal, even masked.
 _REDACT_KEYS = frozenset({"password"})
@@ -59,6 +65,14 @@ CORRELATION_INPUT_PROPERTIES: dict[str, dict[str, str]] = {
             "Optional self-reported model id, e.g. claude-opus-4-8 (journaling only)."
         ),
     },
+    "session_id": {
+        "type": "string",
+        "description": (
+            "Optional per-chat iteration id minted by the Hub's work_on_task "
+            "(protocol v1.0.8 §1). Journaling only — does not affect tool behavior, "
+            "results, or errors."
+        ),
+    },
 }
 
 _SCHEMA = """
@@ -67,6 +81,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   ts_utc       TEXT    NOT NULL,
   tool         TEXT    NOT NULL,
   task_id      TEXT,
+  session_id   TEXT,
   agent        TEXT,
   model        TEXT,
   elapsed_ms   INTEGER,
@@ -76,15 +91,21 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   args_summary TEXT,
   pid          INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_tool_calls_task ON tool_calls(task_id);
-CREATE INDEX IF NOT EXISTS idx_tool_calls_ts   ON tool_calls(ts_utc);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_task    ON tool_calls(task_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_ts      ON tool_calls(ts_utc);
 """
+
+# Upgrades a v1.0.7-era store in place (protocol v1.0.8 §2). Harmless no-op on
+# a fresh store (column already exists via _SCHEMA) or a store that already
+# has the column — sqlite3 raises "duplicate column name" either way.
+_MIGRATE_SESSION_ID = "ALTER TABLE tool_calls ADD COLUMN session_id TEXT"
 
 _INSERT = (
     "INSERT INTO tool_calls "
-    "(ts_utc, tool, task_id, agent, model, elapsed_ms, result_bytes, "
+    "(ts_utc, tool, task_id, session_id, agent, model, elapsed_ms, result_bytes, "
     "success, error_code, args_summary, pid) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
@@ -162,7 +183,7 @@ class ToolCallLogger:
 
     def __init__(self, db_path: PathLike) -> None:
         self._db_path = Path(db_path)
-        self._last_task_id: str | None = None
+        self._sticky: dict[str, str | None] = {key: None for key in CORRELATION_KEYS}
 
     def log(
         self,
@@ -178,13 +199,14 @@ class ToolCallLogger:
         elapsed_ms = int((time.monotonic() - started_mono) * 1000)
         args = args or {}
         correlation = extract_correlation(args)
-        task_id = self._resolve_task_id(correlation["task_id"])
+        resolved = self._resolve(correlation)
         record = (
             started_at,
             tool,
-            task_id,
-            correlation["agent"],
-            correlation["model"],
+            resolved["task_id"],
+            resolved["session_id"],
+            resolved["agent"],
+            resolved["model"],
             elapsed_ms,
             result_bytes,
             1 if success else 0,
@@ -194,20 +216,53 @@ class ToolCallLogger:
         )
         self._write(record)
 
-    def _resolve_task_id(self, task_id: str | None) -> str | None:
-        """Sticky per-process fallback for the correlation ``task_id``.
+    def set_context(
+        self,
+        *,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        agent: str | None = None,
+        model: str | None = None,
+    ) -> dict[str, str | None]:
+        """Explicitly (re)seed the sticky quartet for this process (``set_context`` tool).
 
-        ``task_id`` is self-reported by the calling agent on every call (protocol
-        v1.0.7 §2); over a long tool-heavy session it's easy to drop it on some
-        calls. The last non-empty value seen by this logger (one instance per
-        server process/session) carries forward to calls that omit it. An
-        explicit ``task_id`` always overrides and re-seeds it.
+        Unlike the passive per-call carry-forward in :meth:`_resolve` — which only
+        ever updates when *some* call happens to carry a value — this is the
+        deterministic entry point: the agent calls it once per chat and every
+        field it supplies takes effect immediately, before any other tool runs.
+        Fields omitted here are left untouched (not cleared). Returns the full
+        resulting sticky state for the tool's response payload.
         """
         with _LOCK:
-            if task_id:
-                self._last_task_id = task_id
-                return task_id
-            return self._last_task_id
+            for key, value in (
+                ("task_id", task_id),
+                ("session_id", session_id),
+                ("agent", agent),
+                ("model", model),
+            ):
+                if value:
+                    self._sticky[key] = value
+            return dict(self._sticky)
+
+    def _resolve(self, correlation: dict[str, str | None]) -> dict[str, str | None]:
+        """Sticky per-process fallback for the correlation quartet.
+
+        Each of ``task_id``/``session_id``/``agent``/``model`` is self-reported by
+        the calling agent (protocol v1.0.7 §2 / v1.0.8 §1); over a long tool-heavy
+        session it's easy to drop one on some calls. The last non-empty value seen
+        by this logger (one instance per server process/session) carries forward
+        to calls that omit it. An explicit value always overrides and re-seeds it.
+        ``set_context`` is the deterministic way to seed all four up front instead
+        of relying on whichever call happens to carry them first.
+        """
+        with _LOCK:
+            resolved: dict[str, str | None] = {}
+            for key in CORRELATION_KEYS:
+                value = correlation.get(key)
+                if value:
+                    self._sticky[key] = value
+                resolved[key] = value if value else self._sticky[key]
+            return resolved
 
     def _write(self, record: tuple[Any, ...]) -> None:
         try:
@@ -217,6 +272,16 @@ class ToolCallLogger:
                 try:
                     conn.execute("PRAGMA journal_mode=WAL")
                     conn.execute("PRAGMA busy_timeout=2000")
+                    # Migrate an existing v1.0.7-era table (no session_id column) BEFORE
+                    # the schema script, which otherwise fails on
+                    # `CREATE INDEX ... (session_id)` against a table missing it.
+                    # Harmless no-op on a fresh store (no table yet) or an
+                    # already-migrated one (column already exists) — both raise
+                    # OperationalError, swallowed the same way.
+                    try:
+                        conn.execute(_MIGRATE_SESSION_ID)
+                    except sqlite3.OperationalError:
+                        pass
                     conn.executescript(_SCHEMA)
                     conn.execute(_INSERT, record)
                     conn.commit()
@@ -233,6 +298,7 @@ _READ_COLUMNS = (
     "ts_utc",
     "tool",
     "task_id",
+    "session_id",
     "agent",
     "model",
     "elapsed_ms",
@@ -254,6 +320,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "tsUtc": row["ts_utc"],
         "tool": row["tool"],
         "taskId": row["task_id"],
+        "sessionId": row["session_id"],
         "agent": row["agent"],
         "model": row["model"],
         "elapsedMs": row["elapsed_ms"],
@@ -269,6 +336,7 @@ def read_tool_calls(
     db_path: PathLike,
     *,
     task_id: str | None = None,
+    session_id: str | None = None,
     tool: str | None = None,
     since: str | None = None,
     until: str | None = None,
@@ -291,6 +359,9 @@ def read_tool_calls(
     if task_id:
         clauses.append("task_id = ?")
         params.append(task_id)
+    if session_id:
+        clauses.append("session_id = ?")
+        params.append(session_id)
     if tool:
         clauses.append("tool = ?")
         params.append(tool)

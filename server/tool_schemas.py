@@ -2,6 +2,23 @@ from mcp.types import Tool
 
 TOOL_SCHEMAS = [
     Tool(
+        name="set_context",
+        description=(
+            "Deterministically (re)seed this server's sticky correlation context for the rest "
+            "of the chat: task_id / session_id / agent / model. Call it once, right after "
+            "work_on_task, before any other tool here — that guarantees every subsequent call "
+            "in this process gets correlated even if you forget to repeat the ids on individual "
+            "calls. All fields optional; fields you omit are left as they were. Journaling only "
+            "— never affects tool behavior, results, or errors. Returns the resulting context so "
+            "you can confirm what took effect."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    ),
+    Tool(
         name="active_databases",
         description=(
             "Список проектов и баз данных 1С (основная конфигурация и расширения). Первый шаг работы: "
