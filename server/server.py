@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from server.tools import ConfigurationTools
 from server.tool_schemas import TOOL_SCHEMAS
 from server.dispatch import HANDLERS, handle_active_databases
+from shared.agent_guide import GuideError, GuideSectionError, render as render_guide
 from shared.runtime_paths import get_paths
 from shared.tool_calls_log import (
     ToolCallLogger,
@@ -65,7 +66,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     response: list[TextContent] | None = None
 
     try:
-        if name == "set_context":
+        if name == "guide":
+            # Answers before any setup: no index, no projects.json, no set_context needed.
+            try:
+                response = [TextContent(type="text", text=render_guide(args.get("section")))]
+            except (GuideSectionError, GuideError) as e:
+                success = False
+                error_code = type(e).__name__
+                response = [TextContent(type="text", text=str(e))]
+        elif name == "set_context":
             context = _call_logger.set_context(
                 task_id=args.get("task_id"),
                 session_id=args.get("session_id"),

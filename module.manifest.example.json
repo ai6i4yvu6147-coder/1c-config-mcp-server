@@ -24,7 +24,8 @@
     "status": true,
     "configSync": true,
     "headlessOps": false,
-    "healthCheck": true
+    "healthCheck": true,
+    "guide": true
   },
   "registry": {
     "fragmentSchemaVersion": 1,

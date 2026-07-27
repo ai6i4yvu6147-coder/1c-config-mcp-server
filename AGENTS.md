@@ -22,3 +22,5 @@ For admin/CLI work under Admin Hub — follow `docs/admin-hub-integration.md` an
 Handoff reports for other teams are ephemeral (`HANDOFF-*.md` in repo root, not in git); integration canon in `docs/admin-hub-integration.md`. See `.cursor/rules/cross-team-handoff.mdc`.
 
 Structure check: `python scripts/project-doctor.py --type Sub`.
+
+**Новый MCP-тул → строка в справке для агента.** Справка сервера — `docs/agent-guide.md` (тул `guide`, CLI `guide`, контракт Head `docs/agent-guide-contract.md`). Секция «Карта инструментов» должна перечислять ровно зарегистрированные тулы, иначе `tests/test_agent_guide.py` красный. Жанр справки — «цель → инструмент», границы и грабли; параметры не дублировать (они в схеме тула), внутренности не писать (они в `docs/`).

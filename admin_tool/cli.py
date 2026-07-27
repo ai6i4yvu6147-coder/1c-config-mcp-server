@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from shared.agent_guide import GuideError, GuideSectionError, envelope as guide_envelope
 from shared.cli_json import write_json_stdout
 from shared.hub_protocol import run_apply_registry, run_export_registry, run_inventory, run_status
 from shared.hub_rebuild import (
@@ -92,6 +93,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="JSON output on stdout (default: true)",
     )
 
+    guide_sp = sub.add_parser("guide", help="Agent guide shipped with this module (JSON)")
+    guide_sp.add_argument(
+        "--section",
+        default=None,
+        help="Section id from the guide menu; 'all' for the whole text (default: overview)",
+    )
+    guide_sp.add_argument(
+        "--json",
+        action="store_true",
+        default=True,
+        help="JSON output on stdout (default: true)",
+    )
+
     calls_sp = sub.add_parser("tool-calls", help="Read tool-call journal rows (JSON)")
     calls_sp.add_argument("--task-id", default=None, help="Filter by task_id (exact)")
     calls_sp.add_argument("--session-id", default=None, help="Filter by session_id (exact)")
@@ -114,6 +128,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def run_guide(args: argparse.Namespace) -> dict:
+    """Agent guide envelope — same markdown the MCP `guide` tool returns, plus module identity."""
+    paths = get_paths(args.root)
+    return guide_envelope(
+        args.section,
+        module=paths.module_id,
+        module_type=paths.module_type,
+        module_version=paths.module_version,
+    )
 
 
 def run_tool_calls(args: argparse.Namespace) -> dict:
@@ -190,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_SUCCESS if payload.get("success") else EXIT_RUNTIME
         elif command == "reconcile-markers":
             payload = run_reconcile_markers(args.root)
+        elif command == "guide":
+            payload = run_guide(args)
         elif command == "tool-calls":
             payload = run_tool_calls(args)
         elif command == "apply-registry":
@@ -209,6 +236,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Unknown command: {command}", file=sys.stderr)
             return EXIT_VALIDATION
+    except GuideSectionError as exc:
+        # Unknown section is a bad argument, not a broken module.
+        print(str(exc), file=sys.stderr)
+        return EXIT_VALIDATION
+    except GuideError as exc:
+        # Guide did not ship — a packaging problem, same class as a missing file.
+        print(str(exc), file=sys.stderr)
+        return EXIT_IO
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_IO

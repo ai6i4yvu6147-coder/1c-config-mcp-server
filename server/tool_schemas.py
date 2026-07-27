@@ -2,6 +2,29 @@ from mcp.types import Tool
 
 TOOL_SCHEMAS = [
     Tool(
+        name="guide",
+        description=(
+            "Справка этого сервера о себе самом: с чего начать, какой инструмент под какую цель, "
+            "чем этот сервер НЕ занимается, типовые грабли. Дёрните один раз перед первой "
+            "серьёзной работой с конфигурацией — дешевле, чем выяснять это перебором вызовов. "
+            "Без аргументов возвращает вводную часть и меню разделов; section=<id> — раздел "
+            "целиком; section='all' — весь текст. Работает всегда, даже если индексы не собраны."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": (
+                        "Id раздела из меню (например 'routes' или 'tools'); 'all' — весь текст. "
+                        "Без параметра — вводная часть и список разделов."
+                    ),
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
         name="set_context",
         description=(
             "Deterministically (re)seed this server's sticky correlation context for the rest "

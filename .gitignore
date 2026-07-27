@@ -12,8 +12,11 @@ __pycache__/
 dist/
 build/
 
-# PyInstaller
+# PyInstaller (ignore ad-hoc local specs; keep project build recipes)
 *.spec
+!1C-Config-Admin.spec
+!1c-config-cli.spec
+!1c-config-server.spec
 
 # Portable сборка (внутри проекта — устаревший вариант)
 Portable/
