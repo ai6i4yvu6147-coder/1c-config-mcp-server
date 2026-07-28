@@ -4,11 +4,15 @@ The coverage test below is the point of the whole mechanism: it is what turns "t
 sync with the project" from a hope into an invariant that breaks the build.
 """
 
+from pathlib import Path
+
 import pytest
 
 from server.dispatch import HANDLERS
 from server.tool_schemas import TOOL_SCHEMAS
 from shared import agent_guide
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="module")
@@ -97,6 +101,18 @@ def test_guide_version_is_stable_and_content_addressed(guide_text):
     assert agent_guide.guide_version(guide_text) == agent_guide.guide_version(guide_text)
     assert agent_guide.guide_version(guide_text).startswith("sha256:")
     assert agent_guide.guide_version(guide_text) != agent_guide.guide_version(guide_text + " ")
+
+
+@pytest.mark.parametrize("spec_name", ["1c-config-server.spec", "1c-config-cli.spec"])
+def test_spec_ships_agent_guide(spec_name):
+    """PyInstaller regenerates (overwrites) a same-named .spec when built from CLI flags
+    (--name ...) instead of `pyinstaller X.spec` — that is exactly how this datas entry
+    vanished before. Guards the tracked .spec regardless of how a future build creates it.
+    """
+    spec_text = (REPO_ROOT / spec_name).read_text(encoding="utf-8")
+    assert "docs/agent-guide.md" in spec_text, (
+        f"{spec_name}: docs/agent-guide.md missing from datas — frozen build will not ship the guide"
+    )
 
 
 def test_cli_envelope_carries_module_identity_and_same_markdown(guide_text):

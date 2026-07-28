@@ -24,43 +24,26 @@ if errorlevel 1 (
 
 echo.
 echo [1/3] Building Admin Tool v2...
-rem External data processor read side needs onec_metadata_schema bundled (Admin builds DBs).
-pyinstaller --onedir --windowed --name "1C-Config-Admin" --noconfirm ^
-    --hidden-import=sqlite3 ^
-    --hidden-import=uuid ^
-    --hidden-import=json ^
-    --hidden-import=xml.etree.ElementTree ^
-    --hidden-import=xml.etree ^
-    --collect-all xml ^
-    --collect-submodules onec_metadata_schema ^
-    --add-data "admin_tool;admin_tool" ^
-    --add-data "shared;shared" ^
-    admin_tool/gui_v2.py
+rem Built from the tracked .spec, not CLI flags: PyInstaller regenerates (overwrites) a same-named
+rem .spec whenever --name is passed without pointing at an existing spec file, which has silently
+rem dropped datas entries (e.g. docs/agent-guide.md) in the past. The .spec is the source of truth.
+pyinstaller 1C-Config-Admin.spec --noconfirm
 
 echo.
 echo [2/3] Building MCP Server...
-pyinstaller --onedir --name "1c-config-server" --noconfirm ^
-    --hidden-import=sqlite3 ^
-    --hidden-import=uuid ^
-    --hidden-import=json ^
-    --hidden-import=asyncio ^
-    --hidden-import=xml.etree.ElementTree ^
-    --hidden-import=xml.etree ^
-    --collect-all xml ^
-    --add-data "server;server" ^
-    --add-data "shared;shared" ^
-    server/server.py
+pyinstaller 1c-config-server.spec --noconfirm
 
 echo.
 echo [3/3] Building Admin Hub CLI...
-rem CLI `rebuild-index` rebuilds DBs (hub_rebuild -> DatabaseManager -> parser), so it needs
-rem onec_metadata_schema bundled for external data processors too.
-pyinstaller --onefile --name "1c-config-cli" --noconfirm ^
-    --hidden-import=sqlite3 ^
-    --hidden-import=json ^
-    --collect-submodules onec_metadata_schema ^
-    --add-data "shared;shared" ^
-    admin_tool/cli.py
+pyinstaller 1c-config-cli.spec --noconfirm
+
+echo.
+echo Verifying agent guide shipped in build outputs...
+if not exist "dist\1c-config-server\_internal\docs\agent-guide.md" (
+    echo ERROR: dist\1c-config-server\_internal\docs\agent-guide.md missing after build.
+    echo Check the datas entry in 1c-config-server.spec.
+    exit /b 1
+)
 
 echo.
 echo Creating Portable folder structure in parent directory...
