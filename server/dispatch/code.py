@@ -112,7 +112,8 @@ async def handle_get_module_procedures(tools, arguments: dict) -> list[TextConte
                 export_mark = " [Экспорт]" if proc['export'] else ""
                 ctx = f" [{proc['execution_context']}]" if proc.get('execution_context') else ""
                 sj_mark = " [регл. задание]" if proc.get('used_in_scheduled_job') else ""
-                response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}{sj_mark}\n"
+                es_mark = " [подписка на событие]" if proc.get('used_in_event_subscription') else ""
+                response += f"{proc['line']:4d}. {proc['type']} {proc['name']}({proc['params']}){export_mark}{ctx}{sj_mark}{es_mark}\n"
                 if proc.get('comment'):
                     for comment_line in proc['comment'].split('\n'):
                         response += f"      {comment_line}\n"

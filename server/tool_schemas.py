@@ -88,7 +88,7 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule, CommandModule"
+                    "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule"
                 },
                 "max_results": {
                     "type": "number",
@@ -169,7 +169,7 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -207,7 +207,7 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -249,7 +249,7 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, FormModule, CommandModule (по умолчанию Module)",
+                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -452,6 +452,8 @@ TOOL_SCHEMAS = [
             "Общие команды (CommonCommand): CommandModule в modules, commands обычно пуст. "
             "BusinessProcess: route_points и route_transitions (схема из Flowchart.xml); в тексте — индекс точек и adjacency list переходов. "
             "ScheduledJob: method_name, use, predefined, restart_count_on_failure, restart_interval_on_failure. "
+            "Constant: types — тип хранимого значения (реквизитов и форм у константы нет), modules — ValueManagerModule/ManagerModule. "
+            "EventSubscription: event (событие), handler (обработчик CommonModule.<Модуль>.<Процедура>), sources (конкретные объекты-источники) и source_kinds (источник-вид-целиком, например все документы); своего кода у подписки нет. Обратный вопрос «что срабатывает при записи объекта X» — find_referencing_objects(relation_kinds=['event_subscription']). "
             "Списки реквизитов/измерений/ресурсов ограничены max_attributes (по умолчанию 50); при обрезке — <section>_total_count и is_truncated. "
             "sections — вернуть только указанные секции (экономия для широких объектов)."
         ),
@@ -494,7 +496,8 @@ TOOL_SCHEMAS = [
             "(metadata_type_slots) и структурные связи (metadata_relations). "
             "project_filter обязателен. "
             "via: attribute | tabular_section_column | form_attribute | form_attribute_column | "
-            "subsystem_member (подсистема в Content) | role_grant (роль → право на объект)."
+            "subsystem_member (подсистема в Content) | role_grant (роль → право на объект) | "
+            "event_subscription (подписка на событие → объект-источник; в ответе — событие и обработчик)."
         ),
         inputSchema={
             "type": "object",
@@ -519,7 +522,7 @@ TOOL_SCHEMAS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "Фильтр видов связей: subsystem_member, role_grant, attribute, … "
+                        "Фильтр видов связей: subsystem_member, role_grant, event_subscription, attribute, … "
                         "Непустой список — только перечисленные via; для ролей удобнее find_roles_for_object. "
                         "Пусто — все виды."
                     )

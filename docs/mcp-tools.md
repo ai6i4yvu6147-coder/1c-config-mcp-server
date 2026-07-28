@@ -35,7 +35,7 @@
 
 ### Команды объектов и общие команды (`CommandModule`)
 
-- **Список команд объекта** (не `CommonCommand`): `get_object_structure` → поле `commands` (`name`, `synonym`, `has_module`). Поле `modules` в этом ответе — только «обычные» модули объекта (`Module` / `ManagerModule` / `ObjectModule`), без модулей команд.
+- **Список команд объекта** (не `CommonCommand`): `get_object_structure` → поле `commands` (`name`, `synonym`, `has_module`). Поле `modules` в этом ответе — только «обычные» модули объекта (`Module` / `ManagerModule` / `ObjectModule` / `RecordSetModule` / `ValueManagerModule`), без модулей команд.
 - **Код модуля команды объекта**: `get_module_code` с `module_type="CommandModule"` и **`command_name`** = имя команды из `commands`.
 - **Общая команда** (`CommonCommand` в whitelist): в `get_object_structure` у объекта в `modules` будет `CommandModule`; `get_module_code` / `get_module_procedures` / `get_procedure_code` с `module_type="CommandModule"` **без** `command_name`.
 - **Кнопка и привязка к команде на форме**: `get_form_structure` → у элементов `items` поля `command_name` (как в XML) и `command_source` (`Form` / `Object` / `Common`, по префиксу строки). В текстовом ответе MCP к строке элемента добавляются пометки вида `[команда объекта: …]`.
@@ -106,11 +106,12 @@
   - metadata: реквизиты (`via: attribute`), колонки ТЧ (`via: tabular_section_column`);
   - формы: реквизиты формы (`via: form_attribute`), колонки реквизита формы (`via: form_attribute_column`);
   - подсистемы: объект в Content (`via: subsystem_member`, поле `source_name` — строка `Type.Name`);
-  - роли: право на объект (`via: role_grant`, JOIN `role_grants` по `parent_object_qname`).
+  - роли: право на объект (`via: role_grant`, JOIN `role_grants` по `parent_object_qname`);
+  - подписки на события: объект как источник (`via: event_subscription`, `source_name` — событие, `source_detail` — обработчик). Источники-вид-целиком («все документы») в связи не разворачиваются — они в `source_kinds` подписки.
 - **`object_name`** — имя или синоним целевого объекта (как в `find_object` / `get_object_structure`).
 - **`max_results`** — лимит записей на базу (по умолчанию 100); при обрезке — `is_truncated: true`.
-- **`relation_kinds`** — фильтр видов связей (`subsystem_member`, `role_grant`, `attribute`, …); непустой список — только перечисленные `via` (для ролей удобнее `find_roles_for_object`). Пусто — все виды связей.
-- Роли (детали прав) — **`get_role_rights`**; подписки — фаза 5; ФО — **`get_functional_options`**.
+- **`relation_kinds`** — фильтр видов связей (`subsystem_member`, `role_grant`, `event_subscription`, `attribute`, …); непустой список — только перечисленные `via` (для ролей удобнее `find_roles_for_object`). Пусто — все виды связей.
+- Роли (детали прав) — **`get_role_rights`**; ФО — **`get_functional_options`**.
 
 Исходящие ссылки отдельным tool **не** планируются — покрываются **`get_object_structure`**.
 

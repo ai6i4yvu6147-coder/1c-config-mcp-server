@@ -19,7 +19,7 @@ class CodeMixin:
             extension_filter: Фильтр по расширению/базе (опционально)
             max_results: Максимум совпадений на один модуль (из каждого модуля до max_results сниппетов)
             object_name: Фильтр по имени объекта (опционально, можно частичное)
-            module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, FormModule, CommandModule
+            module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule
 
         Returns:
             Dict grouped by projects; каждый элемент содержит object_name, object_type, module_type, snippet,
@@ -225,7 +225,7 @@ class CodeMixin:
 
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
             command_name: Имя команды объекта (для CommandModule команды объекта; для общей команды не указывать)
             project_filter: Фильтр по проекту
@@ -330,7 +330,7 @@ class CodeMixin:
 
         Args:
             object_name: Имя объекта
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
             command_name: Имя команды объекта (для CommandModule команды объекта)
             project_filter: Фильтр по проекту
@@ -365,12 +365,13 @@ class CodeMixin:
                 'execution_context': row['execution_context'],
                 'extension_call_type': row['extension_call_type'],
                 'used_in_scheduled_job': bool(row['used_in_scheduled_job']),
+                'used_in_event_subscription': bool(row['used_in_event_subscription']),
             }
 
         proc_columns = '''
                     SELECT p.name, p.proc_type, p.start_line, p.end_line, p.params, p.is_export,
                            p.execution_context, p.extension_call_type, p.comment,
-                           p.used_in_scheduled_job
+                           p.used_in_scheduled_job, p.used_in_event_subscription
         '''
 
         if module_type == 'FormModule':
@@ -457,7 +458,7 @@ class CodeMixin:
         Args:
             object_name: Имя объекта
             procedure_name: Имя процедуры/функции
-            module_type: Тип модуля (Module, ManagerModule, ObjectModule, FormModule, CommandModule)
+            module_type: Тип модуля (Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule)
             form_name: Имя формы (обязательно для FormModule)
             command_name: Имя команды объекта (для CommandModule команды объекта)
             project_filter: Фильтр по проекту

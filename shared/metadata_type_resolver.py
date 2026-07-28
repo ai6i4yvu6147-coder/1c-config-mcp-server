@@ -43,6 +43,52 @@ FORM_OBJECT_SUFFIX_TO_TYPE = {
     'EnumObject': 'Enum',
 }
 
+# Виды метаданных, встречающиеся в Source подписок на события. Суффикс строки говорит, каким
+# «лицом» объекта подписка пользуется (Object/Manager/RecordSet/ValueManager) — для связи
+# «подписка → объект» лицо не важно, важен сам объект, поэтому суффикс срезается.
+# Порядок срезания значим: ValueManager до Manager (иначе ConstantValueManager → ConstantValue).
+EVENT_SOURCE_FACE_SUFFIXES = ('ValueManager', 'RecordSet', 'Manager', 'Object')
+
+EVENT_SOURCE_KINDS = frozenset({
+    'Catalog', 'Document', 'DocumentJournal', 'Constant', 'Enum', 'Report', 'DataProcessor',
+    'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister',
+    'ChartOfAccounts', 'ChartOfCharacteristicTypes', 'ChartOfCalculationTypes',
+    'ExchangePlan', 'BusinessProcess', 'Task', 'Sequence', 'Recalculation',
+})
+
+
+def parse_event_source_string(type_str):
+    """Разбирает строку Source подписки на событие в dict.
+
+    `cfg:DocumentObject.РеализацияТоваров` → конкретный объект (kind='object_ref');
+    `cfg:DocumentObject`                   → вид целиком, «все документы» (kind='kind_wide');
+    `cfg:DefinedType.Имя`                  → определяемый тип (kind='object_ref').
+
+    Возвращает {'kind', 'raw', 'object_type', 'ref_name'}; object_type=None, если вид
+    метаданных не распознан (тогда строка всё равно доступна в raw и не теряется).
+    """
+    raw = (type_str or '').strip()
+    if not raw:
+        return {'kind': 'unknown', 'raw': raw, 'object_type': None, 'ref_name': None}
+
+    body = raw.split(':', 1)[1] if ':' in raw else raw
+    face, _, ref_name = body.partition('.')
+    ref_name = ref_name or None
+
+    if face == 'DefinedType':
+        object_type = 'DefinedType'
+    else:
+        object_type = None
+        for suffix in EVENT_SOURCE_FACE_SUFFIXES:
+            if face.endswith(suffix):
+                candidate = face[: -len(suffix)]
+                if candidate in EVENT_SOURCE_KINDS:
+                    object_type = candidate
+                break
+
+    kind = 'object_ref' if ref_name else 'kind_wide'
+    return {'kind': kind, 'raw': raw, 'object_type': object_type, 'ref_name': ref_name}
+
 
 def parse_cfg_type_string(type_str):
     """Parse cfg:/xs:/v8: type string into slot dict fields."""

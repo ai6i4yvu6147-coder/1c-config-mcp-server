@@ -147,6 +147,24 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
                 if structure.get('restart_interval_on_failure') is not None:
                     response += f"  Интервал перезапуска (с): {structure['restart_interval_on_failure']}\n"
                 response += "\n"
+            if structure['type'] == 'EventSubscription':
+                if structure.get('event'):
+                    response += f"  Событие: {structure['event']}\n"
+                if structure.get('handler'):
+                    response += f"  Обработчик: {structure['handler']}\n"
+                if structure.get('source_kinds'):
+                    response += f"  Источник — вид целиком: {structure['source_kinds']}\n"
+                sources = structure.get('sources')
+                if sources:
+                    total = structure.get('sources_total_count')
+                    response += _capped_header("Источники", sources, total)
+                    for s in sources:
+                        syn = f" — {s['synonym']}" if s.get('synonym') else ""
+                        response += f"    - {s['object_type']}.{s['name']}{syn}\n"
+                    response += _capped_footer(sources, total, "увеличьте max_attributes")
+                elif sources is not None and not structure.get('source_kinds'):
+                    response += "  Источники: (не заданы)\n"
+                response += "\n"
             if structure['type'] == 'DefinedType':
                 if structure.get('types'):
                     response += f"  Состав типа ({len(structure['types'])}):\n"
@@ -155,6 +173,8 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
                 else:
                     response += "  Состав типа: (тип не определён)\n"
                 response += "\n"
+            if structure['type'] == 'Constant' and 'types' in structure:
+                response += f"  Тип значения: {format_types_for_text(structure.get('types') or [])}\n\n"
             if structure.get('attributes'):
                 response += _capped_header("Реквизиты", structure['attributes'], structure.get('attributes_total_count'))
                 for attr in structure['attributes']:

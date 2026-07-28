@@ -9,9 +9,7 @@ a = Analysis(
     ['admin_tool\\cli.py'],
     pathex=[],
     binaries=[],
-    # docs/agent-guide.md — same manual the MCP `guide` tool serves; the Hub reads it through
-    # `1c-config-cli guide --json`, so the CLI bundle carries its own copy.
-    datas=[('shared', 'shared'), ('docs/agent-guide.md', 'docs')],
+    datas=[('shared', 'shared')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

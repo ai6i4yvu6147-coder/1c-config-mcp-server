@@ -1,9 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-# docs/agent-guide.md — the server's own manual, returned by the `guide` tool. It is code, not
-# module data: it belongs to the server version, so it ships inside the bundle.
-datas = [('server', 'server'), ('shared', 'shared'), ('docs/agent-guide.md', 'docs')]
+datas = [('server', 'server'), ('shared', 'shared')]
 binaries = []
 hiddenimports = ['sqlite3', 'uuid', 'json', 'asyncio', 'xml.etree.ElementTree', 'xml.etree']
 tmp_ret = collect_all('xml')

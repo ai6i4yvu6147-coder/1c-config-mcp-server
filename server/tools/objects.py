@@ -4,11 +4,12 @@ from .relations import _resolve_config_object
 # Default cap for wide attribute families in get_object_structure (0 disables the cap).
 DEFAULT_MAX_ATTRIBUTES = 50
 # Attribute families subject to max_attributes.
-_CAPPED_SECTION_KEYS = ('attributes', 'dimensions', 'resources')
+_CAPPED_SECTION_KEYS = ('attributes', 'dimensions', 'resources', 'sources')
 # All optional section keys agents can restrict via `sections`.
 _STRUCTURE_SECTION_KEYS = (
     'attributes', 'dimensions', 'resources', 'tabular_sections',
     'enum_values', 'commands', 'forms', 'modules', 'route_points', 'types',
+    'sources',
 )
 
 
@@ -312,6 +313,41 @@ class ObjectsMixin:
                     'commands': [],
                     'forms': [],
                 }
+            elif obj_type == 'EventSubscription':
+                cursor.execute('''
+                    SELECT event, handler, source_kinds FROM event_subscriptions WHERE object_id = ?
+                ''', (object_id,))
+                es_row = cursor.fetchone()
+                # Конкретные источники живут в metadata_relations (та же строка, что кормит
+                # обратный поиск), источники-вид-целиком — строкой в source_kinds.
+                cursor.execute('''
+                    SELECT o.object_type, o.name, o.synonym
+                    FROM metadata_relations mr
+                    JOIN metadata_objects o ON mr.dst_object_id = o.id
+                    WHERE mr.src_object_id = ? AND mr.relation_kind = 'event_subscription'
+                    ORDER BY o.object_type, o.name
+                ''', (object_id,))
+                sources = [
+                    {'object_type': r['object_type'], 'name': r['name'], 'synonym': r['synonym'] or ''}
+                    for r in cursor.fetchall()
+                ]
+                structure = {
+                    'name': obj_row['name'],
+                    'type': obj_type,
+                    'uuid': obj_row['uuid'],
+                    'synonym': obj_row['synonym'],
+                    'comment': obj_row['comment'],
+                    'event': es_row['event'] if es_row else None,
+                    'handler': es_row['handler'] if es_row else None,
+                    'sources': sources,
+                    'source_kinds': es_row['source_kinds'] if es_row else None,
+                    'modules': [],
+                    'commands': [],
+                    'forms': [],
+                }
+                # Источников бывают сотни (подписка «на все справочники» — 781 объект),
+                # поэтому секция подчиняется тем же sections/max_attributes, что реквизиты.
+                self._apply_structure_view(structure, wanted_sections, max_attributes)
             elif obj_type == 'ScheduledJob':
                 cursor.execute('''
                     SELECT method_name, description, key, use, predefined,
@@ -494,6 +530,12 @@ class ObjectsMixin:
                 if obj_type == 'BusinessProcess':
                     structure['route_points'] = route_points
                     structure['route_transitions'] = route_transitions
+                if obj_type == 'Constant':
+                    # У константы весь смысл в типе хранимого значения — он объявлен на самом
+                    # объекте (как состав у DefinedType), а не на реквизитах, которых нет.
+                    structure['types'] = _load_resolved_types_map(
+                        cursor, 'metadata_objects', [object_id],
+                    ).get(object_id, [])
                 self._apply_structure_view(structure, wanted_sections, max_attributes)
             if db_info.get('db_type') == 'extension' and obj_row['object_belonging']:
                 structure['object_belonging'] = obj_row['object_belonging']

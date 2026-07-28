@@ -47,6 +47,33 @@ class ObjectInsertionMixin:
                     VALUES (?, ?, ?)
                 ''', (object_id, loc, 1 if priv else 0))
 
+            if obj['type'] == 'EventSubscription':
+                p = obj['properties']
+                handler = (p.get('handler') or '').strip()
+                # Handler — всегда CommonModule.<Модуль>.<Процедура> (проверено на корпусе:
+                # 1110 подписок, других префиксов нет). Разбираем заранее, чтобы не парсить
+                # строку в каждом запросе — по handler_module идёт пометка процедур.
+                parts = handler.split('.')
+                handler_module = parts[1] if len(parts) == 3 and parts[0] == 'CommonModule' else None
+                handler_procedure = parts[2] if len(parts) == 3 and parts[0] == 'CommonModule' else None
+                kind_wide = [
+                    s['raw'] for s in (p.get('sources') or [])
+                    if s.get('is_type_set') and '.' not in s.get('raw', '')
+                ]
+                cursor.execute('''
+                    INSERT INTO event_subscriptions (
+                        object_id, event, handler, handler_module, handler_procedure, source_kinds
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    object_id,
+                    p.get('event'),
+                    handler or None,
+                    handler_module,
+                    handler_procedure,
+                    ', '.join(kind_wide) or None,
+                ))
+
             if obj['type'] == 'ScheduledJob':
                 p = obj['properties']
                 use_val = p.get('use')
@@ -71,7 +98,8 @@ class ObjectInsertionMixin:
             if obj['type'] == 'Role':
                 self._insert_role_data(cursor, object_id, obj, source_db_name)
 
-            if obj['type'] == 'DefinedType':
+            # Тип, объявленный на самом объекте: состав DefinedType и тип значения Constant.
+            if obj['type'] in ('DefinedType', 'Constant'):
                 type_slots = obj.get('type_slots') or []
                 if type_slots:
                     pending_type_slots.append({
@@ -198,6 +226,7 @@ class ObjectInsertionMixin:
             type_resolver.insert_slots(cursor, pending_type_slots, type_name_to_id)
 
         self._link_subsystem_relations(cursor, data['objects'], type_name_to_id)
+        self._link_event_subscription_relations(cursor, data['objects'], type_name_to_id)
 
         # Заполняем fo_content_ref из Content каждой ФО
         for obj in data['objects']:
@@ -223,9 +252,10 @@ class ObjectInsertionMixin:
                 ''', (fo_id, meta_id, ref_type, ts_name, elem_name))
 
         self._link_scheduled_job_procedures(cursor)
+        self._link_event_subscription_procedures(cursor)
 
         if progress_callback:
-            progress_callback(65, 100, f"Связи (типы, подсистемы, ФО, регл. задания) — {time.perf_counter() - t_relations_start:.1f} c")
+            progress_callback(65, 100, f"Связи (типы, подсистемы, ФО, регл. задания, подписки) — {time.perf_counter() - t_relations_start:.1f} c")
 
         t_phase2_start = time.perf_counter()
 

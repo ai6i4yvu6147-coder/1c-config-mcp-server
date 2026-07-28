@@ -65,11 +65,16 @@ class ModulesMixin:
         if not os.path.exists(_winlong(obj_dir)):
             return modules
 
-        # Типы модулей
+        # Типы модулей. RecordSetModule — у регистров (сведений/накопления/бухгалтерии/расчёта):
+        # там нет ObjectModule, весь код набора записей лежит именно в нём, и без этой строки
+        # модуль молча терялся при индексации. ValueManagerModule — модуль менеджера значения
+        # константы (у константы бывает и обычный ManagerModule, он уже покрыт выше).
         module_files = {
             'Module.bsl': 'Module',
             'ManagerModule.bsl': 'ManagerModule',
             'ObjectModule.bsl': 'ObjectModule',
+            'RecordSetModule.bsl': 'RecordSetModule',
+            'ValueManagerModule.bsl': 'ValueManagerModule',
         }
 
         for file_name, module_type in module_files.items():

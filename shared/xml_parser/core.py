@@ -7,6 +7,37 @@ from pathlib import Path
 from .xml_helpers import _winlong
 
 
+# Индексируемые виды дочерних объектов Configuration.xml → каталог выгрузки. Роли и подсистемы
+# сюда не входят — у них отдельные ветки разбора. Инвариант: каждый вид, встречающийся в
+# REF_SUFFIX_TO_OBJECT_TYPE (shared/metadata_type_resolver), обязан быть здесь, иначе слоты
+# типов, указывающие на него, молча теряются при резолве — см. tests/
+# test_xml_parser_chart_of_calculation_types.py::test_ref_suffix_map_and_object_types_agree.
+CHILD_OBJECT_TYPES = {
+    'Catalog': 'Catalogs',
+    'Document': 'Documents',
+    'CommonModule': 'CommonModules',
+    'InformationRegister': 'InformationRegisters',
+    'AccumulationRegister': 'AccumulationRegisters',
+    'AccountingRegister': 'AccountingRegisters',
+    'CalculationRegister': 'CalculationRegisters',
+    'ChartOfAccounts': 'ChartsOfAccounts',
+    'ChartOfCharacteristicTypes': 'ChartsOfCharacteristicTypes',
+    'ChartOfCalculationTypes': 'ChartsOfCalculationTypes',
+    'ExchangePlan': 'ExchangePlans',
+    'Report': 'Reports',
+    'DataProcessor': 'DataProcessors',
+    'Enum': 'Enums',
+    'BusinessProcess': 'BusinessProcesses',
+    'Task': 'Tasks',
+    'FunctionalOption': 'FunctionalOptions',
+    'CommonCommand': 'CommonCommands',
+    'CommonForm': 'CommonForms',
+    'ScheduledJob': 'ScheduledJobs',
+    'DefinedType': 'DefinedTypes',
+    'Constant': 'Constants',
+    'EventSubscription': 'EventSubscriptions',
+}
+
 REGISTER_TYPES = (
     'InformationRegister',
     'AccumulationRegister',
@@ -20,8 +51,14 @@ REGISTER_TYPES = (
 # в `_parse_object`. См. docs/library-migration.md (шаг 3).
 PROPERTY_ONLY_MIGRATED_TYPES = frozenset({
     'CommonModule', 'CommonCommand', 'CommonForm',
-    'ScheduledJob', 'FunctionalOption', 'DefinedType',
+    'ScheduledJob', 'FunctionalOption', 'DefinedType', 'Constant',
+    'EventSubscription',
 })
+
+# Типы, у которых тип значения объявлен на самом объекте (Properties/Type), а не на реквизитах:
+# DefinedType — состав определяемого типа, Constant — тип хранимого значения. Оба уезжают в
+# result['type_slots'] и дальше в metadata_type_slots (см. metadata_type_resolver).
+OBJECT_LEVEL_TYPE_TYPES = frozenset({'DefinedType', 'Constant'})
 
 
 class ConfigurationParserCore:
@@ -128,30 +165,7 @@ class ConfigurationParserCore:
         if child_objects is None:
             return objects
 
-        object_types = {
-            'Catalog': 'Catalogs',
-            'Document': 'Documents',
-            'CommonModule': 'CommonModules',
-            'InformationRegister': 'InformationRegisters',
-            'AccumulationRegister': 'AccumulationRegisters',
-            'AccountingRegister': 'AccountingRegisters',
-            'CalculationRegister': 'CalculationRegisters',
-            'ChartOfAccounts': 'ChartsOfAccounts',
-            'ChartOfCharacteristicTypes': 'ChartsOfCharacteristicTypes',
-            'ExchangePlan': 'ExchangePlans',
-            'Report': 'Reports',
-            'DataProcessor': 'DataProcessors',
-            'Enum': 'Enums',
-            'BusinessProcess': 'BusinessProcesses',
-            'Task': 'Tasks',
-            'FunctionalOption': 'FunctionalOptions',
-            'CommonCommand': 'CommonCommands',
-            'CommonForm': 'CommonForms',
-            'ScheduledJob': 'ScheduledJobs',
-            'DefinedType': 'DefinedTypes',
-        }
-
-        for obj_type, folder_name in object_types.items():
+        for obj_type, folder_name in CHILD_OBJECT_TYPES.items():
             for element in child_objects.findall(f'md:{obj_type}', ns):
                 obj_name = element.text
                 if obj_name:
@@ -390,13 +404,20 @@ class ConfigurationParserCore:
         # Модули/формы по виду объекта:
         #   CommonForm — форма через _parse_common_form, модулей на уровне объекта нет;
         #   ScheduledJob/DefinedType — ни модулей, ни форм;
+        #   Constant — модули есть (ValueManagerModule/ManagerModule), собственных форм нет
+        #     (константы редактируются общей формой констант, каталога Constants/<Имя>/Forms не бывает);
         #   CommonModule/CommonCommand/FunctionalOption — обычный file-walk (+CommandModule.bsl).
         if obj_type == 'CommonForm':
             modules = []
             with self._accumulate('forms'):
                 forms = self._parse_common_form(name, folder_name, descriptor.uuid or '')
-        elif obj_type in ('ScheduledJob', 'DefinedType'):
+        elif obj_type in ('ScheduledJob', 'DefinedType', 'EventSubscription'):
+            # У подписки своего кода нет — обработчик живёт в общем модуле (Handler).
             modules = []
+            forms = []
+        elif obj_type == 'Constant':
+            with self._accumulate('modules'):
+                modules = self._parse_modules(name, folder_name)
             forms = []
         else:
             with self._accumulate('modules'):
@@ -416,7 +437,8 @@ class ConfigurationParserCore:
 
         # Команды: читают только CommonModule/FunctionalOption (паритет со списком исключений
         # старого пути). У остальных — [].
-        if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob', 'DefinedType'):
+        if obj_type in ('CommonCommand', 'CommonForm', 'ScheduledJob', 'DefinedType',
+                        'Constant', 'EventSubscription'):
             commands = []
         else:
             root = ET.parse(_winlong(xml_file)).getroot()
@@ -442,7 +464,7 @@ class ConfigurationParserCore:
             'dcs_schemas': dcs_schemas,
             'spreadsheet_templates': spreadsheet_templates,
         }
-        if obj_type == 'DefinedType':
+        if obj_type in OBJECT_LEVEL_TYPE_TYPES:
             # Тип на уровне объекта: библиотечный `.Type` байт-идентичен старому
             # `_extract_type_slots(obj_elem)` (тот же контейнер Properties/Type).
             result['type_slots'] = descriptor.properties.get('Type') or []
@@ -459,7 +481,37 @@ class ConfigurationParserCore:
             self._add_scheduled_job_props(descriptor, properties)
         elif obj_type == 'FunctionalOption':
             self._add_functional_option_props(descriptor, properties)
+        elif obj_type == 'EventSubscription':
+            self._add_event_subscription_props(descriptor, properties)
         return properties
+
+    @staticmethod
+    def _add_event_subscription_props(descriptor, properties):
+        """Event/Handler (строки) + Source → нормализованный список источников.
+
+        `Source` библиотека отдаёт сырым контейнером (в отличие от `Type` у Constant/DefinedType):
+        `{'Type': ...}` — конкретные объекты (`cfg:DocumentObject.РеализацияТоваров`),
+        `{'TypeSet': ...}` — вид целиком (`cfg:DocumentObject` — «все документы») либо
+        определяемый тип (`cfg:DefinedType.Имя`). Оба ключа могут присутствовать сразу, а
+        значение каждого — как строка, так и список. Разбор до (ref_suffix, ref_name) —
+        в shared/metadata_type_resolver.parse_event_source_string, там же и резолв в объект.
+        """
+        for src, key in (('Event', 'event'), ('Handler', 'handler')):
+            value = descriptor.properties.get(src)
+            if isinstance(value, str) and value.strip():
+                properties[key] = value.strip()
+
+        source = descriptor.properties.get('Source')
+        sources = []
+        if isinstance(source, dict):
+            for container, is_type_set in (('Type', False), ('TypeSet', True)):
+                raw = source.get(container)
+                if raw is None:
+                    continue
+                for item in (raw if isinstance(raw, list) else [raw]):
+                    if isinstance(item, str) and item.strip():
+                        sources.append({'raw': item.strip(), 'is_type_set': is_type_set})
+        properties['sources'] = sources
 
     @staticmethod
     def _add_scheduled_job_props(descriptor, properties):

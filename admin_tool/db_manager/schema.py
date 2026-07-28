@@ -223,6 +223,7 @@ class SchemaMixin:
                 extension_call_type TEXT,
                 comment TEXT,
                 used_in_scheduled_job INTEGER DEFAULT 0,
+                used_in_event_subscription INTEGER DEFAULT 0,
                 FOREIGN KEY (module_id) REFERENCES modules(id)
             )
         ''')
@@ -355,6 +356,31 @@ class SchemaMixin:
                 restart_interval_on_failure INTEGER,
                 FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
             )
+        ''')
+
+        # Подписки на события (свойства из EventSubscription.xml). Источники подписки лежат
+        # не здесь, а в metadata_relations (relation_kind='event_subscription') — так обратный
+        # поиск «что срабатывает при записи объекта X» работает штатным find_referencing_objects.
+        # Здесь же — source_kinds: источники-вид-целиком (`cfg:DocumentObject` = все документы),
+        # у которых нет одного объекта-адресата и которые поэтому в связи не разворачиваются.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS event_subscriptions (
+                object_id INTEGER NOT NULL PRIMARY KEY,
+                event TEXT,
+                handler TEXT,
+                handler_module TEXT,
+                handler_procedure TEXT,
+                source_kinds TEXT,
+                FOREIGN KEY (object_id) REFERENCES metadata_objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_event_subscriptions_handler_module
+            ON event_subscriptions(handler_module)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_event_subscriptions_event
+            ON event_subscriptions(event)
         ''')
 
         # Структурные связи метаданных (подсистемы, роли, подписки — не типы полей)
