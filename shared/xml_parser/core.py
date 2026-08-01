@@ -2,6 +2,7 @@ import concurrent.futures
 import os
 import time
 import xml.etree.ElementTree as ET
+from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -65,6 +66,12 @@ OBJECT_LEVEL_TYPE_TYPES = frozenset({'DefinedType', 'Constant'})
 class ConfigurationParserCore:
     """Configuration.xml top-level parsing, per-object dispatch, subsystems, properties/attributes."""
 
+    #: Сколько объектов на воркера держать разобранными «в полёте» в `_stream_configuration_objects`.
+    #: Двух хватает, чтобы пул форм не простаивал (пока потребитель вставляет один объект,
+    #: воркеры уже разбирают формы следующих), и это на два порядка меньше, чем прежние
+    #: «все объекты конфигурации сразу».
+    FORM_WINDOW_PER_WORKER = 2
+
     def __init__(self, config_path, use_process_pool=True):
         """
         Args:
@@ -114,7 +121,7 @@ class ConfigurationParserCore:
             self.stage_seconds[stage_name] = self.stage_seconds.get(stage_name, 0.0) + (time.perf_counter() - t0)
 
     def parse(self):
-        """Парсит корень выгрузки и возвращает структуру данных.
+        """Парсит корень выгрузки и возвращает структуру данных целиком (весь поток в списке).
 
         Виды корня: `MetaDataObject/Configuration` (конфигурация и расширение — один тег,
         различаются по ConfigurationExtensionPurpose/ObjectBelonging),
@@ -122,9 +129,34 @@ class ConfigurationParserCore:
         `MetaDataObject/ExternalReport` (внешний отчёт) — внешние объекты читаются через
         библиотеку onec_metadata_schema, см. external_processor.py.
 
-        P-8 (audit-2026-08): на время parse() поднимается ProcessPoolExecutor для форм
-        (self._form_pool) — сам объект процессов не порождает, они появляются лениво только
-        на первый submit() (см. FormsMixin._submit_forms), так что конфигурации без форм
+        Сборка БД ходит не сюда, а в `parse_streaming()` — держать всё дерево объектов в
+        памяти незачем (P-4 audit-2026-08). Этот вход остаётся для тестов и разовых
+        разборов, где список удобнее потока.
+        """
+        header, objects = self.parse_streaming()
+        result = {k: v for k, v in header.items() if k != 'expected_object_count'}
+        result['objects'] = list(objects)
+        return result
+
+    def parse_streaming(self):
+        """Потоковый разбор: возвращает `(header, generator)`.
+
+        `header` — `{'name', 'extension_purpose', 'expected_object_count'}`; генератор отдаёт
+        объекты по одному в том же порядке, что и `parse()` (дочерние объекты в порядке
+        `CHILD_OBJECT_TYPES`, затем подсистемы, затем роли). Потребитель вставляет объект в
+        БД и отпускает его — пик памяти перестаёт зависеть от размера конфигурации
+        (`parser-streaming-pipeline`, остаток P-4 из audit-2026-08).
+
+        `expected_object_count` — оценка для прогресс-бара (число записей в ChildObjects +
+        файлов подсистем и ролей); объекты, не разобравшиеся из-за ошибки, в поток не
+        попадут, поэтому фактическое число может быть чуть меньше.
+
+        **Генератор обязан быть вычерпан или закрыт** (`close()` / выход из `contextlib.closing`):
+        на его времени жизни держится пул форм, он закрывается в `finally`.
+
+        P-8 (audit-2026-08): пул для форм (`self._form_pool`) поднимается на время работы
+        генератора — сам объект процессов не порождает, они появляются лениво только на
+        первый submit() (см. FormsMixin._submit_forms), так что конфигурации без форм
         (внешние отчёты/обработки почти всегда, мелкие тестовые фикстуры) ничего не платят.
 
         ВАЖНО (Windows): вызывающий код обязан быть за ``if __name__ == '__main__':`` —
@@ -135,17 +167,6 @@ class ConfigurationParserCore:
         уже так оформлены и вдобавок зовут `multiprocessing.freeze_support()` — это нужно
         и для PyInstaller-сборки (иначе воркер перезапускает всё приложение).
         """
-        workers = max(1, (os.cpu_count() or 2) - 1)
-        pool_cls = concurrent.futures.ProcessPoolExecutor if (self._use_process_pool and workers > 1) else None
-        self._form_pool = pool_cls(max_workers=workers) if pool_cls else None
-        try:
-            return self._parse_root()
-        finally:
-            if self._form_pool is not None:
-                self._form_pool.shutdown(wait=True)
-                self._form_pool = None
-
-    def _parse_root(self):
         tree = ET.parse(_winlong(self.config_path))
         root = tree.getroot()
 
@@ -153,24 +174,38 @@ class ConfigurationParserCore:
         config = root.find('md:Configuration', ns)
 
         if config is not None:
-            return self._parse_configuration(config, ns)
+            header = self._configuration_header(config, ns)
+            header['expected_object_count'] = self._count_expected_objects(config, ns)
+            return header, self._stream_configuration_objects(config, ns)
 
         # Внешние отчёты/обработки — отдельные файлы-объекты, где макет часто и есть суть
         # объекта (печатная форма/СКД-отчёт), а число объектов мало → индексируем макеты.
+        # Поток тут вырожденный (один объект), стримить нечего.
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         if self._get_object_element(root, 'ExternalDataProcessor', md_ns) is not None:
             self.index_spreadsheet_templates = True
-            return self._parse_external_data_processor()
-        if self._get_object_element(root, 'ExternalReport', md_ns) is not None:
+            data = self._parse_external_data_processor()
+        elif self._get_object_element(root, 'ExternalReport', md_ns) is not None:
             self.index_spreadsheet_templates = True
-            return self._parse_external_report()
+            data = self._parse_external_report()
+        else:
+            data = {'name': '', 'objects': []}
 
-        return {'name': '', 'objects': []}
+        objects = data.pop('objects')
+        data['expected_object_count'] = len(objects)
+        return data, self._stream_ready_objects(objects)
 
-    def _parse_configuration(self, config, ns):
-        """Разбор корня `MetaDataObject/Configuration` (конфигурация или расширение)."""
+    @staticmethod
+    def _stream_ready_objects(objects):
+        """Готовый список объектов как генератор — чтобы у потока из `parse_streaming()` всегда
+        был `close()` (потребитель заворачивает его в `contextlib.closing`)."""
+        yield from objects
+
+    def _configuration_header(self, config, ns):
+        """Имя конфигурации и назначение расширения из `Properties` корня."""
         properties = config.find('md:Properties', ns)
         config_name = ''
+        extension_purpose = ''
         if properties is not None:
             # Имя конфигурации: в формате 2.20 — Properties/Name, в старом — возможно md:n
             name_elem = properties.find('md:Name', ns)
@@ -179,47 +214,69 @@ class ConfigurationParserCore:
             if name_elem is not None and name_elem.text:
                 config_name = name_elem.text.strip()
 
-        objects = self._parse_child_objects(config, ns)
-        with self._accumulate('subsystems'):
-            objects.extend(self._parse_subsystems())
-        with self._accumulate('roles'):
-            objects.extend(self._parse_roles())
-
-        extension_purpose = ''
-        if properties is not None:
             purpose_elem = properties.find('md:ConfigurationExtensionPurpose', ns)
             if purpose_elem is not None and purpose_elem.text:
                 extension_purpose = purpose_elem.text.strip()
 
-        return {
-            'name': config_name,
-            'extension_purpose': extension_purpose,
-            'objects': objects
-        }
+        return {'name': config_name, 'extension_purpose': extension_purpose}
 
-    def _parse_child_objects(self, config, ns):
-        """Извлекает список дочерних объектов"""
-        objects = []
+    def _count_expected_objects(self, config, ns):
+        """Оценка числа объектов для прогресса: записи ChildObjects + файлы подсистем и ролей.
+        Считается по именам файлов, без разбора — стоит миллисекунды."""
+        total = 0
         child_objects = config.find('md:ChildObjects', ns)
+        if child_objects is not None:
+            for obj_type in CHILD_OBJECT_TYPES:
+                total += sum(
+                    1 for element in child_objects.findall(f'md:{obj_type}', ns) if element.text
+                )
 
-        if child_objects is None:
-            return objects
+        subsystems_root = self.root_dir / 'Subsystems'
+        if subsystems_root.is_dir():
+            total += sum(1 for p in subsystems_root.rglob('*.xml') if 'Ext' not in p.parts)
 
-        for obj_type, folder_name in CHILD_OBJECT_TYPES.items():
-            for element in child_objects.findall(f'md:{obj_type}', ns):
-                obj_name = element.text
-                if obj_name:
-                    obj_data = self._parse_object(obj_name, obj_type, folder_name)
-                    if obj_data:
-                        objects.append(obj_data)
+        roles_root = self.root_dir / 'Roles'
+        if roles_root.is_dir():
+            total += sum(1 for p in roles_root.glob('*.xml') if 'Ext' not in p.parts)
 
-        # P-8: forms were submitted to self._form_pool (when running) as we went, not parsed
-        # inline — resolve them all here, once, after the object loop above has finished
-        # queuing every object's forms job. By now the pool has had the whole non-forms part
-        # of the loop (modules/commands/dcs/properties, ~40% of parse time) to work through
-        # the forms queue in the background, so most futures are already done.
-        self._resolve_pending_forms(objects)
-        return objects
+        return total
+
+    def _stream_configuration_objects(self, config, ns):
+        """Генератор объектов конфигурации: дочерние объекты, затем подсистемы, затем роли.
+
+        Окно (`FORM_WINDOW_PER_WORKER` × число воркеров) — компромисс между P-8 и P-4:
+        объекты разбираются на несколько шагов вперёд, чтобы пул форм не простаивал, но не
+        больше окна, иначе вернулись бы к «все разобранные формы держим в памяти». Отдаётся
+        всегда самый старый объект окна — порядок выдачи тот же, что у прежнего списка.
+        """
+        workers = max(1, (os.cpu_count() or 2) - 1)
+        pool_cls = concurrent.futures.ProcessPoolExecutor if (self._use_process_pool and workers > 1) else None
+        self._form_pool = pool_cls(max_workers=workers) if pool_cls else None
+        window = max(2, workers * self.FORM_WINDOW_PER_WORKER)
+
+        try:
+            pending = deque()
+            child_objects = config.find('md:ChildObjects', ns)
+            if child_objects is not None:
+                for obj_type, folder_name in CHILD_OBJECT_TYPES.items():
+                    for element in child_objects.findall(f'md:{obj_type}', ns):
+                        obj_name = element.text
+                        if not obj_name:
+                            continue
+                        obj_data = self._parse_object(obj_name, obj_type, folder_name)
+                        if obj_data:
+                            pending.append(obj_data)
+                        if len(pending) > window:
+                            yield self._resolve_object_forms(pending.popleft())
+            while pending:
+                yield self._resolve_object_forms(pending.popleft())
+
+            yield from self._iter_subsystems()
+            yield from self._iter_roles()
+        finally:
+            if self._form_pool is not None:
+                self._form_pool.shutdown(wait=True)
+                self._form_pool = None
 
     def _subsystem_qualified_name(self, xml_path):
         """Квалифицированное имя подсистемы из пути под Subsystems/."""
@@ -234,6 +291,10 @@ class ConfigurationParserCore:
         return '.'.join(parts)
 
     def _parse_subsystems(self):
+        """Все подсистемы списком (см. `_iter_subsystems`)."""
+        return list(self._iter_subsystems())
+
+    def _iter_subsystems(self):
         """Парсит все подсистемы (включая вложенные) из каталога Subsystems/.
 
         Подсистема — единственный whitelist-тип, читаемый не через `_parse_object`, а
@@ -242,19 +303,21 @@ class ConfigurationParserCore:
         не из дескриптора. Сам дескриптор `<Имя>.xml` читается единым движком
         (`_parse_subsystem`); битый/нераспознанный дескриптор → None → подсистема
         пропускается (skip-on-error, как формы/СКД). См. docs/library-migration.md (шаг 4).
+
+        Отдаёт по одной (`parser-streaming-pipeline`): время копится на каждой подсистеме
+        отдельно, чтобы в `stage_seconds['subsystems']` не попало время потребителя.
         """
         subsystems_root = self.root_dir / 'Subsystems'
         if not subsystems_root.is_dir():
-            return []
+            return
 
-        results = []
         for xml_file in sorted(subsystems_root.rglob('*.xml')):
             if 'Ext' in xml_file.parts:
                 continue
-            record = self._parse_subsystem(xml_file)
+            with self._accumulate('subsystems'):
+                record = self._parse_subsystem(xml_file)
             if record is not None:
-                results.append(record)
-        return results
+                yield record
 
     def _parse_subsystem(self, xml_file):
         """Дескриптор подсистемы единым движком → dict-контракт `_subsystem_record`.

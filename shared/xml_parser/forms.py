@@ -219,21 +219,23 @@ class FormsMixin:
         with self._accumulate('forms'):
             return self._parse_common_form(name, folder_name, uuid)
 
-    def _resolve_pending_forms(self, objects):
-        """Резолвит все ``Future`` в ``obj['forms']`` (см. ``_submit_forms``/``_submit_common_form``)
+    def _resolve_object_forms(self, obj):
+        """Дожидается ``Future`` в ``obj['forms']`` (см. ``_submit_forms``/``_submit_common_form``)
         и сливает собранные по пути ошибки в ``self.skipped_forms``/``self.skipped_form_modules``.
-        На объектах без пула ``obj['forms']`` уже обычный список — пропускаются без операций."""
+        Возвращает тот же объект. Без пула ``obj['forms']`` уже обычный список — no-op.
+
+        Резолв поштучный, а не батчем по всем объектам (`parser-streaming-pipeline`): объект
+        отдаётся потребителю сразу, как только его формы готовы, и дальше не удерживается."""
         import concurrent.futures
 
-        with self._accumulate('forms'):
-            for obj in objects:
-                forms = obj.get('forms')
-                if not isinstance(forms, concurrent.futures.Future):
-                    continue
+        forms = obj.get('forms')
+        if isinstance(forms, concurrent.futures.Future):
+            with self._accumulate('forms'):
                 forms_list, skipped_forms, skipped_form_modules = forms.result()
-                obj['forms'] = forms_list
-                self.skipped_forms.extend(skipped_forms)
-                self.skipped_form_modules.extend(skipped_form_modules)
+            obj['forms'] = forms_list
+            self.skipped_forms.extend(skipped_forms)
+            self.skipped_form_modules.extend(skipped_form_modules)
+        return obj
 
     def _parse_forms(self, obj_name, folder_name, default_forms=None):
         """Парсит формы объекта синхронно (без пула). default_forms: {'Element': name|None,

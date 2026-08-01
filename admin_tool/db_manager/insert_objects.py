@@ -4,257 +4,348 @@ import time
 from .bsl import _parse_module_procedures
 from shared.metadata_type_resolver import MetadataTypeResolver
 
+#: Виды объектов, которые после вставки нужны ещё раз — на этапе связей (подсистемы: Content и
+#: дочерние подсистемы; подписки: источники; ФО: Content). Только их и удерживаем до конца
+#: сборки; у всех остальных после вставки не остаётся ни одной ссылки. Тяжёлые поля
+#: (модули/формы/реквизиты) к этому моменту уже освобождены и у этих трёх видов тоже.
+RELATION_SOURCE_TYPES = ('Subsystem', 'EventSubscription', 'FunctionalOption')
+
+
+class _InsertState:
+    """Отложенное и накопленное за потоковый проход по объектам (см. `_insert_configuration`)."""
+
+    def __init__(self, source_db_name):
+        self.source_db_name = source_db_name
+        #: Слоты типов реквизитов/ТЧ/объектов — разрешаются после прохода, когда известны все id.
+        self.pending_type_slots = []
+        #: То же для слотов реквизитов форм (отдельный список: порядок строк
+        #: metadata_type_slots — сначала объектные слоты, потом формные, как и раньше).
+        self.pending_form_type_slots = []
+        #: fo_form_usage: (fo_ref, owner_object_id, form_id, element_type, element_name,
+        #: parent_element_name) — ссылку на ФО можно разрешить только когда вставлены все ФО.
+        self.pending_fo_usage = []
+        #: (object_type, name) -> id. Раньше строился SELECT-ом после первого прохода.
+        self.type_name_to_id = {}
+        #: uuid / имя / 'FunctionalOption.Имя' -> id функциональной опции.
+        self.fo_resolver = {}
+        #: Объекты видов RELATION_SOURCE_TYPES — нужны на этапе связей.
+        self.relation_objects = []
+
 
 class ObjectInsertionMixin:
-    """Phase 1 insertion: objects, modules, attributes, tabular sections, enums, BP route data."""
+    """Streaming insertion: objects with their forms, then relations and deferred resolution."""
 
-    def _insert_configuration(self, data, progress_callback=None):
-        """Вставляет данные конфигурации в БД. Два прохода: сначала все объекты и ФО, затем формы и fo_usage."""
+    def _insert_configuration(self, data, progress_callback=None, after_objects=None):
+        """Вставляет конфигурацию в БД одним потоковым проходом по объектам.
+
+        `data['objects']` — список **или генератор** (`ConfigurationParser.parse_streaming`).
+        Каждый объект вставляется целиком, вместе со своими формами, и тут же отпускается:
+        пик памяти перестаёт зависеть от размера конфигурации (`parser-streaming-pipeline`,
+        остаток P-4 из audit-2026-08). Прежде вставка шла двумя проходами по полностью
+        разобранному дереву — сначала все объекты, затем все формы.
+
+        Что мешало сделать так раньше и как обойдено: формам нужны справочники, полные только
+        после обхода **всех** объектов — id функциональных опций (`fo_form_usage`) и
+        (object_type, name) → id (слоты типов). Оба теперь копятся в памяти по ходу вставки
+        (раньше их брал SELECT после первого прохода), а то, что требует их полноты,
+        откладывается до конца: слоты типов (как и раньше) и `fo_form_usage`
+        (`pending_fo_usage`). Порядок строк в обеих таблицах сохраняется — отложенное
+        разрешение идёт по тому же списку, в котором формы вставлялись.
+
+        `after_objects` — callable без аргументов, вызывается сразу после обхода объектов:
+        сборка выводит им разбивку времени парсинга, которая при потоковом разборе известна
+        только когда поток вычерпан.
+        """
         cursor = self.conn.cursor()
         cursor.execute('PRAGMA synchronous=OFF')
         cursor.execute('PRAGMA cache_size=-256000')
         cursor.execute('PRAGMA temp_store=MEMORY')
-        total_objects = len(data['objects'])
-        pending_type_slots = []
-        source_db_name = data.get('name') or ''
 
-        t_phase1_start = time.perf_counter()
+        objects = data['objects']
+        expected_total = data.get('expected_object_count')
+        if expected_total is None:
+            expected_total = len(objects) if isinstance(objects, (list, tuple)) else 0
+        state = _InsertState(data.get('name') or '')
 
-        # Проход 1: объекты без форм (чтобы ФО были в БД до вставки fo_form_usage и fo_content_ref)
-        for idx, obj in enumerate(data['objects']):
-            cursor.execute('''
-                INSERT INTO metadata_objects (
-                    uuid, object_type, name, synonym, comment,
-                    object_belonging, extended_configuration_object, object_kind
+        t_objects_start = time.perf_counter()
+
+        total_objects = 0
+        for idx, obj in enumerate(objects):
+            total_objects = idx + 1
+            self._insert_object(cursor, obj, state)
+
+            if progress_callback and idx % 10 == 0:
+                progress = 20 + int((idx / expected_total) * 70) if expected_total else 20
+                progress_callback(
+                    min(progress, 90), 100,
+                    f"Объекты и формы {idx + 1}/{expected_total or '?'}", replace_last=True,
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'ConfigObject')
+
+        if progress_callback:
+            progress_callback(
+                90, 100,
+                f"Объекты и формы ({total_objects}) — {time.perf_counter() - t_objects_start:.1f} c",
+            )
+
+        if after_objects is not None:
+            after_objects()
+
+        self._finalize_configuration(cursor, state, data, progress_callback)
+
+    def _insert_object(self, cursor, obj, state):
+        """Вставляет один объект целиком: сам объект, его модули/реквизиты/секции/команды и формы.
+
+        Всё, что уже записано, тут же освобождается (`obj[...] = None`) — для потокового входа
+        это лишь ускоряет освобождение, для списочного (dev-скрипты) остаётся единственным
+        способом не держать всё дерево до конца сборки."""
+        pending_type_slots = state.pending_type_slots
+
+        cursor.execute('''
+            INSERT INTO metadata_objects (
+                uuid, object_type, name, synonym, comment,
+                object_belonging, extended_configuration_object, object_kind
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'ConfigObject')
+        ''', (
+            obj['uuid'],
+            obj['type'],
+            obj['name'],
+            obj['properties'].get('synonym', ''),
+            obj['properties'].get('comment', ''),
+            obj['properties'].get('object_belonging'),
+            obj['properties'].get('extended_configuration_object')
+        ))
+        object_id = cursor.lastrowid
+
+        # Справочник (object_type, name) -> id: раньше SELECT после первого прохода, теперь
+        # копится здесь. Дубли имён внутри вида перетирают друг друга в том же порядке, что и
+        # при чтении строк по возрастанию id, — карта получается та же.
+        state.type_name_to_id[(obj['type'], obj['name'])] = object_id
+
+        if obj['type'] == 'FunctionalOption':
+            loc = obj['properties'].get('location')
+            priv = obj['properties'].get('privileged_get_mode')
+            cursor.execute('''
+                INSERT INTO functional_options (object_id, location_constant, privileged_get_mode)
+                VALUES (?, ?, ?)
+            ''', (object_id, loc, 1 if priv else 0))
+            uuid_val = obj['uuid'] or ''
+            state.fo_resolver[uuid_val] = object_id
+            state.fo_resolver[obj['name']] = object_id
+            state.fo_resolver['FunctionalOption.' + obj['name']] = object_id
+
+        if obj['type'] == 'EventSubscription':
+            p = obj['properties']
+            handler = (p.get('handler') or '').strip()
+            # Handler — всегда CommonModule.<Модуль>.<Процедура> (проверено на корпусе:
+            # 1110 подписок, других префиксов нет). Разбираем заранее, чтобы не парсить
+            # строку в каждом запросе — по handler_module идёт пометка процедур.
+            parts = handler.split('.')
+            handler_module = parts[1] if len(parts) == 3 and parts[0] == 'CommonModule' else None
+            handler_procedure = parts[2] if len(parts) == 3 and parts[0] == 'CommonModule' else None
+            kind_wide = [
+                s['raw'] for s in (p.get('sources') or [])
+                if s.get('is_type_set') and '.' not in s.get('raw', '')
+            ]
+            cursor.execute('''
+                INSERT INTO event_subscriptions (
+                    object_id, event, handler, handler_module, handler_procedure, source_kinds
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', (
-                obj['uuid'],
-                obj['type'],
-                obj['name'],
-                obj['properties'].get('synonym', ''),
-                obj['properties'].get('comment', ''),
-                obj['properties'].get('object_belonging'),
-                obj['properties'].get('extended_configuration_object')
+                object_id,
+                p.get('event'),
+                handler or None,
+                handler_module,
+                handler_procedure,
+                ', '.join(kind_wide) or None,
             ))
-            object_id = cursor.lastrowid
 
-            if obj['type'] == 'FunctionalOption':
-                loc = obj['properties'].get('location')
-                priv = obj['properties'].get('privileged_get_mode')
-                cursor.execute('''
-                    INSERT INTO functional_options (object_id, location_constant, privileged_get_mode)
-                    VALUES (?, ?, ?)
-                ''', (object_id, loc, 1 if priv else 0))
+        if obj['type'] == 'ScheduledJob':
+            p = obj['properties']
+            use_val = p.get('use')
+            predefined_val = p.get('predefined')
+            cursor.execute('''
+                INSERT INTO scheduled_jobs (
+                    object_id, method_name, description, key, use, predefined,
+                    restart_count_on_failure, restart_interval_on_failure
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                object_id,
+                p.get('method_name'),
+                p.get('description'),
+                p.get('key'),
+                1 if use_val else 0 if use_val is not None else None,
+                1 if predefined_val else 0 if predefined_val is not None else None,
+                p.get('restart_count_on_failure'),
+                p.get('restart_interval_on_failure'),
+            ))
 
-            if obj['type'] == 'EventSubscription':
-                p = obj['properties']
-                handler = (p.get('handler') or '').strip()
-                # Handler — всегда CommonModule.<Модуль>.<Процедура> (проверено на корпусе:
-                # 1110 подписок, других префиксов нет). Разбираем заранее, чтобы не парсить
-                # строку в каждом запросе — по handler_module идёт пометка процедур.
-                parts = handler.split('.')
-                handler_module = parts[1] if len(parts) == 3 and parts[0] == 'CommonModule' else None
-                handler_procedure = parts[2] if len(parts) == 3 and parts[0] == 'CommonModule' else None
-                kind_wide = [
-                    s['raw'] for s in (p.get('sources') or [])
-                    if s.get('is_type_set') and '.' not in s.get('raw', '')
-                ]
+        if obj['type'] == 'Role':
+            self._insert_role_data(cursor, object_id, obj, state.source_db_name)
+            obj['role_grants'] = None
+            obj['role_access_restrictions'] = None
+            obj['role_restriction_templates'] = None
+
+        # Тип, объявленный на самом объекте: состав DefinedType и тип значения Constant.
+        if obj['type'] in ('DefinedType', 'Constant'):
+            type_slots = obj.get('type_slots') or []
+            if type_slots:
+                pending_type_slots.append({
+                    'source_table': 'metadata_objects',
+                    'source_row_id': object_id,
+                    'src_object_id': object_id,
+                    'type_slots': type_slots,
+                })
+
+        for module in obj['modules']:
+            cursor.execute('''
+                INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                VALUES (?, NULL, NULL, ?, ?)
+            ''', (object_id, module['type'], module['code']))
+            module_id = cursor.lastrowid
+            cursor.execute('''
+                INSERT INTO code_search (rowid, code)
+                VALUES (?, ?)
+            ''', (module_id, module['code']))
+            procs = _parse_module_procedures(module['code'])
+            if procs:
+                cursor.executemany('''
+                    INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
+                       p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
+        # P-4 (audit-2026-08): module code is the single biggest chunk of a parsed object
+        # (904 MB across modules on the ERP corpus) — drop it the moment it's inserted.
+        obj['modules'] = None
+
+        # Срез 1 (dcs-schema-indexing): текст запроса набора СКД -> code_search (FTS).
+        # code_search — внешнее содержимое над modules, поэтому кладём запрос строкой
+        # modules с module_type='DcsQuery' (владелец — объект шаблона). Схемы без
+        # <query> (правила отбора каталогов) не дают строки — деградация без ошибки.
+        self._insert_dcs_schemas(cursor, object_id, obj)
+        self._insert_spreadsheet_templates(cursor, object_id, obj)
+
+        # Команды объекта (не CommonCommand) + модули CommandModule
+        if obj['type'] != 'CommonCommand':
+            for cmd in obj.get('commands', []):
                 cursor.execute('''
-                    INSERT INTO event_subscriptions (
-                        object_id, event, handler, handler_module, handler_procedure, source_kinds
+                    INSERT INTO object_commands (
+                        object_id, name, synonym, uuid, object_belonging, extended_configuration_object
                     )
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     object_id,
-                    p.get('event'),
-                    handler or None,
-                    handler_module,
-                    handler_procedure,
-                    ', '.join(kind_wide) or None,
+                    cmd['name'],
+                    cmd.get('synonym') or '',
+                    cmd.get('uuid') or '',
+                    cmd.get('object_belonging'),
+                    cmd.get('extended_configuration_object'),
                 ))
-
-            if obj['type'] == 'ScheduledJob':
-                p = obj['properties']
-                use_val = p.get('use')
-                predefined_val = p.get('predefined')
-                cursor.execute('''
-                    INSERT INTO scheduled_jobs (
-                        object_id, method_name, description, key, use, predefined,
-                        restart_count_on_failure, restart_interval_on_failure
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    object_id,
-                    p.get('method_name'),
-                    p.get('description'),
-                    p.get('key'),
-                    1 if use_val else 0 if use_val is not None else None,
-                    1 if predefined_val else 0 if predefined_val is not None else None,
-                    p.get('restart_count_on_failure'),
-                    p.get('restart_interval_on_failure'),
-                ))
-
-            if obj['type'] == 'Role':
-                self._insert_role_data(cursor, object_id, obj, source_db_name)
-
-            # Тип, объявленный на самом объекте: состав DefinedType и тип значения Constant.
-            if obj['type'] in ('DefinedType', 'Constant'):
-                type_slots = obj.get('type_slots') or []
-                if type_slots:
-                    pending_type_slots.append({
-                        'source_table': 'metadata_objects',
-                        'source_row_id': object_id,
-                        'src_object_id': object_id,
-                        'type_slots': type_slots,
-                    })
-
-            for module in obj['modules']:
-                cursor.execute('''
-                    INSERT INTO modules (object_id, form_id, command_id, module_type, code)
-                    VALUES (?, NULL, NULL, ?, ?)
-                ''', (object_id, module['type'], module['code']))
-                module_id = cursor.lastrowid
-                cursor.execute('''
-                    INSERT INTO code_search (rowid, code)
-                    VALUES (?, ?)
-                ''', (module_id, module['code']))
-                procs = _parse_module_procedures(module['code'])
-                if procs:
-                    cursor.executemany('''
-                        INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
-                           p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
-            # P-4 (audit-2026-08): module code is the single biggest chunk of a parsed object
-            # (904 MB across modules on the ERP corpus) — drop it the moment it's inserted
-            # instead of keeping the whole tree (data['objects']) alive until insert finishes.
-            obj['modules'] = None
-
-            # Срез 1 (dcs-schema-indexing): текст запроса набора СКД -> code_search (FTS).
-            # code_search — внешнее содержимое над modules, поэтому кладём запрос строкой
-            # modules с module_type='DcsQuery' (владелец — объект шаблона). Схемы без
-            # <query> (правила отбора каталогов) не дают строки — деградация без ошибки.
-            self._insert_dcs_schemas(cursor, object_id, obj)
-            self._insert_spreadsheet_templates(cursor, object_id, obj)
-
-            # Команды объекта (не CommonCommand) + модули CommandModule
-            if obj['type'] != 'CommonCommand':
-                for cmd in obj.get('commands', []):
+                command_id = cursor.lastrowid
+                module_code = cmd.get('module_code')
+                if module_code:
                     cursor.execute('''
-                        INSERT INTO object_commands (
-                            object_id, name, synonym, uuid, object_belonging, extended_configuration_object
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (
-                        object_id,
-                        cmd['name'],
-                        cmd.get('synonym') or '',
-                        cmd.get('uuid') or '',
-                        cmd.get('object_belonging'),
-                        cmd.get('extended_configuration_object'),
-                    ))
-                    command_id = cursor.lastrowid
-                    module_code = cmd.get('module_code')
-                    if module_code:
-                        cursor.execute('''
-                            INSERT INTO modules (object_id, form_id, command_id, module_type, code)
-                            VALUES (?, NULL, ?, 'CommandModule', ?)
-                        ''', (object_id, command_id, module_code))
-                        module_id = cursor.lastrowid
-                        cursor.execute('''
-                            INSERT INTO code_search (rowid, code)
-                            VALUES (?, ?)
-                        ''', (module_id, module_code))
-                        procs = _parse_module_procedures(module_code)
-                        if procs:
-                            cursor.executemany('''
-                                INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
-                                   p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
+                        INSERT INTO modules (object_id, form_id, command_id, module_type, code)
+                        VALUES (?, NULL, ?, 'CommandModule', ?)
+                    ''', (object_id, command_id, module_code))
+                    module_id = cursor.lastrowid
+                    cursor.execute('''
+                        INSERT INTO code_search (rowid, code)
+                        VALUES (?, ?)
+                    ''', (module_id, module_code))
+                    procs = _parse_module_procedures(module_code)
+                    if procs:
+                        cursor.executemany('''
+                            INSERT INTO module_procedures (module_id, name, proc_type, start_line, end_line, params, is_export, execution_context, extension_call_type, comment)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
+                               p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
 
-            for attr in obj['properties'].get('standard_attributes', []):
-                self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
-            for attr in obj['properties'].get('custom_attributes', []):
-                self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
-            if obj['type'] not in ('ScheduledJob', 'Subsystem', 'DefinedType'):
-                for dim in obj.get('dimensions', []):
-                    self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
-                for res in obj.get('resources', []):
-                    self._insert_attribute(cursor, object_id, res, section='Resource', pending_type_slots=pending_type_slots)
-                for attr in obj.get('attributes', []):
-                    self._insert_attribute(cursor, object_id, attr, section='Attribute', pending_type_slots=pending_type_slots)
-                for ts in obj.get('tabular_sections', []):
-                    self._insert_tabular_section(cursor, object_id, ts, pending_type_slots=pending_type_slots)
-                enum_values = obj.get('enum_values', [])
-                if enum_values:
-                    self._insert_enum_values(cursor, object_id, enum_values)
-                if obj['type'] == 'BusinessProcess':
-                    self._insert_bp_route_data(
-                        cursor, object_id,
-                        obj.get('route_points', []),
-                        obj.get('route_transitions', []),
-                    )
-                    obj['route_points'] = None
-                    obj['route_transitions'] = None
-                obj['tabular_sections'] = None
-                obj['dimensions'] = None
-                obj['resources'] = None
-                obj['attributes'] = None
-                obj['enum_values'] = None
-            # P-4: everything below this line is only ever read once, right above — release
-            # it now rather than holding it until phase 2 (forms) or the end of insertion.
-            obj['commands'] = None
-            obj['dcs_schemas'] = None
-            obj['spreadsheet_templates'] = None
-            if 'type_slots' in obj:
-                obj['type_slots'] = None
+        for attr in obj['properties'].get('standard_attributes', []):
+            self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
+        for attr in obj['properties'].get('custom_attributes', []):
+            self._insert_attribute(cursor, object_id, attr, pending_type_slots=pending_type_slots)
+        if obj['type'] not in ('ScheduledJob', 'Subsystem', 'DefinedType'):
+            for dim in obj.get('dimensions', []):
+                self._insert_attribute(cursor, object_id, dim, section='Dimension', pending_type_slots=pending_type_slots)
+            for res in obj.get('resources', []):
+                self._insert_attribute(cursor, object_id, res, section='Resource', pending_type_slots=pending_type_slots)
+            for attr in obj.get('attributes', []):
+                self._insert_attribute(cursor, object_id, attr, section='Attribute', pending_type_slots=pending_type_slots)
+            for ts in obj.get('tabular_sections', []):
+                self._insert_tabular_section(cursor, object_id, ts, pending_type_slots=pending_type_slots)
+            enum_values = obj.get('enum_values', [])
+            if enum_values:
+                self._insert_enum_values(cursor, object_id, enum_values)
+            if obj['type'] == 'BusinessProcess':
+                self._insert_bp_route_data(
+                    cursor, object_id,
+                    obj.get('route_points', []),
+                    obj.get('route_transitions', []),
+                )
+                obj['route_points'] = None
+                obj['route_transitions'] = None
+            obj['tabular_sections'] = None
+            obj['dimensions'] = None
+            obj['resources'] = None
+            obj['attributes'] = None
+            obj['enum_values'] = None
+        obj['commands'] = None
+        obj['dcs_schemas'] = None
+        obj['spreadsheet_templates'] = None
+        if 'type_slots' in obj:
+            obj['type_slots'] = None
 
-            if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
-                progress = 20 + int((idx / total_objects) * 40)
-                progress_callback(progress, 100, f"Объекты {idx + 1}/{total_objects}", replace_last=True)
+        # Формы того же объекта — сразу здесь, а не вторым проходом: id объекта уже известен
+        # (раньше его искали SELECT-ом по имени и виду), ссылки на ФО и слоты типов отложены.
+        for form in obj.get('forms') or []:
+            self._insert_form(
+                cursor, object_id, form,
+                pending_type_slots=state.pending_form_type_slots,
+                pending_fo_usage=state.pending_fo_usage,
+            )
+        # P-4 (audit-2026-08): form item/attribute/command trees are the second-biggest chunk
+        # of a parsed object (349k form_items + 137k form_attributes + 61k form_commands +
+        # 1.9M form_entity_properties rows on the ERP corpus) — release once inserted.
+        obj['forms'] = None
 
-        if progress_callback:
-            progress_callback(60, 100, f"Объекты ({total_objects}) — {time.perf_counter() - t_phase1_start:.1f} c")
+        if obj['type'] in RELATION_SOURCE_TYPES:
+            state.relation_objects.append(obj)
 
+    def _finalize_configuration(self, cursor, state, data, progress_callback=None):
+        """Хвост сборки: связи и всё отложенное, чему нужны полные справочники объектов."""
         t_relations_start = time.perf_counter()
 
-        # Справочник ФО для разрешения UUID / "FunctionalOption.Имя" -> id
-        cursor.execute('SELECT id, name, uuid FROM metadata_objects WHERE object_type = ?', ('FunctionalOption',))
-        fo_resolver = {}
-        for row in cursor.fetchall():
-            fid, name, uuid_val = row[0], row[1], row[2] or ''
-            fo_resolver[uuid_val] = fid
-            fo_resolver[name] = fid
-            fo_resolver['FunctionalOption.' + name] = fid
-
-        # Справочник (object_type, name) -> id для разрешения Content и типов
-        cursor.execute('''
-            SELECT id, object_type, name FROM metadata_objects
-            WHERE object_kind = 'ConfigObject'
-        ''')
-        type_name_to_id = {}
-        for row in cursor.fetchall():
-            type_name_to_id[(row['object_type'], row['name'])] = row['id']
-
+        type_name_to_id = state.type_name_to_id
         type_resolver = MetadataTypeResolver()
-        if pending_type_slots:
-            type_resolver.insert_slots(cursor, pending_type_slots, type_name_to_id)
+        if state.pending_type_slots:
+            type_resolver.insert_slots(cursor, state.pending_type_slots, type_name_to_id)
+            state.pending_type_slots = []
 
-        self._link_subsystem_relations(cursor, data['objects'], type_name_to_id)
-        self._link_event_subscription_relations(cursor, data['objects'], type_name_to_id)
+        # fo_form_usage: ссылки на ФО, накопленные при вставке форм (порядок сохранён).
+        for (fo_ref, owner_object_id, form_id, element_type,
+             element_name, parent_element_name) in state.pending_fo_usage:
+            fo_id = self._resolve_fo_id(fo_ref, state.fo_resolver)
+            if fo_id is not None:
+                self._insert_fo_form_usage(
+                    cursor, fo_id, owner_object_id, form_id,
+                    element_type, element_name, parent_element_name,
+                )
+        state.pending_fo_usage = []
+
+        self._link_subsystem_relations(cursor, state.relation_objects, type_name_to_id)
+        self._link_event_subscription_relations(cursor, state.relation_objects, type_name_to_id)
 
         # Заполняем fo_content_ref из Content каждой ФО
-        for obj in data['objects']:
+        for obj in state.relation_objects:
             if obj['type'] != 'FunctionalOption':
                 continue
             content_refs = obj['properties'].get('content_refs') or []
-            cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
-            fo_row = cursor.fetchone()
-            if not fo_row:
+            fo_id = type_name_to_id.get(('FunctionalOption', obj['name']))
+            if fo_id is None:
                 continue
-            fo_id = fo_row['id']
             for ref_str in content_refs:
                 parsed = self._parse_content_ref(ref_str)
                 if not parsed:
@@ -271,39 +362,16 @@ class ObjectInsertionMixin:
         self._link_scheduled_job_procedures(cursor)
         self._link_event_subscription_procedures(cursor)
 
-        if progress_callback:
-            progress_callback(65, 100, f"Связи (типы, подсистемы, ФО, регл. задания, подписки) — {time.perf_counter() - t_relations_start:.1f} c")
-
-        t_phase2_start = time.perf_counter()
-
-        # Проход 2: формы и fo_form_usage
-        pending_form_type_slots = []
-        for idx, obj in enumerate(data['objects']):
-            cursor.execute('SELECT id FROM metadata_objects WHERE name = ? AND object_type = ?', (obj['name'], obj['type']))
-            row = cursor.fetchone()
-            if not row:
-                continue
-            object_id = row[0]
-            for form in obj.get('forms', []):
-                self._insert_form(
-                    cursor, object_id, form, fo_resolver,
-                    pending_type_slots=pending_form_type_slots,
-                )
-            # P-4 (audit-2026-08): form item/attribute/command trees are the second-biggest
-            # chunk of a parsed object (349k form_items + 137k form_attributes + 61k
-            # form_commands + 1.9M form_entity_properties rows on the ERP corpus) — release
-            # once inserted instead of holding the whole tree alive for the rest of the build.
-            obj['forms'] = None
-
-            if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
-                progress = 60 + int((idx / total_objects) * 40)
-                progress_callback(progress, 100, f"Формы {idx + 1}/{total_objects}", replace_last=True)
+        if state.pending_form_type_slots:
+            type_resolver.insert_slots(cursor, state.pending_form_type_slots, type_name_to_id)
+            state.pending_form_type_slots = []
 
         if progress_callback:
-            progress_callback(95, 100, f"Формы — {time.perf_counter() - t_phase2_start:.1f} c")
-
-        if pending_form_type_slots:
-            type_resolver.insert_slots(cursor, pending_form_type_slots, type_name_to_id)
+            progress_callback(
+                95, 100,
+                f"Связи (типы, подсистемы, ФО, регл. задания, подписки) — "
+                f"{time.perf_counter() - t_relations_start:.1f} c",
+            )
 
         self._insert_index_metadata(cursor, data)
 

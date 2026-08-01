@@ -77,54 +77,66 @@ class RolesMixin:
 
     def _parse_roles(self):
         """Parse all roles from Roles/ directory."""
+        return list(self._iter_roles())
+
+    def _iter_roles(self):
+        """Роли по одной (`parser-streaming-pipeline`): у крупной конфигурации это ~3000 ролей
+        и сотни тысяч грантов — держать их все в памяти незачем, потребитель вставляет и
+        отпускает каждую. Время копится по одной роли, чтобы в `stage_seconds['roles']` не
+        попало время потребителя (генератор исполняется между его итерациями)."""
         roles_root = self.root_dir / 'Roles'
         if not roles_root.is_dir():
-            return []
+            return
 
-        results = []
         for xml_file in sorted(roles_root.glob('*.xml')):
             if 'Ext' in xml_file.parts:
                 continue
-            try:
-                root = ET.parse(_winlong(xml_file)).getroot()
-            except (ET.ParseError, OSError):
-                continue
+            with self._accumulate('roles'):
+                entry = self._parse_role_file(xml_file, roles_root)
+            if entry is not None:
+                yield entry
 
-            if self._get_object_element(root, 'Role', MD_NS) is None:
-                continue
+    def _parse_role_file(self, xml_file, roles_root):
+        """Одна роль: дескриптор `Roles/<Имя>.xml` + права `Roles/<Имя>/Ext/Rights.xml`.
+        None — файл не читается или это не Role (skip-on-error, как формы/СКД)."""
+        try:
+            root = ET.parse(_winlong(xml_file)).getroot()
+        except (ET.ParseError, OSError):
+            return None
 
-            role_name = xml_file.stem
-            properties = self._parse_properties(root, 'Role')
-            obj_elem = self._get_object_element(root, 'Role', MD_NS)
-            uuid = obj_elem.get('uuid', '') if obj_elem is not None else ''
+        obj_elem = self._get_object_element(root, 'Role', MD_NS)
+        if obj_elem is None:
+            return None
 
-            rights_path = roles_root / role_name / 'Ext' / 'Rights.xml'
-            rights_data = parse_rights_xml(rights_path)
+        role_name = xml_file.stem
+        properties = self._parse_properties(root, 'Role')
+        uuid = obj_elem.get('uuid', '')
 
-            entry = {
-                'name': role_name,
-                'type': 'Role',
-                'uuid': uuid,
-                'properties': properties,
-                'modules': [],
-                'forms': [],
-                'tabular_sections': [],
-                'dimensions': [],
-                'resources': [],
-                'enum_values': [],
-                'commands': [],
-                'role_settings': None,
-                'role_grants': [],
-                'role_access_restrictions': [],
-                'role_restriction_templates': [],
-            }
+        rights_path = roles_root / role_name / 'Ext' / 'Rights.xml'
+        rights_data = parse_rights_xml(rights_path)
 
-            if rights_data:
-                entry['role_settings'] = rights_data['role_settings']
-                entry['role_grants'] = rights_data['role_grants']
-                entry['role_access_restrictions'] = rights_data['role_access_restrictions']
-                entry['role_restriction_templates'] = rights_data['role_restriction_templates']
+        entry = {
+            'name': role_name,
+            'type': 'Role',
+            'uuid': uuid,
+            'properties': properties,
+            'modules': [],
+            'forms': [],
+            'tabular_sections': [],
+            'dimensions': [],
+            'resources': [],
+            'enum_values': [],
+            'commands': [],
+            'role_settings': None,
+            'role_grants': [],
+            'role_access_restrictions': [],
+            'role_restriction_templates': [],
+        }
 
-            results.append(entry)
+        if rights_data:
+            entry['role_settings'] = rights_data['role_settings']
+            entry['role_grants'] = rights_data['role_grants']
+            entry['role_access_restrictions'] = rights_data['role_access_restrictions']
+            entry['role_restriction_templates'] = rights_data['role_restriction_templates']
 
-        return results
+        return entry

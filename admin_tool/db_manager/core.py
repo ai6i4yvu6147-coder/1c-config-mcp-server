@@ -1,5 +1,6 @@
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 from shared.xml_parser import ConfigurationParser
@@ -115,40 +116,54 @@ class DatabaseManagerCore:
         """
         t_start = time.perf_counter()
 
-        # Парсим конфигурацию
+        # Разбор идёт потоком, одновременно со вставкой (`parser-streaming-pipeline`): объект
+        # разбирается, вставляется и отпускается, поэтому пик памяти не зависит от размера
+        # конфигурации. Разбивка времени парсинга известна только когда поток вычерпан —
+        # выводится по окончании обхода объектов, колбэком after_objects.
         if progress_callback:
             progress_callback(0, 100, "Парсинг Configuration.xml...")
 
         t0 = time.perf_counter()
         parser = ConfigurationParser(config_xml_path)
-        data = parser.parse()
-
-        # Создаем структуру БД
-        if progress_callback:
-            progress_callback(10, 100, f"XML parse — {time.perf_counter() - t0:.1f} c — создание структуры БД...")
-            for stage_name, seconds in sorted(parser.stage_seconds.items(), key=lambda kv: -kv[1]):
-                label = _STAGE_LABELS.get(stage_name, stage_name)
-                progress_callback(10, 100, f"    - {label}: {seconds:.1f} c")
-            if parser.skipped_forms:
-                progress_callback(
-                    10, 100,
-                    f"    ⚠ Пропущено форм при парсинге (ошибки): {len(parser.skipped_forms)} — см. лог выше",
-                )
-            if parser.skipped_form_modules:
-                progress_callback(
-                    10, 100,
-                    f"    ⚠ Пропущено модулей форм при парсинге (ошибки): "
-                    f"{len(parser.skipped_form_modules)} — см. лог выше",
-                )
+        header, objects = parser.parse_streaming()
+        t_parse_open = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         self._create_schema()
 
-        # Заполняем данными
         if progress_callback:
-            progress_callback(20, 100, f"Структура БД — {time.perf_counter() - t0:.1f} c — загрузка объектов...")
+            progress_callback(
+                20, 100,
+                f"Структура БД — {time.perf_counter() - t0:.1f} c "
+                f"(корень выгрузки — {t_parse_open:.1f} c) — разбор и загрузка объектов...",
+            )
 
-        self._insert_configuration(data, progress_callback)
+        def report_parse_stages():
+            if not progress_callback:
+                return
+            total_parse = sum(parser.stage_seconds.values())
+            progress_callback(90, 100, f"    Из них разбор XML — {total_parse:.1f} c:")
+            for stage_name, seconds in sorted(parser.stage_seconds.items(), key=lambda kv: -kv[1]):
+                label = _STAGE_LABELS.get(stage_name, stage_name)
+                progress_callback(90, 100, f"    - {label}: {seconds:.1f} c")
+            if parser.skipped_forms:
+                progress_callback(
+                    90, 100,
+                    f"    ⚠ Пропущено форм при парсинге (ошибки): {len(parser.skipped_forms)} — см. лог выше",
+                )
+            if parser.skipped_form_modules:
+                progress_callback(
+                    90, 100,
+                    f"    ⚠ Пропущено модулей форм при парсинге (ошибки): "
+                    f"{len(parser.skipped_form_modules)} — см. лог выше",
+                )
+
+        data = dict(header)
+        data['objects'] = objects
+        # closing(): если вставка упадёт посреди потока, генератор закроется и пул форм
+        # завершится в его finally, а не когда до него доберётся сборщик мусора.
+        with closing(objects):
+            self._insert_configuration(data, progress_callback, after_objects=report_parse_stages)
 
         cursor = self.conn.cursor()
         cursor.execute(f'PRAGMA user_version = {INDEXER_VERSION}')

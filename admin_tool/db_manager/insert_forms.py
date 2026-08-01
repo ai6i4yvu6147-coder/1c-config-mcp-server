@@ -71,8 +71,28 @@ class FormInsertionMixin:
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (fo_id, owner_object_id, form_id, element_type, element_name, parent_element_name))
 
-    def _insert_form(self, cursor, object_id, form, fo_resolver=None, pending_type_slots=None):
-        """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id) для fo_form_usage."""
+    def _record_fo_form_usage(self, cursor, fo_ref, fo_resolver, pending_fo_usage,
+                              owner_object_id, form_id, element_type, element_name,
+                              parent_element_name=None):
+        """Использование ФО на элементе формы: сразу строкой в fo_form_usage или, при потоковой
+        вставке (`pending_fo_usage is not None`), в отложенный список — id функциональной опции
+        известен только когда вставлены все объекты. См. `_insert_configuration`."""
+        if pending_fo_usage is not None:
+            pending_fo_usage.append(
+                (fo_ref, owner_object_id, form_id, element_type, element_name, parent_element_name)
+            )
+            return
+        fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
+        if fo_id is not None:
+            self._insert_fo_form_usage(
+                cursor, fo_id, owner_object_id, form_id,
+                element_type, element_name, parent_element_name,
+            )
+
+    def _insert_form(self, cursor, object_id, form, fo_resolver=None, pending_type_slots=None,
+                     pending_fo_usage=None):
+        """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id)
+        для fo_form_usage; pending_fo_usage — отложенное разрешение вместо fo_resolver."""
         fo_resolver = fo_resolver or {}
         cursor.execute('''
             INSERT INTO forms (object_id, form_name, form_kind, uuid, properties_json)
@@ -131,18 +151,15 @@ class FormInsertionMixin:
                             'type_slots': col_slots,
                         })
                 for fo_ref in col.get('functional_options', []):
-                    fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
-                    if fo_id is not None:
-                        self._insert_fo_form_usage(
-                            cursor, fo_id, object_id, form_id,
-                            'FormAttributeColumn', col['name'], parent_element_name=attr['name'],
-                        )
-            for fo_ref in attr.get('functional_options', []):
-                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
-                if fo_id is not None:
-                    self._insert_fo_form_usage(
-                        cursor, fo_id, object_id, form_id, 'FormAttribute', attr['name'],
+                    self._record_fo_form_usage(
+                        cursor, fo_ref, fo_resolver, pending_fo_usage, object_id, form_id,
+                        'FormAttributeColumn', col['name'], parent_element_name=attr['name'],
                     )
+            for fo_ref in attr.get('functional_options', []):
+                self._record_fo_form_usage(
+                    cursor, fo_ref, fo_resolver, pending_fo_usage, object_id, form_id,
+                    'FormAttribute', attr['name'],
+                )
 
         for cmd in form.get('commands', []):
             cursor.execute('''
@@ -159,11 +176,10 @@ class FormInsertionMixin:
                 cmd.get('representation')
             ))
             for fo_ref in cmd.get('functional_options', []):
-                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
-                if fo_id is not None:
-                    self._insert_fo_form_usage(
-                        cursor, fo_id, object_id, form_id, 'FormCommand', cmd['name'],
-                    )
+                self._record_fo_form_usage(
+                    cursor, fo_ref, fo_resolver, pending_fo_usage, object_id, form_id,
+                    'FormCommand', cmd['name'],
+                )
 
         # Вставляем события формы
         for event in form.get('events', []):
@@ -199,11 +215,10 @@ class FormInsertionMixin:
             item_id_map[item['id']] = item_db_id
             _insert_entity_properties(cursor, 'item', item_db_id, item.get('entity_properties'))
             for fo_ref in item.get('functional_options', []):
-                fo_id = self._resolve_fo_id(fo_ref, fo_resolver)
-                if fo_id is not None:
-                    self._insert_fo_form_usage(
-                        cursor, fo_id, object_id, form_id, 'FormItem', item['name'],
-                    )
+                self._record_fo_form_usage(
+                    cursor, fo_ref, fo_resolver, pending_fo_usage, object_id, form_id,
+                    'FormItem', item['name'],
+                )
 
             for event in item.get('events', []):
                 cursor.execute('''

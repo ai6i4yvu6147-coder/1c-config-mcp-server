@@ -37,14 +37,14 @@ Details: [`admin-hub-integration.md`](admin-hub-integration.md).
 ### Main components
 
 - **1C export parser**: `shared/xml_parser/` (package: `core.py` dispatch, `forms.py`, `sections.py`, `flowchart.py`, `modules.py`, `types.py`, `roles.py`, `external_processor.py`, `xml_helpers.py` — mixins composed into `ConfigurationParser`)
-  - Input: path to `Configuration.xml` (configuration/extension), or to an external data processor `<Name>.xml` (root `MetaDataObject/ExternalDataProcessor`). `core.py parse()` dispatches on the root kind.
-  - Output: `data` structure (configuration, object list, properties/forms/modules).
+  - Input: path to `Configuration.xml` (configuration/extension), or to an external data processor `<Name>.xml` (root `MetaDataObject/ExternalDataProcessor`). `core.py parse_streaming()` dispatches on the root kind.
+  - Output: `(header, generator)` — the build consumes objects one at a time and releases each after insertion, so peak memory does not scale with configuration size (`parser-streaming-pipeline`; see [`performance.md`](performance.md)). `parse()` is the same stream collected into a list — for tests and one-off parses, not for the build.
   - Important: metadata type handling is limited to the `object_types` whitelist.
   - **External data processor / report (project-root kinds, Variant B):** `external_processor.py` reads the descriptor through the shared `1c-metadata-schema` library (`onec_metadata_schema.parse()` → generic `Node`) and adapts it to the same dict a `DataProcessor` / `Report` produces; modules/forms/commands reuse the existing file-walk methods; insert pipeline unchanged. Not whitelist entries ([`metadata-whitelist.md`](metadata-whitelist.md)); db_type `processor`/`report`. External report **DCS/templates are not indexed** (parity with embedded `Report`; separate epic).
   - **Single-engine migration (embedded whitelist types):** `core.py`'s `_parse_object` forks on `LIBRARY_MIGRATED_TYPES` — object types with requisites (`Catalog`, `Document`, `Enum`, registers, charts, `ExchangePlan`, `BusinessProcess`, `Task`, `DataProcessor`, `Report`) read their descriptor via the library (`_parse_object_via_library`: uuid/properties/attributes/tabular sections/register sections/enum values/type slots from the `Node`), the rest via legacy `_parse_object_legacy`. Modules/forms/commands/DCS/flowchart stay on the shared file-walk in both paths; insert pipeline unchanged. Proven parity old↔new by A/B on real exports (docs/library-migration.md, track `library-engine-migration` in [`todo.md`](todo.md)). Still legacy: property-only types (`CommonModule`/`CommonCommand`/`CommonForm`/`ScheduledJob`/`FunctionalOption`/`DefinedType`), `Subsystem`; forms/roles/BSL are separate epics.
 
 - **SQLite DB builder**: `admin_tool/db_manager/` (package: `core.py`, `schema.py`, `insert_objects.py`, `insert_forms.py`, `relations.py`, `file_ops.py`, `bsl.py` — mixins composed into `DatabaseManager`)
-  - Creates table schema and loads data.
+  - Creates table schema, then streams objects in from the parser: each object is inserted together with its forms and released. Anything needing the *complete* object catalogue (type slots, `fo_form_usage`) is deferred to the end of the pass in `_InsertState` — see [`performance.md`](performance.md).
   - Indexes module code in FTS5 (`code_search`) and procedures/functions (`module_procedures`).
   - Important: no migrations — only DB recreation on changes (see `docs/database.md`).
 
