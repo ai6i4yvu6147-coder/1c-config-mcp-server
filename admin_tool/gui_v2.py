@@ -10,6 +10,12 @@ import threading
 # Добавляем корневую папку проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from admin_tool.bulk_update import (
+    SCOPE_ALL,
+    SCOPE_OUTDATED,
+    collect_bulk_targets,
+    run_bulk_update,
+)
 from admin_tool.db_manager import DatabaseManager, format_build_error
 from shared.project_manager import ProjectManager
 from shared.xml_parser import get_configuration_name, get_configuration_type
@@ -149,6 +155,20 @@ class AdminAppV2:
             width=20
         ).pack(side=tk.LEFT, padx=5)
         
+        tk.Button(
+            action_buttons,
+            text="🔄 Обновить все базы проекта",
+            command=self.update_project_databases,
+            width=28
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            action_buttons,
+            text="🔄 Обновить все базы",
+            command=self.update_all_databases,
+            width=22
+        ).pack(side=tk.LEFT, padx=5)
+
         tk.Button(
             action_buttons,
             text="📊 Статистика",
@@ -305,6 +325,32 @@ class AdminAppV2:
                     f"Сохранённый файл не найден:\n{source_xml}\n\nВыберите новый файл.")
             UpdateDatabaseWindow(self.root, self, project, db)
     
+    def update_project_databases(self):
+        """Массовое обновление всех баз выбранного проекта"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите проект (или любую его базу)")
+            return
+
+        tags = self.tree.item(selection[0], "tags")
+        if not tags or tags[0] not in ("project", "database"):
+            messagebox.showwarning("Предупреждение", "Выберите проект (или любую его базу)")
+            return
+
+        project = self.pm.get_project(tags[1])
+        if not project:
+            return
+
+        BulkUpdateWindow(self.root, self, project=project)
+
+    def update_all_databases(self):
+        """Массовое обновление баз всех проектов"""
+        if not self.pm.get_all_projects():
+            messagebox.showinfo("Информация", "Нет проектов")
+            return
+
+        BulkUpdateWindow(self.root, self, project=None)
+
     def show_statistics(self):
         """Показать статистику базы"""
         selection = self.tree.selection()
@@ -809,6 +855,222 @@ class UpdateDatabaseWindow:
                 self.update_button.config(state=tk.NORMAL)
 
             self.main_app.schedule_on_main(on_error)
+
+
+class BulkUpdateWindow:
+    """Массовое обновление баз: весь проект или все проекты (backlog `gui-bulk-update`).
+
+    Базы пересобираются последовательно из сохранённых источников; окно показывает план
+    (что будет пересобрано и что пропущено — и почему), текущую базу, прогресс N из M и
+    общий лог стадий. Ошибка одной базы не останавливает прогон — итог в сводке."""
+
+    def __init__(self, parent, main_app, project=None):
+        self.main_app = main_app
+        self.project = project
+        self.targets = []
+        self.running = False
+        self.stop_requested = False
+
+        self.window = tk.Toplevel(parent)
+        scope_title = f"проекта «{project['name']}»" if project else "всех проектов"
+        self.window.title(f"Обновление баз {scope_title}")
+        self.window.geometry("760x620")
+        self.window.grab_set()
+        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._create_widgets()
+        self._refresh_plan()
+
+    def _create_widgets(self):
+        scope_title = f"Проект: {self.project['name']}" if self.project else "Все проекты"
+        tk.Label(self.window, text=scope_title, font=("Arial", 12, "bold")).pack(pady=(15, 5))
+
+        scope_frame = tk.Frame(self.window)
+        scope_frame.pack(pady=5)
+        self.scope_var = tk.StringVar(value=SCOPE_OUTDATED)
+        tk.Radiobutton(
+            scope_frame, text="Только устаревшие", variable=self.scope_var,
+            value=SCOPE_OUTDATED, command=self._refresh_plan
+        ).pack(side=tk.LEFT, padx=10)
+        tk.Radiobutton(
+            scope_frame, text="Все базы", variable=self.scope_var,
+            value=SCOPE_ALL, command=self._refresh_plan
+        ).pack(side=tk.LEFT, padx=10)
+
+        plan_frame = tk.Frame(self.window)
+        plan_frame.pack(padx=20, pady=5, fill=tk.BOTH, expand=True)
+
+        self.plan_tree = ttk.Treeview(plan_frame, columns=("state",), height=8)
+        self.plan_tree.column("#0", width=380, minwidth=200)
+        self.plan_tree.column("state", width=320, minwidth=160)
+        self.plan_tree.heading("#0", text="База", anchor=tk.W)
+        self.plan_tree.heading("state", text="Состояние", anchor=tk.W)
+        self.plan_tree.tag_configure("skip", foreground="#808080")
+        self.plan_tree.tag_configure("done", foreground="#2e7d32")
+        self.plan_tree.tag_configure("fail", foreground="#b00000")
+        self.plan_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        plan_scroll = tk.Scrollbar(plan_frame, command=self.plan_tree.yview)
+        plan_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.plan_tree.config(yscrollcommand=plan_scroll.set)
+
+        self.summary_label = tk.Label(self.window, text="", font=("Arial", 10))
+        self.summary_label.pack(pady=(0, 5))
+
+        button_frame = tk.Frame(self.window)
+        button_frame.pack(pady=10)
+
+        self.start_button = tk.Button(
+            button_frame, text="▶ Начать обновление", command=self.start,
+            width=22, bg="#4CAF50", fg="white"
+        )
+        self.start_button.pack(side=tk.LEFT, padx=5)
+
+        self.stop_button = tk.Button(
+            button_frame, text="⏹ Остановить", command=self.request_stop,
+            width=18, state=tk.DISABLED
+        )
+        self.stop_button.pack(side=tk.LEFT, padx=5)
+
+        self.close_button = tk.Button(button_frame, text="Закрыть", command=self._on_close, width=15)
+        self.close_button.pack(side=tk.LEFT, padx=5)
+
+        self.status_label = tk.Label(self.window, text="", font=("Arial", 10, "bold"), anchor=tk.W)
+        self.status_label.pack(fill=tk.X, padx=20)
+
+        self.progress = ttk.Progressbar(self.window, mode="determinate", maximum=1)
+        self.progress.pack(fill=tk.X, padx=20, pady=5)
+
+        self.log_widget = _add_build_log_widget(self.window, height=10)
+
+    def _refresh_plan(self):
+        """Пересчитывает план по текущей области (радиокнопки) и перерисовывает список."""
+        if self.running:
+            return
+
+        self.targets = collect_bulk_targets(
+            self.main_app.pm,
+            self.main_app.db_dir,
+            project_id=self.project["id"] if self.project else None,
+            scope=self.scope_var.get(),
+        )
+
+        for item in self.plan_tree.get_children():
+            self.plan_tree.delete(item)
+
+        self.plan_item_by_db_id = {}
+        for target in self.targets:
+            state = "будет пересобрана" if target.is_actionable else f"пропуск: {target.skip_reason}"
+            item = self.plan_tree.insert(
+                "", "end",
+                text=target.label,
+                values=(state,),
+                tags=() if target.is_actionable else ("skip",),
+            )
+            self.plan_item_by_db_id[target.db_id] = item
+
+        actionable = sum(1 for t in self.targets if t.is_actionable)
+        skipped = len(self.targets) - actionable
+        self.summary_label.config(text=f"К обновлению: {actionable} · пропущено: {skipped}")
+        self.start_button.config(state=tk.NORMAL if actionable else tk.DISABLED)
+        self.progress.config(maximum=max(actionable, 1), value=0)
+
+    def start(self):
+        actionable = [t for t in self.targets if t.is_actionable]
+        if not actionable:
+            return
+
+        if not messagebox.askyesno(
+            "Подтверждение",
+            f"Пересобрать баз: {len(actionable)}?\n"
+            "Базы обновляются по очереди; на время сборки каждой MCP не имеет к ней доступа."
+        ):
+            return
+
+        self.running = True
+        self.stop_requested = False
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.progress.config(maximum=len(actionable), value=0)
+
+        thread = threading.Thread(target=self._bulk_update_thread, args=(list(self.targets),))
+        thread.start()
+
+    def request_stop(self):
+        """Остановка после текущей базы (сборка одной базы не прерывается)."""
+        self.stop_requested = True
+        self.stop_button.config(state=tk.DISABLED)
+        _append_build_log_line(self.log_widget, "Остановка запрошена — завершаем текущую базу…")
+
+    def _set_plan_state(self, target, state, tag):
+        item = self.plan_item_by_db_id.get(target.db_id)
+        if item:
+            self.plan_tree.set(item, "state", state)
+            self.plan_tree.item(item, tags=(tag,) if tag else ())
+            self.plan_tree.see(item)
+
+    def _bulk_update_thread(self, targets):
+        def on_db_start(index, total, target):
+            def apply():
+                self.status_label.config(text=f"База {index} из {total}: {target.label}")
+                self._set_plan_state(target, "обновляется…", None)
+                _append_build_log_line(self.log_widget, f"[{index}/{total}] {target.label} — старт")
+            self.main_app.schedule_on_main(apply)
+
+        def on_progress(target, current, total, message, replace_last):
+            self.main_app.schedule_on_main(
+                lambda: _append_build_log_line(self.log_widget, message, replace_last=replace_last)
+            )
+
+        def on_db_finish(target, ok, error_text):
+            def apply():
+                if ok:
+                    self._set_plan_state(target, "готово", "done")
+                    _append_build_log_line(self.log_widget, f"✓ {target.label} — обновлена")
+                else:
+                    self._set_plan_state(target, f"ошибка: {error_text}", "fail")
+                    _append_build_log_line(self.log_widget, f"✗ {target.label} — {error_text}")
+                self.progress.step(1)
+                self.main_app._load_projects()
+            self.main_app.schedule_on_main(apply)
+
+        result = run_bulk_update(
+            targets,
+            on_db_start=on_db_start,
+            on_progress=on_progress,
+            on_db_finish=on_db_finish,
+            should_stop=lambda: self.stop_requested,
+        )
+
+        self.main_app.schedule_on_main(lambda: self._on_finished(result))
+
+    def _on_finished(self, result):
+        self.running = False
+        self.stop_button.config(state=tk.DISABLED)
+        self.status_label.config(text="Готово" if not result.stopped_early else "Остановлено пользователем")
+
+        summary = f"Обновлено: {result.succeeded}, с ошибкой: {result.failed}"
+        if result.stopped_early:
+            summary += " (прогон остановлен)"
+        _append_build_log_line(self.log_widget, summary)
+
+        self.main_app._load_projects()
+        self._refresh_plan()
+
+        if result.failures:
+            details = "\n".join(f"• {label}: {error}" for label, error in result.failures)
+            messagebox.showwarning("Обновление завершено с ошибками", f"{summary}\n\n{details}")
+        else:
+            messagebox.showinfo("Обновление завершено", summary)
+
+    def _on_close(self):
+        if self.running:
+            messagebox.showwarning(
+                "Идёт обновление",
+                "Дождитесь завершения или нажмите «Остановить» — окно закроется после текущей базы."
+            )
+            return
+        self.window.destroy()
 
 
 def main():

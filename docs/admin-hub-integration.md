@@ -230,7 +230,7 @@ Portable root (после `build_all.bat`):
 
 См. § **Phase 3 CLI** ниже.
 
-**Осталось в backlog:** `gui-bulk-update` (общий code path с `rebuild-all`).
+**`gui-bulk-update` (сделано 2026-08-01):** GUI-массовое обновление живёт в [`admin_tool/bulk_update.py`](../../admin_tool/bulk_update.py), а не поверх `run_rebuild_all`. Общее с Phase 3 — то, что и должно быть общим: `DatabaseManager.build_from_xml_atomic` и разрешение источника (`source_exists`/`get_effective_config_xml`). Контракты дальше расходятся: `rebuild-all` headless, отдаёт JSON и пишет `operations.log`; GUI-прогон интерактивный — область (только устаревшие / все), прогресс по стадиям, остановка между базами, и он **не** пишет в `operations.log` (как и одиночное обновление из GUI). Сводить их в одну функцию значило бы тащить GUI-семантику в протокольный слой.
 
 ### Phase 3 CLI (контракт для Hub)
 
@@ -312,7 +312,7 @@ Hub может tail-ить файл для event feed и audit; `operationRunId`
 
 | Backlog | Связь с hub protocol |
 |---------|----------------------|
-| `gui-bulk-update` | Phase 3 — общий code path с `rebuild-all` |
+| `gui-bulk-update` | **done** — общий с Phase 3 слой сборки (`build_from_xml_atomic` + разрешение источника), контракты разные (см. выше) |
 | `gui-build-log-timings` | events → `operations.log` |
 | `gui-cancel-build` | cooperative cancel в hub rebuild API |
 | `refactor-god-modules` | косвенно — вынести ops до Phase 2 |

@@ -52,7 +52,7 @@ Do not start implementation from the list without explicit user request.
 | Object search by **synonym** (`metadata_objects.synonym`) | **done** (see CHANGELOG) |
 | **`find_referencing_objects`** (reverse search by slots) | **done** (see CHANGELOG) |
 | Scheduled job search by `MethodName` | **no** — see `scheduled-job-search` |
-| Admin GUI: bulk update, operation status | **no** — see `gui-bulk-update` |
+| Admin GUI: bulk update, operation status | **done** (2026-08-01) — «Обновить все базы проекта» / «Обновить все базы»; см. CHANGELOG |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
 | Admin GUI: build stage log / timings | **done** — validated on real exports and live in the rebuilt admin GUI; see `gui-build-log-timings` |
@@ -76,17 +76,11 @@ Do not start implementation from the list without explicit user request.
 
 - **parser-streaming-pipeline** · `idea` · Полный стриминг «парсить → вставлять → отпускать» через parser-as-generator, чтобы убрать ≥3.8 ГБ пик RSS во время парсинга (см. P-4 выше). Требует: (1) `_parse_child_objects` отдаёт объекты по одному (генератор), не строит список целиком; (2) согласовать с P-8 — пул форм копит `Future` вперёд ради оверлапа, стриминг хочет отпускать объект сразу после вставки — нужен bounded-window pipeline, а не «отправить всё, забрать в конце»
 
-- **dcs-schema-indexing** · `idea` · Index DataCompositionSchema (СКД) — первый шаг «единого движка»
+- **dcs-schema-indexing** · `done` (2026-07-19) · Индексация DataCompositionSchema (СКД) — первый шаг «единого движка»
 
-  - **Design/стратегия:** [`library-migration.md`](library-migration.md) — почему СКД первый (старый парсер СКД не читает → нулевой риск; библиотека уже пишет СКД), первая разведка областей, открытые вопросы схемы
+  - **Итог:** `shared/xml_parser/dcs.py` читает `Templates/<Схема>/Ext/Template.xml` через `onec_metadata_schema.dcs`; таблица `dcs_schema`, текст запроса — в `code_search` FTS (`module_type='DcsQuery'`), MCP-tool `get_dcs_schema`. Детали и A/B — в CHANGELOG (2026-07-18/19); дизайн — [`library-migration.md`](library-migration.md)
 
-  - **Why:** внешний/встроенный отчёт читается как объект, но **СКД не индексируется** (`_parse_object` не читает `Templates/`). У чистого СКД-отчёта (напр. `РВП`) индекс тонкий — вся логика (источники, запрос, поля) в схеме
-
-  - **Scope (draft):** `Templates/<Схема>/Ext/Template.xml`, `DataCompositionSchema` — области: `dataSet`+текст запроса (первый срез → `code_search`), `field`/`dataPath`, `dataSource`, `calculatedField`/`totalField`, `parameter`, `settingsVariant`. **Много новых таблиц** — нужен качественный анализ. **СКД не только у отчётов** — встречается на Catalog/Document/BusinessProcess/CommonTemplates
-
-  - **Reference (СКД):** `РВП отчет/РВП.xml` (чистый СКД), СКД-шаблоны в `Расш бюдж/Catalogs|Documents`; библиотека `onec_metadata_schema.dcs` знает write-сторону. NB: `ФТ_ОтчетБДР` — MXL-макет, **не** СКД
-
-  - **Related:** `form-dynamiclist-settings` (СКД в форме) — смежная ось; `bump-indexer-version` при новой схеме
+  - **Осталось за границей:** `form-dynamiclist-settings` (СКД внутри формы) — смежная ось, отдельный пункт ниже; MXL-макеты — трек `mxl-macet-indexing`
 
 - **library-engine-migration** · `done` (2026-07-19) · Перевод read-парсера на единый движок (`onec_metadata_schema`)
 
@@ -132,18 +126,6 @@ Do not start implementation from the list without explicit user request.
 
   - **Not in current iteration** — separate backlog item after v10
 
-- **gui-bulk-update** · `ready` · Bulk update all configurations + progress indicator
-
-  - **Task:** update all databases of all projects (or selected project) in one command, with saved `source_xml` paths
-
-  - **UI (minimum):** status line/header, e.g. "Updating project Hamburg, extension FT_Dorabotki"; progress (N of M) if possible
-
-  - **Side:** `admin_tool/gui_v2.py`, `ProjectManager` (XML paths already in `projects.json`)
-
-  - **Open:** stop on first error; update only stale or all
-
-  - **Done when:** one button/action walks databases with `source_xml`; user sees current operation; tree is up to date on completion
-
 - **scheduled-job-search** · `idea` · Scheduled job search by `MethodName`
 
   - **Problem:** procedure from `MethodName` (`CommonModule.X.Y`) is not found via `find_object`
@@ -182,7 +164,7 @@ Do not start implementation from the list without explicit user request.
     - **Validated live in the rebuilt admin GUI** (user-confirmed): log widget shows real stage progress during an actual update
     - **Follow-up fix:** live use showed the per-10-objects/forms counters ("Объекты N/M") flooding the log with hundreds of lines — `progress_callback` gained an optional `replace_last` flag; those recurring counters now update the same log line in place (Tk Text last-line delete range is `'end-2l'..'end-1l'`, not `'end-1l'..'end'` — Tk always keeps one extra trailing blank row) while stage-boundary summaries stay as separate permanent lines
 
-  - **Related:** `gui-bulk-update` (same log on bulk update)
+  - **Related:** массовое обновление (done, 2026-08-01) переиспользует тот же лог-виджет и `replace_last`
 
   - **Done when:** on Logist main update log shows all major stages with seconds; UI updates during build without freezing
 
@@ -200,7 +182,7 @@ Do not start implementation from the list without explicit user request.
     - on cancel: `rollback` / no `commit`, remove or do not leave broken `.db` (file often `unlink()` before build — document desired behavior)
     - UI: button active only during build; on cancel — log entry (`gui-build-log-timings`) "Cancelled by user"
 
-  - **Related:** `gui-build-log-timings`, `gui-bulk-update` (cancel one DB in batch / cancel whole batch — clarify)
+  - **Related:** `gui-build-log-timings`. Массовое обновление (done, 2026-08-01) уже умеет **остановку между базами** — прогон завершает текущую и не начинает следующую; прерывание сборки *одной* базы остаётся этой задачей
 
   - **Done when:** during build "Cancel" stops process in reasonable time (seconds, not minutes); no "half-ready" working DB left in `projects.json`/tree without explicit warning
 
@@ -210,7 +192,7 @@ Do not start implementation from the list without explicit user request.
 
   - **Side:** `admin_tool/gui_v2.py`
 
-  - **Priority:** low; does not block `gui-bulk-update` and status fix
+  - **Priority:** low; ничего не блокирует
 
   - **Open:** stay on tkinter or consider another UI layer
 
