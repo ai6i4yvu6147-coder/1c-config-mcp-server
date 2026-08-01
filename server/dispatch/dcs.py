@@ -1,5 +1,7 @@
 from mcp.types import TextContent
 
+from .common import _ambiguous_block
+
 
 def _format_shape(schema: dict) -> str:
     bits = [
@@ -55,7 +57,8 @@ async def handle_get_dcs_schema(tools, arguments: dict) -> list[TextContent]:
     template = arguments.get("template")
     extension_filter = arguments.get("extension_filter")
 
-    results = tools.get_dcs_schema(object_name, project_filter, template, extension_filter)
+    results = tools.get_dcs_schema(object_name, project_filter, template, extension_filter,
+                                   arguments.get("object_type"))
 
     if not results:
         return [TextContent(
@@ -69,9 +72,7 @@ async def handle_get_dcs_schema(tools, arguments: dict) -> list[TextContent]:
         for db_name, payload in project_data.items():
             response += f"  {db_name}:\n"
             if payload.get('ambiguous'):
-                response += f"    Неоднозначное имя '{payload['requested_name']}'. Кандидаты:\n"
-                for c in payload['candidates']:
-                    response += f"      - {c['type']}.{c['name']}\n"
+                response += _ambiguous_block(payload)
                 continue
             schemas = payload.get('schemas', [])
             if not schemas:

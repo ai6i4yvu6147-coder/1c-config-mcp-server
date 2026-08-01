@@ -1,7 +1,41 @@
+import re
+
 from .formatting import _validate_module_form_command_args
 
 # Максимум модулей для поиска в одной базе (лимит по модулям; внутри каждого — до max_results вхождений)
 MAX_MODULES_SEARCH_CODE = 100
+
+# Потолок ответа на одну базу: 100 модулей × max_results сниппетов по ~400 символов — это
+# сотни килобайт в одном ответе, которые агент всё равно не прочитает. Считаем сниппеты,
+# а не модули, и сигналим is_truncated (аудит 2026-08 T-11).
+MAX_SNIPPETS_SEARCH_CODE = 100
+
+# Символы, при которых FTS5 бесполезен или опасен: точка/скобки — обычный способ искать
+# `ОбщегоНазначения.СообщитьПользователю(`, то есть подстроку внутри токена, чего FTS не
+# умеет; дефис, двоеточие, `*`, `^`, `"` — синтаксис самого FTS5. Раньше список был
+# '.()[]"\'' и не покрывал вторую половину, поэтому 'Товар-Услуга' уходил в FTS и падал
+# наружу как `OperationalError: no such column: Услуга` (аудит T-10).
+_FTS_UNSAFE_CHARS = '.()[]{}"\'-:*^~+'
+_FTS_OPERATOR_WORD = re.compile(r'(?:^|\s)(AND|OR|NOT|NEAR)(?:\s|$)')
+
+
+def _fts_query_is_safe(query):
+    """FTS5 применим только к запросу без спецсимволов и без голых операторов."""
+    if any(char in query for char in _FTS_UNSAFE_CHARS):
+        return False
+    return not _FTS_OPERATOR_WORD.search(query)
+
+
+def _fts_phrase(query):
+    """Запрос как строковый литерал FTS5 — фраза, а не набор операторов.
+
+    Даже на «безопасном» запросе кавычки обязательны: они снимают с пользовательского
+    текста любую синтаксическую роль. Фразовая семантика здесь строго уместнее набора
+    токенов через неявный AND — ниже по конвейеру всё равно идёт поиск подстроки
+    целиком (`code_lower.find(query_lower)`), поэтому модули, где слова запроса стоят
+    порознь, всё равно не дали бы ни одного сниппета и только съедали бы лимит.
+    """
+    return '"' + query.replace('"', '""') + '"'
 
 
 class CodeMixin:
@@ -11,19 +45,26 @@ class CodeMixin:
                     object_name=None, module_type=None):
         """
         Поиск по коду во всех активных проектах.
-        max_results — лимит вхождений на один модуль; из каждого модуля возвращается до max_results сниппетов.
 
         Args:
             query: Поисковый запрос
             project_filter: Фильтр по проекту (опционально)
             extension_filter: Фильтр по расширению/базе (опционально)
-            max_results: Максимум совпадений на один модуль (из каждого модуля до max_results сниппетов)
+            max_results: Максимум сниппетов из ОДНОГО модуля (не на базу — см. ниже)
             object_name: Фильтр по имени объекта (опционально, можно частичное)
             module_type: Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule
 
+        Три независимых потолка, и их стоит различать: до MAX_MODULES_SEARCH_CODE модулей
+        на базу, до max_results сниппетов внутри каждого модуля и до
+        MAX_SNIPPETS_SEARCH_CODE сниппетов на базу суммарно. Достижение любого поднимает
+        is_truncated. Схема tool'а раньше обещала «максимум результатов на базу», хотя код
+        всегда лимитировал вхождения на модуль, и общего потолка не было вовсе (аудит T-11).
+
         Returns:
-            Dict grouped by projects; каждый элемент содержит object_name, object_type, module_type, snippet,
-            procedure_display, form_name (для FormModule), command_name (для CommandModule команды объекта)
+            Dict {проект: {база: {matches, returned_count, is_truncated}}}; элемент matches —
+            object_name, object_type, module_type, snippet, procedure_display, form_name
+            (для FormModule), command_name (для CommandModule команды объекта). Совпадения в
+            тексте запроса DynamicList приходят там же с match_kind='form_query'.
         """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
@@ -32,10 +73,12 @@ class CodeMixin:
         if extension_filter:
             databases = [db for db in databases if db['db_name'].lower() == extension_filter.lower()]
 
-        # Автоматическое определение метода поиска
-        # FTS5 не поддерживает спецсимволы в запросах
-        special_chars = '.()[]"\''
-        use_exact_search = any(char in query for char in special_chars) or bool(object_name) or bool(module_type)
+        # Метод поиска определяется ТОЛЬКО самим запросом. Раньше сюда входили ещё
+        # `or bool(object_name) or bool(module_type)`, из-за чего любой фильтр выключал
+        # FTS целиком и уводил поиск в LIKE по 904 МБ кода: search_code(query="Провести",
+        # module_type="ObjectModule") стоил 232 мс вместо 1.7 мс. Фильтры прекрасно
+        # ложатся поверх FTS — джойн к modules/metadata_objects уже есть (аудит T-12).
+        use_exact_search = not _fts_query_is_safe(query)
 
         results = {}
 
@@ -72,7 +115,7 @@ class CodeMixin:
                 cursor.execute(sql, params)
             else:
                 # FTS5 полнотекстовый поиск; лимит по числу модулей
-                cursor.execute('''
+                sql = '''
                     SELECT
                         m.id as module_id,
                         o.name as object_name,
@@ -87,8 +130,17 @@ class CodeMixin:
                     LEFT JOIN forms f ON m.form_id = f.id
                     LEFT JOIN object_commands oc ON m.command_id = oc.id
                     WHERE code_search MATCH ?
-                    LIMIT ?
-                ''', (query, MAX_MODULES_SEARCH_CODE))
+                '''
+                params = [_fts_phrase(query)]
+                if object_name:
+                    sql += ' AND o.name LIKE ?'
+                    params.append(f'%{object_name}%')
+                if module_type:
+                    sql += ' AND m.module_type = ?'
+                    params.append(module_type)
+                sql += ' LIMIT ?'
+                params.append(MAX_MODULES_SEARCH_CODE)
+                cursor.execute(sql, params)
 
             rows = cursor.fetchall()
             module_ids = [r['module_id'] for r in rows] if rows else []
@@ -106,7 +158,13 @@ class CodeMixin:
                     procedures_by_module[mid].append(pr)
 
             db_results = []
+            # Модульный лимит выбран целиком — возможно, подходящих модулей больше.
+            hit_module_cap = len(rows) >= MAX_MODULES_SEARCH_CODE
+            hit_snippet_cap = False
             for row in rows:
+                if len(db_results) >= MAX_SNIPPETS_SEARCH_CODE:
+                    hit_snippet_cap = True
+                    break
                 code = row['code']
                 module_id = row['module_id']
                 procedures = procedures_by_module.get(module_id, [])
@@ -125,7 +183,7 @@ class CodeMixin:
 
                 pos = 0
                 count_in_module = 0
-                while count_in_module < max_results:
+                while count_in_module < max_results and len(db_results) < MAX_SNIPPETS_SEARCH_CODE:
                     pos = code_lower.find(query_lower, pos)
                     if pos == -1:
                         break
@@ -161,9 +219,12 @@ class CodeMixin:
                 if project_key not in results:
                     results[project_key] = {}
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                if db_key not in results[project_key]:
-                    results[project_key][db_key] = []
-                results[project_key][db_key].extend(db_results)
+                payload = results[project_key].setdefault(
+                    db_key, {'matches': [], 'is_truncated': False},
+                )
+                payload['matches'].extend(db_results)
+                if hit_module_cap or hit_snippet_cap:
+                    payload['is_truncated'] = True
 
             # Поиск по тексту запроса DynamicList в EAV — свойство формы, не модуля;
             # нерелевантно, если module_type сузил поиск до конкретного не-FormModule типа.
@@ -210,9 +271,14 @@ class CodeMixin:
                     if project_key not in results:
                         results[project_key] = {}
                     db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                    if db_key not in results[project_key]:
-                        results[project_key][db_key] = []
-                    results[project_key][db_key].append(entry)
+                    payload = results[project_key].setdefault(
+                        db_key, {'matches': [], 'is_truncated': False},
+                    )
+                    payload['matches'].append(entry)
+
+        for project_data in results.values():
+            for payload in project_data.values():
+                payload['returned_count'] = len(payload['matches'])
 
         if not results:
             return {"_empty": True, "diagnostics": {"project_filter": project_filter, "num_databases": len(databases)}}

@@ -1,5 +1,7 @@
 from mcp.types import TextContent
 
+from .common import _ambiguous_block
+
 
 async def handle_find_referencing_objects(tools, arguments: dict) -> list[TextContent]:
     object_name = arguments["object_name"]
@@ -9,7 +11,8 @@ async def handle_find_referencing_objects(tools, arguments: dict) -> list[TextCo
     relation_kinds = arguments.get("relation_kinds")
 
     results = tools.find_referencing_objects(
-        object_name, project_filter, extension_filter, max_results, relation_kinds
+        object_name, project_filter, extension_filter, max_results, relation_kinds,
+        arguments.get("object_type"),
     )
 
     if not results:
@@ -23,13 +26,7 @@ async def handle_find_referencing_objects(tools, arguments: dict) -> list[TextCo
             response += f"  {db_name}:\n"
 
             if payload.get('ambiguous'):
-                response += f"    Неоднозначность: уточните object_name.\n"
-                response += f"    Запрошено: {payload['requested_name']}\n"
-                response += "    Кандидаты:\n"
-                for c in payload['candidates']:
-                    syn = f" ({c['synonym']})" if c.get('synonym') else ""
-                    response += f"      - {c['type']}.{c['name']}{syn}\n"
-                response += "\n"
+                response += _ambiguous_block(payload)
                 continue
 
             target = payload['target']

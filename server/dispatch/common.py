@@ -21,6 +21,29 @@ def _form_item_command_suffix(item: dict) -> str:
     return ''
 
 
+def _ambiguous_block(payload: dict, indent: str = "    ") -> str:
+    """Рендер неоднозначности разрешения объекта — общий для всех tool'ов, которые
+    резолвят объект по имени.
+
+    Подсказка именно про object_type, а не «уточните object_name»: при точном совпадении
+    имя у всех кандидатов одно и то же, и уточнять в нём нечего — выбор делается видом.
+    """
+    lines = [f"{indent}Неоднозначность: имя принадлежит нескольким видам объектов.\n"]
+    if payload.get('requested_name'):
+        lines.append(f"{indent}Запрошено: {payload['requested_name']}\n")
+    lines.append(f"{indent}Кандидаты:\n")
+    for c in payload.get('candidates') or []:
+        syn = f" ({c['synonym']})" if c.get('synonym') else ""
+        lines.append(f"{indent}  - {c['type']}.{c['name']}{syn}\n")
+    if payload.get('match_kind') == 'partial':
+        lines.append(f"{indent}→ уточните object_name или задайте object_type.\n")
+    else:
+        first = (payload.get('candidates') or [{}])[0].get('type', 'Document')
+        lines.append(f"{indent}→ повторите вызов с object_type, например object_type={first!r}.\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
 async def handle_active_databases(tools, arguments: dict) -> list[TextContent]:
     results = tools.list_active_databases()
     lines = []

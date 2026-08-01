@@ -1,5 +1,34 @@
 from mcp.types import Tool
 
+from shared.xml_parser.core import CHILD_OBJECT_TYPES
+
+# Допустимые значения перечислимых параметров. Раньше они жили только прозой в description,
+# то есть клиент их не валидировал и опечатка вроде module_type='ObjectModul' молча давала
+# пустой ответ вместо ошибки (§ 6.6 аудита 2026-08).
+
+# Источник правды — карта видов парсера, плюс два вида, которые он разбирает отдельными
+# ветками (Subsystem — обходом каталога, Role — вместе с Rights.xml) и потому в ней не лежат.
+# Собирается из константы, а не переписывается руками: иначе список разъедется с индексом
+# при первом же новом виде. Инвариант закреплён тестом test_tool_schema_enums.
+OBJECT_TYPE_ENUM = sorted(set(CHILD_OBJECT_TYPES) | {'Subsystem', 'Role'})
+
+# BSL-модули (см. module_files в shared/xml_parser/modules.py) + FormModule/CommandModule,
+# которые пишутся при вставке форм и команд, + два не-BSL вида контента, лежащих в той же
+# таблице ради поиска: текст запроса СКД и видимый текст MXL-макета.
+MODULE_TYPE_ENUM = [
+    'Module', 'ManagerModule', 'ObjectModule', 'RecordSetModule', 'ValueManagerModule',
+    'FormModule', 'CommandModule', 'DcsQuery', 'MxlText',
+]
+
+# Модули, которые можно запросить целиком/по процедурам: DcsQuery и MxlText — не BSL,
+# у них нет процедур, и адресуются они через search_code / get_dcs_schema.
+BSL_MODULE_TYPE_ENUM = [
+    'Module', 'ManagerModule', 'ObjectModule', 'RecordSetModule', 'ValueManagerModule',
+    'FormModule', 'CommandModule',
+]
+
+FORM_ELEMENT_TYPE_ENUM = ['FormAttribute', 'FormCommand', 'FormItem', 'FormAttributeColumn']
+
 TOOL_SCHEMAS = [
     Tool(
         name="guide",
@@ -88,11 +117,19 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Фильтр по типу модуля (опционально): Module, ManagerModule, ObjectModule, RecordSetModule, ValueManagerModule, FormModule, CommandModule"
+                    "enum": MODULE_TYPE_ENUM,
+                    "description": (
+                        "Фильтр по типу модуля (опционально). DcsQuery — текст запроса СКД, "
+                        "MxlText — видимый текст MXL-макета. Фильтр не отключает полнотекстовый "
+                        "поиск, он накладывается поверх."
+                    )
                 },
                 "max_results": {
                     "type": "number",
-                    "description": "Максимум результатов на базу (по умолчанию 10)",
+                    "description": (
+                        "Максимум сниппетов из ОДНОГО модуля (по умолчанию 10). Не путать с "
+                        "потолком на базу: он отдельный, и при его достижении в ответе is_truncated."
+                    ),
                     "default": 10
                 }
             },
@@ -134,7 +171,8 @@ TOOL_SCHEMAS = [
             "properties": {
                 "object_type": {
                     "type": "string",
-                    "description": "Тип объекта (опционально): CommonModule, Catalog, Document и т.д."
+                    "enum": OBJECT_TYPE_ENUM,
+                    "description": "Вид объекта метаданных (опционально)."
                 },
                 "project_filter": {
                     "type": "string",
@@ -169,7 +207,8 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
+                    "enum": BSL_MODULE_TYPE_ENUM,
+                    "description": "Тип модуля: RecordSetModule — модуль набора записей регистра, ValueManagerModule — модуль менеджера значения константы (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -207,7 +246,8 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
+                    "enum": BSL_MODULE_TYPE_ENUM,
+                    "description": "Тип модуля: RecordSetModule — модуль набора записей регистра, ValueManagerModule — модуль менеджера значения константы (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -249,7 +289,8 @@ TOOL_SCHEMAS = [
                 },
                 "module_type": {
                     "type": "string",
-                    "description": "Тип модуля: Module, ManagerModule, ObjectModule, RecordSetModule (модуль набора записей регистра), ValueManagerModule (модуль менеджера значения константы), FormModule, CommandModule (по умолчанию Module)",
+                    "enum": BSL_MODULE_TYPE_ENUM,
+                    "description": "Тип модуля: RecordSetModule — модуль набора записей регистра, ValueManagerModule — модуль менеджера значения константы (по умолчанию Module)",
                     "default": "Module"
                 },
                 "form_name": {
@@ -274,7 +315,13 @@ TOOL_SCHEMAS = [
     ),
     Tool(
         name="find_form",
-        description="Поиск форм по имени объекта и/или формы. project_filter обязателен. В ответе: form_kind (List/Choice/Element), для расширений — object_belonging.",
+        description=(
+            "Поиск форм по имени объекта и/или формы. project_filter обязателен. В ответе: "
+            "form_kind (List/Choice/Element), для расширений — object_belonging, а также "
+            "total_count / returned_count / is_truncated по каждой базе. Оба фильтра "
+            "опциональны, поэтому без них вернутся все формы конфигурации (в крупной их "
+            "больше 12 000) — сузьте фильтрами, а не увеличением limit."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -293,6 +340,11 @@ TOOL_SCHEMAS = [
                 "extension_filter": {
                     "type": "string",
                     "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Максимум форм на базу (по умолчанию 100); при обрезке — is_truncated",
+                    "default": 100
                 }
             },
             "required": ["project_filter"]
@@ -472,6 +524,16 @@ TOOL_SCHEMAS = [
                     "type": "string",
                     "description": "Точное имя базы из ответа active_databases (опционально). Передавайте имя без изменений."
                 },
+                "object_type": {
+                    "type": "string",
+                    "enum": OBJECT_TYPE_ENUM,
+                    "description": (
+                        "Вид метаданных — для разрешения неоднозначности имени. Одно и то же имя "
+                        "часто принадлежит нескольким видам сразу (в крупной конфигурации — каждому "
+                        "двадцатому); в таком случае tool возвращает ambiguous со списком кандидатов, "
+                        "и повторный вызов с object_type выбирает нужный."
+                    )
+                },
                 "sections": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -526,6 +588,16 @@ TOOL_SCHEMAS = [
                         "Непустой список — только перечисленные via; для ролей удобнее find_roles_for_object. "
                         "Пусто — все виды."
                     )
+                },
+                "object_type": {
+                    "type": "string",
+                    "enum": OBJECT_TYPE_ENUM,
+                    "description": (
+                        "Вид метаданных цели — для разрешения неоднозначности имени. Одно и то же имя "
+                        "часто принадлежит нескольким видам сразу (в крупной конфигурации — каждому "
+                        "двадцатому); в таком случае tool возвращает ambiguous со списком кандидатов, "
+                        "и повторный вызов с object_type выбирает нужный."
+                    )
                 }
             },
             "required": ["object_name", "project_filter"]
@@ -555,7 +627,8 @@ TOOL_SCHEMAS = [
                 },
                 "element_type": {
                     "type": "string",
-                    "description": "FormAttribute | FormCommand | FormItem | FormAttributeColumn — для элемента формы."
+                    "enum": FORM_ELEMENT_TYPE_ENUM,
+                    "description": "Вид сущности формы — для запроса по элементу формы."
                 },
                 "element_name": {
                     "type": "string",
@@ -695,6 +768,14 @@ TOOL_SCHEMAS = [
                 "right_name": {"type": "string", "description": "Фильтр по типу права (Read, …)"},
                 "rls": {"type": "boolean", "description": "true — только с RLS; false — без RLS"},
                 "max_results": {"type": "integer", "default": 200},
+                "object_type": {
+                    "type": "string",
+                    "enum": OBJECT_TYPE_ENUM,
+                    "description": (
+                        "Вид метаданных — для разрешения неоднозначности имени: при совпадении "
+                        "имени у нескольких видов tool возвращает ambiguous со списком кандидатов."
+                    ),
+                },
             },
             "required": ["object_name", "project_filter"],
         },
@@ -732,6 +813,15 @@ TOOL_SCHEMAS = [
                 "extension_filter": {
                     "type": "string",
                     "description": "Точное имя базы из active_databases (опционально).",
+                },
+                "object_type": {
+                    "type": "string",
+                    "enum": OBJECT_TYPE_ENUM,
+                    "description": (
+                        "Вид метаданных владельца — для разрешения неоднозначности имени: при "
+                        "совпадении имени у нескольких видов tool возвращает ambiguous со списком "
+                        "кандидатов."
+                    ),
                 },
             },
             "required": ["object_name", "project_filter"],

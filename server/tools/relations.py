@@ -1,24 +1,61 @@
-def _resolve_config_object(cursor, object_name):
+from .formatting import _table_exists
+
+
+def _candidate_list(rows):
+    return [
+        {'name': r['name'], 'type': r['object_type'], 'synonym': r['synonym'] or ''}
+        for r in rows
+    ]
+
+
+def _resolve_config_object(cursor, object_name, object_type=None):
     """
     Resolve ConfigObject by exact then partial name/synonym.
     Returns dict with status: found | not_found | ambiguous.
-    """
-    cursor.execute('''
-        SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
-        FROM metadata_objects
-        WHERE (name = ? OR synonym = ?) AND object_kind = 'ConfigObject'
-        LIMIT 1
-    ''', (object_name, object_name))
-    obj_row = cursor.fetchone()
-    if obj_row:
-        return {'status': 'found', 'row': obj_row}
 
-    cursor.execute('''
+    object_type сужает поиск до одного вида метаданных (`Document`, `CommonModule`, …)
+    и существует именно ради разрешения неоднозначности: без него у агента, получившего
+    `ambiguous` на точном имени, нет способа выбрать кандидата — имя у всех одно и то же.
+
+    Точное совпадение тоже бывает неоднозначным: в ЕРП «Планета» 1 181 имя (5.3%
+    каталога) принадлежит двум и более видам объектов — `Взаиморасчеты` — это разом
+    Document, CommonModule, AccumulationRegister, Report и Role. Раньше здесь стоял
+    `LIMIT 1` без `ORDER BY`, поэтому брался объект, который SQLite отдал первым:
+    выбор произволен, мог меняться между пересборками, и ошибки при этом не было —
+    ответ выглядел валидным. Ветка частичного совпадения неоднозначность отдавала
+    корректно; теперь обе ветки живут по одному контракту.
+    """
+    type_clause = ' AND object_type = ?' if object_type else ''
+    type_params = (object_type,) if object_type else ()
+
+    cursor.execute(f'''
         SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
         FROM metadata_objects
-        WHERE (name LIKE ? OR IFNULL(synonym, '') LIKE ?) AND object_kind = 'ConfigObject'
+        WHERE (name = ? OR synonym = ?) AND object_kind = 'ConfigObject'{type_clause}
+        ORDER BY object_type, name
+    ''', (object_name, object_name, *type_params))
+    exact = cursor.fetchall()
+    if exact:
+        # Совпадение по имени сильнее совпадения по синониму: если имя назвали точно,
+        # объект с таким синонимом не делает запрос неоднозначным. Неоднозначность
+        # объявляется только среди равных по силе кандидатов.
+        by_name = [r for r in exact if r['name'] == object_name]
+        tier = by_name or exact
+        if len(tier) == 1:
+            return {'status': 'found', 'row': tier[0]}
+        return {
+            'status': 'ambiguous',
+            'requested_name': object_name,
+            'match_kind': 'exact',
+            'candidates': _candidate_list(tier),
+        }
+
+    cursor.execute(f'''
+        SELECT id, name, object_type, uuid, synonym, comment, object_belonging, extended_configuration_object
+        FROM metadata_objects
+        WHERE (name LIKE ? OR IFNULL(synonym, '') LIKE ?) AND object_kind = 'ConfigObject'{type_clause}
         ORDER BY name
-    ''', (f'%{object_name}%', f'%{object_name}%'))
+    ''', (f'%{object_name}%', f'%{object_name}%', *type_params))
     candidates = cursor.fetchall()
     if not candidates:
         return {'status': 'not_found'}
@@ -26,10 +63,8 @@ def _resolve_config_object(cursor, object_name):
         return {
             'status': 'ambiguous',
             'requested_name': object_name,
-            'candidates': [
-                {'name': r['name'], 'type': r['object_type'], 'synonym': r['synonym'] or ''}
-                for r in candidates
-            ],
+            'match_kind': 'partial',
+            'candidates': _candidate_list(candidates),
         }
     return {'status': 'found', 'row': candidates[0]}
 
@@ -183,22 +218,26 @@ def _referencer_sort_key(ref):
 
 
 def _fetch_referencing_role_grants(cursor, parent_object_qname):
-    """Return referencer dicts from role_grants (phase 4)."""
-    try:
-        cursor.execute('''
-            SELECT mo.object_type AS src_type,
-                   mo.name AS src_name,
-                   mo.synonym AS src_synonym,
-                   rg.right_name,
-                   rg.granted,
-                   rg.source_db_name
-            FROM role_grants rg
-            JOIN metadata_objects mo ON rg.role_object_id = mo.id
-            WHERE rg.parent_object_qname = ? AND rg.granted = 1
-            ORDER BY src_type, src_name, rg.right_name
-        ''', (parent_object_qname,))
-    except Exception:
+    """Return referencer dicts from role_grants (phase 4).
+
+    Единственная законная причина промолчать — база собрана до фазы 4 и таблицы
+    `role_grants` в ней нет. Раньше здесь стоял `except Exception: return []`, который
+    глушил заодно и любую настоящую ошибку запроса, превращая её в «ссылок нет».
+    """
+    if not _table_exists(cursor, 'role_grants'):
         return []
+    cursor.execute('''
+        SELECT mo.object_type AS src_type,
+               mo.name AS src_name,
+               mo.synonym AS src_synonym,
+               rg.right_name,
+               rg.granted,
+               rg.source_db_name
+        FROM role_grants rg
+        JOIN metadata_objects mo ON rg.role_object_id = mo.id
+        WHERE rg.parent_object_qname = ? AND rg.granted = 1
+        ORDER BY src_type, src_name, rg.right_name
+    ''', (parent_object_qname,))
 
     referencers = []
     for row in cursor.fetchall():
@@ -264,7 +303,7 @@ class RelationsMixin:
 
     def find_referencing_objects(
         self, object_name, project_filter=None, extension_filter=None,
-        max_results=100, relation_kinds=None,
+        max_results=100, relation_kinds=None, object_type=None,
     ):
         """
         Обратный поиск: кто ссылается на объект через metadata_type_slots,
@@ -276,6 +315,7 @@ class RelationsMixin:
             extension_filter: Фильтр по расширению/базе (опционально)
             max_results: Максимум записей на базу (по умолчанию 100)
             relation_kinds: Фильтр видов связей (subsystem_member, role_grant, …)
+            object_type: Вид метаданных цели — для разрешения неоднозначности имени
 
         Returns:
             Dict сгруппированный по проектам/базам
@@ -295,7 +335,7 @@ class RelationsMixin:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
-            resolved = _resolve_config_object(cursor, object_name)
+            resolved = _resolve_config_object(cursor, object_name, object_type)
             project_key = db_info['project_name']
             db_key = f"{db_info['db_name']} ({db_info['db_type']})"
 
@@ -307,6 +347,7 @@ class RelationsMixin:
                 results[project_key][db_key] = {
                     'ambiguous': True,
                     'requested_name': resolved['requested_name'],
+                    'match_kind': resolved.get('match_kind'),
                     'candidates': resolved['candidates'],
                 }
                 continue

@@ -21,11 +21,31 @@ from .form_helpers import (
     _resolve_form,
 )
 
+# Формы на базу для find_form: у ЕРП их 12 695, а оба фильтра tool'а опциональны.
+DEFAULT_FIND_FORM_LIMIT = 100
+
 
 class FormsMixin:
     """Form structure and element search: find_form, find_form_element, get_form_structure, get_form_attribute, get_form_item, search_form_properties."""
 
-    def find_form(self, object_name=None, form_name=None, project_filter=None, extension_filter=None):
+    def find_form(self, object_name=None, form_name=None, project_filter=None,
+                  extension_filter=None, limit=DEFAULT_FIND_FORM_LIMIT):
+        """
+        Найти формы по имени объекта и/или имени формы.
+
+        Args:
+            object_name: фильтр по имени объекта (частичное совпадение, опционально)
+            form_name: фильтр по имени формы (частичное совпадение, опционально)
+            project_filter: фильтр по проекту (обязателен)
+            extension_filter: точное имя базы (опционально)
+            limit: максимум форм на базу (0 — без лимита); при обрезке — is_truncated
+
+        Оба фильтра опциональны по схеме, поэтому `find_form(project_filter=...)` —
+        легальный вызов, возвращающий все формы конфигурации (12 695 на ЕРП). Лимит
+        здесь не роскошь: без него ответ вырастал до размеров, которые агент всё равно
+        не прочтёт, а сам вызов выглядел как зависший сервер (унификация T-1 сюда
+        не дошла — исправлено по аудиту 2026-08 T-9).
+        """
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
         self._require_project_exists(project_filter, databases)
@@ -39,7 +59,27 @@ class FormsMixin:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
-            query = '''
+            where = ''
+            params = []
+
+            if object_name:
+                where += ' AND o.name LIKE ?'
+                params.append(f'%{object_name}%')
+
+            if form_name:
+                where += ' AND f.form_name LIKE ?'
+                params.append(f'%{form_name}%')
+
+            # Счётчик отдельным запросом: три коррелированных COUNT ниже нужны только для
+            # тех форм, что попадут в ответ, а total_count — для всех подходящих.
+            total = cursor.execute(
+                f'''SELECT COUNT(*) FROM forms f
+                    JOIN metadata_objects o ON f.object_id = o.id
+                    WHERE 1=1{where}''',
+                params,
+            ).fetchone()[0]
+
+            query = f'''
                 SELECT
                     o.name as object_name,
                     o.object_type,
@@ -54,19 +94,15 @@ class FormsMixin:
                     (SELECT COUNT(*) FROM form_items WHERE form_id = f.id) as items_count
                 FROM forms f
                 JOIN metadata_objects o ON f.object_id = o.id
-                WHERE 1=1
+                WHERE 1=1{where}
+                ORDER BY o.name, f.form_name
             '''
-            params = []
+            row_params = list(params)
+            if limit and limit > 0:
+                query += ' LIMIT ?'
+                row_params.append(limit)
 
-            if object_name:
-                query += ' AND o.name LIKE ?'
-                params.append(f'%{object_name}%')
-
-            if form_name:
-                query += ' AND f.form_name LIKE ?'
-                params.append(f'%{form_name}%')
-
-            cursor.execute(query, params)
+            cursor.execute(query, row_params)
 
             db_results = []
             for row in cursor.fetchall():
@@ -94,7 +130,12 @@ class FormsMixin:
                     results[project_key] = {}
 
                 db_key = f"{db_info['db_name']} ({db_info['db_type']})"
-                results[project_key][db_key] = db_results
+                results[project_key][db_key] = {
+                    'forms': db_results,
+                    'total_count': total,
+                    'returned_count': len(db_results),
+                    'is_truncated': total > len(db_results),
+                }
 
         return results
 

@@ -18,8 +18,9 @@ async def handle_find_form(tools, arguments: dict) -> list[TextContent]:
     form_name = arguments.get("form_name")
     project_filter = arguments.get("project_filter")
     extension_filter = arguments.get("extension_filter")
+    limit = arguments.get("limit", 100)
 
-    results = tools.find_form(object_name, form_name, project_filter, extension_filter)
+    results = tools.find_form(object_name, form_name, project_filter, extension_filter, limit)
 
     if not results:
         return [TextContent(type="text", text="Формы не найдены")]
@@ -28,8 +29,14 @@ async def handle_find_form(tools, arguments: dict) -> list[TextContent]:
 
     for project_name, project_data in results.items():
         response += f"📁 Проект: {project_name}\n"
-        for db_name, forms in project_data.items():
-            response += f"  └─ {db_name}:\n"
+        for db_name, payload in project_data.items():
+            total = payload['total_count']
+            forms = payload['forms']
+            count_note = f"{payload['returned_count']} из {total}" if payload['is_truncated'] else f"{total}"
+            response += f"  └─ {db_name}: {count_note}\n"
+            if payload['is_truncated']:
+                response += ("     is_truncated: true — сузьте object_name/form_name "
+                             "или увеличьте limit.\n")
             for form in forms:
                 kind = f" ({form['form_kind']})" if form.get('form_kind') else ""
                 response += f"     • {form['object_type']}.{form['object_name']}.{form['form_name']}{kind}\n"

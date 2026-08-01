@@ -3,6 +3,20 @@ from typing import Optional
 from shared.metadata_type_resolver import slot_to_mcp_type
 
 
+def _table_exists(cursor, name):
+    """Есть ли таблица в этой базе.
+
+    Живёт здесь, а не в dcs.py/relations.py: базы, собранные более старым индексатором,
+    легально не имеют таблиц поздних фаз, и это единственный случай, когда tool молчит
+    вместо ошибки. Проверять явно, а не ловить исключение, — иначе под ту же ветку
+    попадают настоящие ошибки запроса.
+    """
+    row = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (name,)
+    ).fetchone()
+    return row is not None
+
+
 def _load_resolved_types_map(cursor, source_table, source_row_ids):
     """Batch-load resolved types for attribute/column rows."""
     if not source_row_ids:

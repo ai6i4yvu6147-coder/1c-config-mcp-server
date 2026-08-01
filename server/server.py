@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -101,6 +102,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 success = False
                 error_code = type(e).__name__
                 response = [TextContent(type="text", text=str(e))]
+            except sqlite3.OperationalError as e:
+                # Текст ошибки SQLite агенту бесполезен и выглядит как поломка сервера:
+                # неэкранированный FTS-запрос отдавал наружу `no such column: Услуга`
+                # на совершенно обычном поиске «Товар-Услуга» (аудит 2026-08 T-10).
+                # Охранник запроса это закрывает, но ловим и здесь — чтобы никакая
+                # другая формулировка SQLite не ушла к агенту сырой.
+                success = False
+                error_code = type(e).__name__
+                response = [TextContent(type="text", text=(
+                    f"Инструмент '{name}' не смог выполнить запрос к индексу: {e}. "
+                    "Если это поиск — упростите строку запроса; "
+                    "если ошибка повторяется, пересоберите индекс в admin tool."
+                ))]
         return response
     except Exception as e:
         success = False

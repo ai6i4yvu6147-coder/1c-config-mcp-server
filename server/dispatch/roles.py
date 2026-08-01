@@ -1,5 +1,7 @@
 from mcp.types import TextContent
 
+from .common import _ambiguous_block
+
 
 def _bool_ru(value):
     if value is True:
@@ -185,6 +187,7 @@ async def handle_find_roles_for_object(tools, arguments: dict) -> list[TextConte
         right_name=arguments.get("right_name"),
         rls=arguments.get("rls"),
         max_results=arguments.get("max_results", 200),
+        object_type=arguments.get("object_type"),
     )
     if not results:
         return [TextContent(type="text", text=f"Роли с правами на '{object_name}' не найдены")]
@@ -218,9 +221,8 @@ async def handle_find_roles_for_object(tools, arguments: dict) -> list[TextConte
                 response += f"  └─ {db_name}: объект не найден\n"
                 continue
             if payload.get('ambiguous'):
-                response += f"  └─ {db_name}: неоднозначно, кандидаты:\n"
-                for c in payload.get('candidates', []):
-                    response += f"       • {c['type']}.{c['name']}\n"
+                response += f"  └─ {db_name}:\n"
+                response += _ambiguous_block(payload, indent="       ")
                 continue
             target = payload.get('target', {})
             roles = payload.get('roles', [])

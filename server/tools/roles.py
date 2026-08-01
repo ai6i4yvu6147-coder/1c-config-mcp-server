@@ -356,6 +356,7 @@ class RolesMixin:
         right_name=None,
         rls=None,
         max_results=DEFAULT_MAX_RESULTS,
+        object_type=None,
     ):
         self._require_project_filter(project_filter)
         databases = self._get_active_databases(project_filter)
@@ -372,6 +373,7 @@ class RolesMixin:
         if merge:
             return self._find_roles_for_object_merged(
                 object_name, databases, right_name, rls, max_results, _resolve_config_object,
+                object_type,
             )
 
         if extension_filter:
@@ -382,7 +384,7 @@ class RolesMixin:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
-            resolved = _resolve_config_object(cursor, object_name)
+            resolved = _resolve_config_object(cursor, object_name, object_type)
             project_key = db_info['project_name']
             results.setdefault(project_key, {})
 
@@ -394,6 +396,8 @@ class RolesMixin:
             if resolved['status'] == 'ambiguous':
                 results[project_key][f"{db_info['db_name']} ({db_info['db_type']})"] = {
                     'ambiguous': True,
+                    'requested_name': resolved['requested_name'],
+                    'match_kind': resolved.get('match_kind'),
                     'candidates': resolved['candidates'],
                 }
                 continue
@@ -431,6 +435,7 @@ class RolesMixin:
 
     def _find_roles_for_object_merged(
         self, object_name, databases, right_name, rls, max_results, resolve_fn,
+        object_type=None,
     ):
         layer_payloads = []
         target = None
@@ -443,7 +448,7 @@ class RolesMixin:
             meta = read_index_metadata(cursor)
             project_key = db_info['project_name']
 
-            resolved = resolve_fn(cursor, object_name)
+            resolved = resolve_fn(cursor, object_name, object_type)
             if resolved['status'] != 'found':
                 continue
 

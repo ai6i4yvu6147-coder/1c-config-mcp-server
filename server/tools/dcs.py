@@ -9,19 +9,13 @@ See docs/dcs-schema-indexing.md.
 
 import json
 
+from .formatting import _table_exists
 from .relations import _resolve_config_object
 
 _SHAPE_KEYS = (
     'has_query', 'dataset_count', 'field_count', 'parameter_count',
     'calculated_count', 'total_count', 'has_grouping', 'filter_item_count',
 )
-
-
-def _table_exists(cursor, name):
-    row = cursor.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (name,)
-    ).fetchone()
-    return row is not None
 
 
 def _row_summary(row):
@@ -36,7 +30,7 @@ class DcsMixin:
     """DataCompositionSchema retrieval (read side)."""
 
     def get_dcs_schema(self, object_name, project_filter=None, template=None,
-                       extension_filter=None):
+                       extension_filter=None, object_type=None):
         """Semantic DCS schema(s) owned by an object.
 
         Args:
@@ -45,6 +39,7 @@ class DcsMixin:
             template: имя шаблона (частичное). Без него — обзор всех схем объекта
                 (shape-hints); полный документ отдаётся, когда цель одна.
             extension_filter: точное имя базы (опционально).
+            object_type: вид метаданных владельца — для разрешения неоднозначности имени.
 
         Returns:
             Dict {проект: {база: {object, type, schemas: [...]}}}. Каждая схема — shape-hints
@@ -64,7 +59,7 @@ class DcsMixin:
             if not _table_exists(cursor, 'dcs_schema'):
                 continue  # DB built before Срез 2 -> nothing to serve here
 
-            resolved = _resolve_config_object(cursor, object_name)
+            resolved = _resolve_config_object(cursor, object_name, object_type)
             if resolved['status'] == 'not_found':
                 continue
 
@@ -74,6 +69,7 @@ class DcsMixin:
                 results.setdefault(project_key, {})[db_key] = {
                     'ambiguous': True,
                     'requested_name': resolved['requested_name'],
+                    'match_kind': resolved.get('match_kind'),
                     'candidates': resolved['candidates'],
                 }
                 continue

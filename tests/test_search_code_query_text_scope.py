@@ -80,7 +80,7 @@ def tools(tmp_path):
 
 
 def _entries(result):
-    return result['TestProject']['Main (base)']
+    return result['TestProject']['Main (base)']['matches']
 
 
 def test_query_text_probe_runs_without_module_type(tools):

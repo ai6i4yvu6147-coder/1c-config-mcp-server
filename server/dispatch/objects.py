@@ -3,6 +3,8 @@ from mcp.types import TextContent
 from shared.metadata_type_resolver import format_types_for_text
 from server.tools import format_business_process_route_text
 
+from .common import _ambiguous_block
+
 
 async def handle_find_object(tools, arguments: dict) -> list[TextContent]:
     obj_name = arguments["name"]
@@ -98,6 +100,7 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
 
     results = tools.get_object_structure(
         object_name, project_filter, extension_filter, sections, max_attributes,
+        arguments.get("object_type"),
     )
 
     if not results:
@@ -109,6 +112,9 @@ async def handle_get_object_structure(tools, arguments: dict) -> list[TextConten
         response += f"Проект: {project_name}\n"
         for db_name, structure in project_data.items():
             response += f"  {db_name}:\n\n"
+            if structure.get('ambiguous'):
+                response += _ambiguous_block(structure, indent="  ")
+                continue
             synonym = f" ({structure['synonym']})" if structure.get('synonym') else ""
             response += f"  {structure['type']}: {structure['name']}{synonym}\n"
             if structure.get('object_belonging'):

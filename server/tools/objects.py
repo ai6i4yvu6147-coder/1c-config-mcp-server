@@ -189,7 +189,8 @@ class ObjectsMixin:
         return results
 
     def get_object_structure(self, object_name, project_filter=None, extension_filter=None,
-                             sections=None, max_attributes=DEFAULT_MAX_ATTRIBUTES):
+                             sections=None, max_attributes=DEFAULT_MAX_ATTRIBUTES,
+                             object_type=None):
         """
         Получить полную структуру метаданных объекта 1С:
         реквизиты, табличные части, измерения/ресурсы регистров, значения перечислений.
@@ -202,6 +203,7 @@ class ObjectsMixin:
                 None — все секции
             max_attributes: лимит на списки реквизитов/измерений/ресурсов (0 — без лимита);
                 при обрезке добавляется <section>_total_count и is_truncated
+            object_type: вид метаданных — для разрешения неоднозначности имени
 
         Returns:
             Dict сгруппированный по проектам/базам
@@ -219,7 +221,7 @@ class ObjectsMixin:
             conn = self._get_connection(db_info['db_path'])
             cursor = conn.cursor()
 
-            resolved = _resolve_config_object(cursor, object_name)
+            resolved = _resolve_config_object(cursor, object_name, object_type)
             if resolved['status'] == 'not_found':
                 continue
             if resolved['status'] == 'ambiguous':
@@ -230,6 +232,7 @@ class ObjectsMixin:
                 results[project_key][db_key] = {
                     'ambiguous': True,
                     'requested_name': resolved['requested_name'],
+                    'match_kind': resolved.get('match_kind'),
                     'candidates': resolved['candidates'],
                 }
                 continue

@@ -66,38 +66,6 @@ Do not start implementation from the list without explicit user request.
 
 <!-- id | status | brief | context / links -->
 
-- **audit-2026-08-rebuild-epic** · `ready` · Эпик пересборки: индексы форм, BSL-хвостовые комментарии, схема FTS, ANALYZE
-
-  - **Источник:** [`architecture-audit-2026-08.md`](architecture-audit-2026-08.md) — все цифры замерены на реально собранном ЕРП «Планета» (22 128 объектов, 3.3 ГБ, сборка 244.8 c)
-
-  - **A-9 (Critical) · Нет FK-индексов по `form_id`** — `form_items` (349 180) / `form_attributes` (137 755) / `form_commands` (61 927) / `form_conditional_appearance` / `modules(form_id)`. Соседние таблицы свои индексы получили (`idx_form_events_form`, `ix_fac_form_attribute`, `idx_form_item_events_item`) → это упущение, не компромисс. **Замер:** `find_form` без фильтров ~817 c → 0.6 мс; `get_module_code(FormModule)` 31.4 → 0.1 мс; запросы `get_form_structure` 12–33 мс → 0.1–0.2 мс. **Цена: 0.3 c сборки, +7 МБ на 3.3 ГБ.** 6 строк в `schema.py`
-
-  - **P-6 (High) · BSL: теряются процедуры с хвостовым `//` в строке объявления** — regex требует `$` сразу после `)`/`Экспорт`, а фолбэк многострочной сигнатуры отсеивает строки с `)`. **Замер:** 347 из 350 таких объявлений потеряно в общих модулях ЕРП (0.48% всех). Процедуры нет в `get_module_procedures`, `get_procedure_code` не достаёт, `search_code` показывает `<тело модуля>`. Правка — `(?:\s*//.*)?` перед `$`, как уже сделано для `end_pattern`
-
-  - **A-7 + A-6 (High) · Схема FTS5** — `code_search` объявлен с колонкой `object_name`, которой **нет** в `modules` → `rebuild` / `snippet()` / `highlight()` падают с `no such column` (**рекомендация A-5 аудита 2026-07 в текущей схеме неисполнима**). Плюс `object_name`/`module_type` участвуют в `MATCH`: `MATCH 'FormModule'` = 11 880 попаданий, из них **0** содержат слово в коде; `MATCH 'ФормаСписка'` = 2 832 против 1 496 реальных. Ложные строки съедают `MAX_MODULES_SEARCH_CODE=100` **до** проверки релевантности → реальные совпадения молча обрезаются без `is_truncated`. Одна смена DDL закрывает оба пункта
-
-  - **A-8 · `ANALYZE` не выполняется** — `sqlite_stat1` в собранной базе отсутствует; на ЕРП `ANALYZE` = 1.8 c
-
-  - **A-10 · `metadata_type_slots`** — композит `(object_id, source_table)` вместо `(object_id)`; запросы `find_referencing_objects` всегда фильтруют по обоим, 423 161 строка
-
-  - **Done when:** `INDEXER_VERSION` 19 → 20, базы пересобраны, замеры § 5.1 аудита воспроизведены на пересобранной базе
-
-- **audit-2026-08-server-fixes** · `ready` · Правки только в `server/`, без пересборки БД
-
-  - **Источник:** [`architecture-audit-2026-08.md`](architecture-audit-2026-08.md) § 6
-
-  - **T-8 (High, корректность) · `_resolve_config_object`: `LIMIT 1` без `ORDER BY` и без сигнала неоднозначности** — в ЕРП **1 181 имя** (5.3% каталога) принадлежит 2+ видам объектов (`Взаиморасчеты` → Document/CommonModule/AccumulationRegister/Report/Role). `get_object_structure` / `find_referencing_objects` / `get_dcs_schema` молча берут произвольный объект, выбор может измениться между пересборками. Ветка **частичного** совпадения неоднозначность уже отдаёт корректно (`status: 'ambiguous'`) — точная ветка её обходит
-
-  - **T-9 (High) · `find_form` без обязательных фильтров** — по схеме нужен только `project_filter`; 12 695 форм × 3 коррелированных `COUNT` ≈ 7 млрд обращений к строкам, прогон не завершился за 600 c. Индексы из A-9 снимают стоимость, но `limit`/`is_truncated` всё равно нужны (унификация T-1 сюда не дошла)
-
-  - **T-10 (High) · FTS-запрос не экранируется** — `special_chars = '.()[]"\''` не покрывает `-`, `:`, `*`, `^`, висящие `AND`/`OR`. `'Товар-Услуга'` → `OperationalError: no such column: Услуга`. В `server.py` ловится только `ValueError`, поэтому агент получает сырой текст ошибки SQLite
-
-  - **T-12 · `module_type`/`object_name` выключают FTS целиком** — `use_exact_search` истинно при любом фильтре → `LIKE` по 904 МБ кода (232 мс против 1.7 мс у FTS). Фильтр накладывается поверх FTS: джойн уже есть, достаточно `AND m.module_type = ?`. Касается и `module_type='DcsQuery'`, который рекомендует описание `get_dcs_schema`
-
-  - **T-11 · `search_code`: схема против поведения** — схема обещает «максимум результатов на базу», код лимитирует вхождения **на модуль**; реальный потолок 100 модулей × `max_results` сниппетов ≈ сотни КБ без `is_truncated`
-
-  - **Мелочи § 6.6:** голый `except Exception` в `_fetch_referencing_role_grants`; нет `enum` в JSON-схемах для `module_type`/`object_type`/`element_type`; `get_module_code` без предупреждения о размере
-
 - **audit-2026-08-deferred** · `idea` · Отложено под метрики (из аудита 2026-08)
 
   - **P-7 · Двойной разбор дескриптора** — `onec_metadata_schema.parse` + `ET.parse` ради команд, **+36%** к разбору дескрипторов (замер: 1.50 c → +0.54 c на 450 дескрипторах). Оба вызова стоят **вне `_accumulate`** → на ЕРП сумма стадий 116 c при общем парсинге 146 c, ~30 c не атрибутированы: профилировка недосчитывает крупнейшую неоптимальность парсера. Команды берутся из уже разобранного `descriptor`

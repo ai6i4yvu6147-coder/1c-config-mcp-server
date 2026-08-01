@@ -1,5 +1,8 @@
 from mcp.types import TextContent
 
+# Порог предупреждения о размере модуля в get_module_code (~50 КБ).
+LARGE_MODULE_CHARS = 50_000
+
 
 async def handle_search_code(tools, arguments: dict) -> list[TextContent]:
     query = arguments["query"]
@@ -25,8 +28,12 @@ async def handle_search_code(tools, arguments: dict) -> list[TextContent]:
 
     for project_name, project_data in results.items():
         response += f"📁 Проект: {project_name}\n"
-        for db_name, db_results in project_data.items():
-            response += f"  └─ {db_name}: {len(db_results)} результат(ов)\n"
+        for db_name, payload in project_data.items():
+            db_results = payload['matches']
+            response += f"  └─ {db_name}: {payload['returned_count']} результат(ов)\n"
+            if payload['is_truncated']:
+                response += ("     is_truncated: true — показаны не все совпадения; "
+                             "сузьте запрос либо фильтрами object_name/module_type.\n")
             for r in db_results:
                 if r.get('match_kind') == 'form_query':
                     response += f"     • [запрос формы] {r['object_type']}.{r['object_name']}.{r['form_name']} / {r['attribute_name']}\n"
@@ -76,6 +83,16 @@ async def handle_get_module_code(tools, arguments: dict) -> list[TextContent]:
         for db_name, code in project_data.items():
             response += f"📁 {project_name} / {db_name}\n"
             response += f"Код модуля {object_name}.{mod_label}:\n\n"
+            # Модуль отдаётся целиком, а в крупных конфигурациях это сотни килобайт в
+            # одном ответе. Предупреждаем и показываем адресную альтернативу — сам код
+            # не режем: усечённый модуль хуже длинного (§ 6.6 аудита 2026-08).
+            if len(code) >= LARGE_MODULE_CHARS:
+                lines = code.count('\n') + 1
+                response += (
+                    f"[!] Модуль большой: ~{len(code) // 1024} КБ, {lines} строк. "
+                    "Адресно: get_module_procedures — список процедур, "
+                    "get_procedure_code — код одной, search_code — поиск по коду.\n\n"
+                )
             response += code + "\n\n"
 
     return [TextContent(type="text", text=response)]
