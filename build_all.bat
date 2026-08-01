@@ -1,22 +1,26 @@
 @echo off
+setlocal EnableExtensions
+cd /d "%~dp0"
+
 echo Building all components...
 
-echo.
-call venv\Scripts\activate.bat
+set "PY=venv\Scripts"
+if not exist "%PY%\python.exe" (
+    echo ERROR: venv not found. Create it and run: pip install -r requirements.txt
+    exit /b 1
+)
 
 echo.
 echo Resolving 1c-metadata-schema...
-set "METADATA_SCHEMA="
-if exist "C:\repo\1c-metadata-schema\pyproject.toml" set "METADATA_SCHEMA=C:\repo\1c-metadata-schema"
-if not defined METADATA_SCHEMA if exist "C:\projects\1c-metadata-schema\pyproject.toml" set "METADATA_SCHEMA=C:\projects\1c-metadata-schema"
-if not defined METADATA_SCHEMA (
-    echo ERROR: 1c-metadata-schema not found. Checked:
-    echo   C:\repo\1c-metadata-schema
-    echo   C:\projects\1c-metadata-schema
+set "METADATA_SCHEMA=%~dp0..\1c-metadata-schema"
+if not exist "%METADATA_SCHEMA%\pyproject.toml" (
+    echo ERROR: 1c-metadata-schema not found at:
+    echo   %METADATA_SCHEMA%
+    echo Expected sibling repo next to this project.
     exit /b 1
 )
 echo Using: %METADATA_SCHEMA%
-pip install -e "%METADATA_SCHEMA%"
+"%PY%\pip.exe" install -e "%METADATA_SCHEMA%"
 if errorlevel 1 (
     echo ERROR: pip install -e failed for %METADATA_SCHEMA%
     exit /b 1
@@ -27,15 +31,15 @@ echo [1/3] Building Admin Tool v2...
 rem Built from the tracked .spec, not CLI flags: PyInstaller regenerates (overwrites) a same-named
 rem .spec whenever --name is passed without pointing at an existing spec file, which has silently
 rem dropped datas entries (e.g. docs/agent-guide.md) in the past. The .spec is the source of truth.
-pyinstaller 1C-Config-Admin.spec --noconfirm
+"%PY%\python.exe" -m PyInstaller 1C-Config-Admin.spec --noconfirm
 
 echo.
 echo [2/3] Building MCP Server...
-pyinstaller 1c-config-server.spec --noconfirm
+"%PY%\python.exe" -m PyInstaller 1c-config-server.spec --noconfirm
 
 echo.
 echo [3/3] Building Admin Hub CLI...
-pyinstaller 1c-config-cli.spec --noconfirm
+"%PY%\python.exe" -m PyInstaller 1c-config-cli.spec --noconfirm
 
 echo.
 echo Verifying agent guide shipped in build outputs...
