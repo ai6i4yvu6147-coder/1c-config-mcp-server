@@ -280,8 +280,13 @@ class SchemaMixin:
                 FOREIGN KEY (src_object_id) REFERENCES metadata_objects(id)
             )
         ''')
+        # Композит, а не (object_id): find_referencing_objects всегда идёт как
+        # `WHERE object_id = ? AND source_table = '...'` (четыре ветки _REFERENCING_SLOTS_SQL),
+        # и без source_table в индексе остаётся лишний фильтр по строкам (423k на ЕРП).
+        # Отдельный индекс по (object_id) не нужен — он строгий префикс этого.
         cursor.execute('''
-            CREATE INDEX IF NOT EXISTS ix_mts_object ON metadata_type_slots(object_id)
+            CREATE INDEX IF NOT EXISTS ix_mts_object_source
+            ON metadata_type_slots(object_id, source_table)
         ''')
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS ix_mts_src_object ON metadata_type_slots(src_object_id)
@@ -503,6 +508,21 @@ class SchemaMixin:
 
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_modules_object ON modules(object_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_forms_object ON forms(object_id)')
+
+        # FK-индексы дочерних таблиц формы. Соседи (form_events, form_attribute_columns,
+        # form_item_events) свои получили сразу, эти пятеро — нет, и каждый запрос по форме
+        # шёл полным сканом: на ЕРП find_form без фильтров — ~817 c против 0.6 мс, а любой
+        # из ~5 запросов get_form_structure — 12–33 мс против 0.1–0.2 мс. Цена — 0.3 c
+        # сборки и +7 МБ на базу 3.3 ГБ (аудит 2026-08, A-9).
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_items_form ON form_items(form_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_attributes_form ON form_attributes(form_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_commands_form ON form_commands(form_id)')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_form_conditional_appearance_form
+            ON form_conditional_appearance(form_id)
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_modules_form ON modules(form_id)')
+
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_events_form ON form_events(form_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_form_item_events_item ON form_item_events(item_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_module_procedures_module ON module_procedures(module_id)')
@@ -612,12 +632,19 @@ class SchemaMixin:
             ON dcs_schema(object_id)
         ''')
 
-        # Таблица для полнотекстового поиска по коду (FTS5)
+        # Таблица для полнотекстового поиска по коду (FTS5), external content над modules.
+        # Индексируется ровно одна колонка — code. Прежняя схема объявляла ещё object_name и
+        # module_type, и это ломало сразу две вещи (аудит 2026-08, A-6/A-7):
+        #   - object_name в modules нет вовсе → контракт external content нарушен, и
+        #     `rebuild` / snippet() / highlight() падали с `no such column: T.object_name`;
+        #   - MATCH без имени колонки ищет по всем, поэтому служебные значения попадали в
+        #     выдачу как совпадения: MATCH 'FormModule' давал 11 880 строк, из которых 0
+        #     содержали слово в коде. Ложные строки съедали MAX_MODULES_SEARCH_CODE ещё до
+        #     проверки релевантности — реальные совпадения молча обрезались.
+        # Оба поля и так приходят джойном к modules/metadata_objects в server/tools/code.py.
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS code_search
             USING fts5(
-                object_name,
-                module_type,
                 code,
                 content='modules',
                 content_rowid='id'

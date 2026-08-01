@@ -116,9 +116,9 @@ class ObjectInsertionMixin:
                 ''', (object_id, module['type'], module['code']))
                 module_id = cursor.lastrowid
                 cursor.execute('''
-                    INSERT INTO code_search (rowid, object_name, module_type, code)
-                    VALUES (?, ?, ?, ?)
-                ''', (module_id, obj['name'], module['type'], module['code']))
+                    INSERT INTO code_search (rowid, code)
+                    VALUES (?, ?)
+                ''', (module_id, module['code']))
                 procs = _parse_module_procedures(module['code'])
                 if procs:
                     cursor.executemany('''
@@ -158,11 +158,10 @@ class ObjectInsertionMixin:
                             VALUES (?, NULL, ?, 'CommandModule', ?)
                         ''', (object_id, command_id, module_code))
                         module_id = cursor.lastrowid
-                        code_search_name = f"{obj['name']}.{cmd['name']}"
                         cursor.execute('''
-                            INSERT INTO code_search (rowid, object_name, module_type, code)
-                            VALUES (?, ?, ?, ?)
-                        ''', (module_id, code_search_name, 'CommandModule', module_code))
+                            INSERT INTO code_search (rowid, code)
+                            VALUES (?, ?)
+                        ''', (module_id, module_code))
                         procs = _parse_module_procedures(module_code)
                         if procs:
                             cursor.executemany('''
@@ -269,7 +268,7 @@ class ObjectInsertionMixin:
             object_id = row[0]
             for form in obj.get('forms', []):
                 self._insert_form(
-                    cursor, object_id, obj['name'], form, fo_resolver,
+                    cursor, object_id, form, fo_resolver,
                     pending_type_slots=pending_form_type_slots,
                 )
 
@@ -286,14 +285,22 @@ class ObjectInsertionMixin:
         self._insert_index_metadata(cursor, data)
 
         self.conn.commit()
-        cursor.execute('PRAGMA synchronous=NORMAL')
+
+        # Без sqlite_stat1 планировщик работает на дефолтных эвристиках и на базе в
+        # несколько ГБ выбирает SCAN там, где индекс дешевле. На ЕРП (3.3 ГБ) ANALYZE
+        # занимает 1.8 c — это последний шаг сборки, дальше база только читается.
+        t_analyze = time.perf_counter()
+        cursor.execute('ANALYZE')
+        self.conn.commit()
+        if progress_callback:
+            progress_callback(98, 100, f"ANALYZE — {time.perf_counter() - t_analyze:.1f} c")
 
     def _insert_dcs_schemas(self, cursor, object_id, obj):
         """DCS templates of an object (dcs-schema-indexing):
 
         - Срез 1: each dataset query text -> code_search (FTS) as a 'DcsQuery' module row
-          (external content over modules); object_name = `<Object>.<Template>`. Query-less
-          schemas add no row (graceful degradation).
+          (external content over modules). Query-less schemas add no row (graceful
+          degradation).
         - Срез 2: one extractable document per schema -> dcs_schema (schema_json blob +
           denormalised shape hints for cheap listing / query-vs-rule distinction).
 
@@ -311,9 +318,9 @@ class ObjectInsertionMixin:
                 ''', (object_id, query_text))
                 module_id = cursor.lastrowid
                 cursor.execute('''
-                    INSERT INTO code_search (rowid, object_name, module_type, code)
-                    VALUES (?, ?, 'DcsQuery', ?)
-                ''', (module_id, f"{obj['name']}.{template_name}", query_text))
+                    INSERT INTO code_search (rowid, code)
+                    VALUES (?, ?)
+                ''', (module_id, query_text))
 
             # Срез 2
             shape = dcs.get('shape') or {}
@@ -341,8 +348,8 @@ class ObjectInsertionMixin:
     def _insert_spreadsheet_templates(self, cursor, object_id, obj):
         """MXL macets of an object (mxl-macet-indexing), Срез 1: the macet's visible text
         (cell text + whole-cell parameters + named-area names) -> code_search (FTS) as an
-        'MxlText' module row (external content over modules); object_name = `<Object>.<Template>`.
-        Text-less macets add no row (graceful degradation). See docs/mxl-macet-indexing.md."""
+        'MxlText' module row (external content over modules). Text-less macets add no row
+        (graceful degradation). See docs/mxl-macet-indexing.md."""
         for macet in obj.get('spreadsheet_templates', []):
             text = macet.get('text')
             if not (text and text.strip()):
@@ -353,9 +360,9 @@ class ObjectInsertionMixin:
             ''', (object_id, text))
             module_id = cursor.lastrowid
             cursor.execute('''
-                INSERT INTO code_search (rowid, object_name, module_type, code)
-                VALUES (?, ?, 'MxlText', ?)
-            ''', (module_id, f"{obj['name']}.{macet.get('template_name', '')}", text))
+                INSERT INTO code_search (rowid, code)
+                VALUES (?, ?)
+            ''', (module_id, text))
 
     def _insert_attribute(self, cursor, object_id, attr, section='Attribute', pending_type_slots=None):
         """Вставляет атрибут объекта в БД"""

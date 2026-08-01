@@ -12,6 +12,18 @@ def _strip_bsl_comment_line(line):
     return stripped
 
 
+def _paren_depth(line):
+    """Баланс круглых скобок в строке без её хвостового //-комментария.
+
+    Комментарий срезается, чтобы `// (см. ниже` не ломал поиск конца многострочной
+    сигнатуры; по той же причине баланс, а не «есть ли в строке )» — иначе объявление
+    вида `Процедура Х(П = Новый Массив(),` не подхватывал ни один из шаблонов.
+    """
+    idx = line.find('//')
+    code_part = line if idx < 0 else line[:idx]
+    return code_part.count('(') - code_part.count(')')
+
+
 def _parse_module_procedures(code):
     """
     Парсит код модуля 1С, возвращает список процедур/функций для таблицы module_procedures.
@@ -23,8 +35,12 @@ def _parse_module_procedures(code):
     Поддерживаются многострочные объявления (закрывающая скобка ) и Экспорт на следующих строках).
     """
     lines = code.split('\n')
+    # Хвост строки объявления: 1С допускает и точку с запятой после сигнатуры, и //-комментарий
+    # (в общих модулях ЕРП — 350 объявлений с комментарием и 205 с `;`). Требование `$` сразу
+    # после `)`/`Экспорт` выбрасывало такую процедуру из индекса целиком: основной шаблон её
+    # не брал, а фолбэк многострочной сигнатуры отсеивал строку по наличию `)`.
     pattern = re.compile(
-        r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*$',
+        r'^\s*(Процедура|Функция)\s+([А-Яа-яA-Za-z0-9_]+)\s*\((.*?)\)\s*(Экспорт)?\s*;?\s*(?://.*)?$',
         re.IGNORECASE
     )
     # Начало объявления без требования закрывающей ) на той же строке (для многострочных сигнатур)
@@ -46,8 +62,14 @@ def _parse_module_procedures(code):
     ]
     # Trailing // comments after КонецФункции/КонецПроцедуры are common in 1C codebases and must not
     # prevent boundary detection (e.g. "КонецФункции // ИмяФункции()").
+    # Начало строки — не единственная позиция закрывающего ключевого слова: в живом коде оно
+    # встречается приклеенным к предыдущему оператору («КонецЦикла;\tКонецПроцедуры»,
+    # «Возврат Х;КонецФункции» — 34 места в ЕРП). Пропущенная граница стоит дорого вдвойне:
+    # предыдущая процедура получает end_line следующей (get_procedure_code склеивает две), а
+    # следующая теряется целиком. Разрешаем позицию после `;` — то есть после конца оператора,
+    # но не внутри строки или комментария.
     end_pattern = re.compile(
-        r'^\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\b(?:\s*//.*)?\s*$',
+        r'(?:^|;)\s*(КонецФункции|КонецПроцедуры|EndFunction|EndProcedure)\b(?:\s*//.*)?\s*$',
         re.IGNORECASE,
     )
 
@@ -118,7 +140,7 @@ def _parse_module_procedures(code):
             start_line, comment, execution_context, extension_call_type = prefix_info(i, line_num)
             end_line = None
             for j in range(i + 1, len(lines)):
-                if end_pattern.match(lines[j]):
+                if end_pattern.search(lines[j]):
                     end_line = j + 1
                     break
             result.append({
@@ -138,14 +160,16 @@ def _parse_module_procedures(code):
                 i = len(lines)
         else:
             start_match = start_only_pattern.match(lines[i])
-            if start_match and ')' not in lines[i]:
-                # Многострочное объявление: читаем до строки с )
+            depth = _paren_depth(lines[i]) if start_match else 0
+            if start_match and depth > 0:
+                # Многострочное объявление: читаем до строки, закрывающей сигнатуру
                 proc_type = start_match.group(1)
                 name = start_match.group(2)
-                j = i + 1
-                while j < len(lines) and ')' not in lines[j]:
+                j = i
+                while j + 1 < len(lines) and depth > 0:
                     j += 1
-                if j >= len(lines):
+                    depth += _paren_depth(lines[j])
+                if depth > 0:
                     i += 1
                     continue
                 closing_line = lines[j]
@@ -154,7 +178,7 @@ def _parse_module_procedures(code):
                 start_line, comment, execution_context, extension_call_type = prefix_info(i, i + 1)
                 end_line = None
                 for k in range(j + 1, len(lines)):
-                    if end_pattern.match(lines[k]):
+                    if end_pattern.search(lines[k]):
                         end_line = k + 1
                         break
                 result.append({

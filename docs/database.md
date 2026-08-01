@@ -31,7 +31,8 @@
 - `build_from_xml_atomic` — маркер → сборка в `.db.tmp` → подмена целевого `.db`;
 - создаётся схема таблиц;
 - загружаются метаданные, формы, модули;
-- код модулей индексируется через FTS5 (`code_search`).
+- код модулей индексируется через FTS5 (`code_search`);
+- последним шагом выполняется `ANALYZE` — без `sqlite_stat1` планировщик на многогигабайтной базе выбирает `SCAN` там, где индекс дешевле (на ЕРП 3.3 ГБ сам `ANALYZE` — 1.8 c).
 - **Пропущенные формы (P-2):** если парсинг конкретной формы падает с исключением, она пропускается (не попадает в индекс), но количество пропусков считается (`parser.skipped_forms`) и выводится через `progress_callback` (видно в build-логе GUI), а не только в stdout `print`, который в GUI-режиме никто не видит.
 
 ### Что хранится (в общих чертах)
@@ -43,7 +44,7 @@
 - `form_items`: identity + tree (`name`, `item_type`, `parent_id`); свойства UI — в `form_entity_properties` (`entity_kind=item`).
 - `module_procedures`: индекс процедур/функций (границы строк) для адресного извлечения кода; колонка `used_in_scheduled_job` — процедура указана в `MethodName` хотя бы одного регл. задания.
 - `scheduled_jobs`: свойства регламентных заданий (`method_name`, `use`, `predefined`, `restart_count_on_failure`, `restart_interval_on_failure`, …); связь с объектом через `object_id` → `metadata_objects`.
-- `code_search` (FTS5): полнотекстовый поиск по коду модулей.
+- `code_search` (FTS5): полнотекстовый поиск по коду модулей. External content над `modules`, индексируется **ровно одна** колонка — `code`. Служебные поля в FTS не кладутся: `MATCH` без имени колонки ищет по всем, и `module_type`/`object_name` давали совпадения-призраки, съедавшие лимит выдачи ещё до проверки релевантности; плюс `object_name` в `modules` нет вовсе, из-за чего `rebuild`/`snippet()`/`highlight()` падали с `no such column` (v22, аудит 2026-08 A-6/A-7). Имя объекта и тип модуля берутся джойном к `modules`/`metadata_objects`.
 - `fo_content_ref`, `fo_form_usage`: привязки функциональных опций (уже есть).
 - **Type system (фаза 1 + формы):** см. [`dependency-layer.md`](dependency-layer.md), [`form-type-system.md`](form-type-system.md):
   - `metadata_objects`: `object_kind` (`ConfigObject` | `TypeDescriptor`), `is_primitive`, `base_type`, `qualifier_1..3` для синтетических примитивов и form-wrappers (`ValueListType`, `ValueTable`, `DynamicList`);

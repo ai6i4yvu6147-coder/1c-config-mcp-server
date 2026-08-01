@@ -71,7 +71,7 @@ class FormInsertionMixin:
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (fo_id, owner_object_id, form_id, element_type, element_name, parent_element_name))
 
-    def _insert_form(self, cursor, object_id, object_name, form, fo_resolver=None, pending_type_slots=None):
+    def _insert_form(self, cursor, object_id, form, fo_resolver=None, pending_type_slots=None):
         """Вставляет данные формы в БД. fo_resolver: dict (uuid/имя/FunctionalOption.Имя -> id) для fo_form_usage."""
         fo_resolver = fo_resolver or {}
         cursor.execute('''
@@ -237,14 +237,9 @@ class FormInsertionMixin:
 
             module_id = cursor.lastrowid
             cursor.execute('''
-                INSERT INTO code_search (rowid, object_name, module_type, code)
-                VALUES (?, ?, ?, ?)
-            ''', (
-                module_id,
-                f"{object_name}.{form['name']}",
-                'FormModule',
-                form['module']
-            ))
+                INSERT INTO code_search (rowid, code)
+                VALUES (?, ?)
+            ''', (module_id, form['module']))
             procs = _parse_module_procedures(form['module'])
             if procs:
                 cursor.executemany('''

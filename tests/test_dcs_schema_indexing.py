@@ -114,7 +114,7 @@ _INSERT_SCHEMA = '''
         command_id INTEGER, module_type TEXT NOT NULL, code TEXT NOT NULL
     );
     CREATE VIRTUAL TABLE code_search USING fts5(
-        object_name, module_type, code, content='modules', content_rowid='id'
+        code, content='modules', content_rowid='id'
     );
     CREATE TABLE dcs_schema (
         id INTEGER PRIMARY KEY AUTOINCREMENT, object_id INTEGER NOT NULL,
