@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
 from tkinter.scrolledtext import ScrolledText
+import multiprocessing
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -817,4 +818,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Required on Windows for the PyInstaller-frozen build: without it, every spawned
+    # ProcessPoolExecutor worker (P-8 parallel form parsing) would re-launch the whole GUI
+    # instead of running as a plain worker process.
+    multiprocessing.freeze_support()
     main()

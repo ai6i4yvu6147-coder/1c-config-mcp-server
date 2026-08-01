@@ -126,6 +126,10 @@ class ObjectInsertionMixin:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', [(module_id, p['name'], p['proc_type'], p['start_line'], p['end_line'],
                            p['params'], p['is_export'], p['execution_context'], p['extension_call_type'], p['comment']) for p in procs])
+            # P-4 (audit-2026-08): module code is the single biggest chunk of a parsed object
+            # (904 MB across modules on the ERP corpus) — drop it the moment it's inserted
+            # instead of keeping the whole tree (data['objects']) alive until insert finishes.
+            obj['modules'] = None
 
             # Срез 1 (dcs-schema-indexing): текст запроса набора СКД -> code_search (FTS).
             # code_search — внешнее содержимое над modules, поэтому кладём запрос строкой
@@ -192,6 +196,20 @@ class ObjectInsertionMixin:
                         obj.get('route_points', []),
                         obj.get('route_transitions', []),
                     )
+                    obj['route_points'] = None
+                    obj['route_transitions'] = None
+                obj['tabular_sections'] = None
+                obj['dimensions'] = None
+                obj['resources'] = None
+                obj['attributes'] = None
+                obj['enum_values'] = None
+            # P-4: everything below this line is only ever read once, right above — release
+            # it now rather than holding it until phase 2 (forms) or the end of insertion.
+            obj['commands'] = None
+            obj['dcs_schemas'] = None
+            obj['spreadsheet_templates'] = None
+            if 'type_slots' in obj:
+                obj['type_slots'] = None
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 20 + int((idx / total_objects) * 40)
@@ -271,6 +289,11 @@ class ObjectInsertionMixin:
                     cursor, object_id, form, fo_resolver,
                     pending_type_slots=pending_form_type_slots,
                 )
+            # P-4 (audit-2026-08): form item/attribute/command trees are the second-biggest
+            # chunk of a parsed object (349k form_items + 137k form_attributes + 61k
+            # form_commands + 1.9M form_entity_properties rows on the ERP corpus) — release
+            # once inserted instead of holding the whole tree alive for the rest of the build.
+            obj['forms'] = None
 
             if progress_callback and (idx % 10 == 0 or idx == total_objects - 1):
                 progress = 60 + int((idx / total_objects) * 40)

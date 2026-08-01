@@ -44,5 +44,35 @@ class TestSkippedForms(unittest.TestCase):
             self.assertEqual(parser.skipped_forms, [])
 
 
+class TestSkippedFormModules(unittest.TestCase):
+    """P-9: reading Module.bsl must be counted on error, not just silently return None."""
+
+    def test_broken_module_read_is_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            form_dir = Path(tmp) / 'ФормаСписка'
+            module_dir = form_dir / 'Ext' / 'Form' / 'Module.bsl'
+            # A directory where a file is expected makes the open() call raise.
+            module_dir.mkdir(parents=True)
+
+            parser = _parser()
+            result = parser._parse_form_module(form_dir)
+
+            self.assertIsNone(result)
+            self.assertEqual(len(parser.skipped_form_modules), 1)
+            self.assertIn(str(module_dir), parser.skipped_form_modules[0]['path'])
+            self.assertTrue(parser.skipped_form_modules[0]['error'])
+
+    def test_missing_module_bsl_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            form_dir = Path(tmp) / 'ПустаяПапка'
+            form_dir.mkdir()
+
+            parser = _parser()
+            result = parser._parse_form_module(form_dir)
+
+            self.assertIsNone(result)
+            self.assertEqual(parser.skipped_form_modules, [])
+
+
 if __name__ == '__main__':
     unittest.main()

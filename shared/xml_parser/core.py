@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import time
 import xml.etree.ElementTree as ET
@@ -64,13 +65,25 @@ OBJECT_LEVEL_TYPE_TYPES = frozenset({'DefinedType', 'Constant'})
 class ConfigurationParserCore:
     """Configuration.xml top-level parsing, per-object dispatch, subsystems, properties/attributes."""
 
-    def __init__(self, config_path):
+    def __init__(self, config_path, use_process_pool=True):
         """
         Args:
             config_path: Путь к файлу Configuration.xml
+            use_process_pool: Разбирать формы (P-8 audit-2026-08) через ProcessPoolExecutor
+                во время parse(). По умолчанию включено; True/False — рубильник на случай
+                проблем с параллелизмом в конкретном окружении, тестам он даёт возможность
+                детерминированно сравнить последовательный путь с параллельным.
         """
         self.config_path = Path(config_path)
         self.root_dir = self.config_path.parent
+        self._use_process_pool = use_process_pool
+        # Пул воркеров для параллельного разбора форм (P-8 audit-2026-08) — создаётся в
+        # parse() (объект ProcessPoolExecutor сам по себе не порождает процессы: они
+        # появляются лениво только на первый submit(), а submit() вызывается лишь когда у
+        # объекта реально нашлась папка Forms/ — см. FormsMixin._submit_forms). None здесь —
+        # «пул ещё не запущен» (вызовы _parse_object в обход parse(), как в юнит-тестах,
+        # всегда получают синхронный путь без побочных процессов).
+        self._form_pool = None
         # Накопленное время по категориям парсинга (заполняется во время parse()),
         # используется вызывающей стороной (db_manager) для разбивки в progress_callback.
         self.stage_seconds = {}
@@ -81,6 +94,9 @@ class ConfigurationParserCore:
         # СКД-схемы, не прочитанные из-за исключения (см. TemplatesDcsMixin._parse_dcs_schemas)
         # — тот же контракт «пропуск, не падение», что и для форм.
         self.skipped_dcs = []
+        # Модули форм, не прочитанные из-за исключения (см. FormsMixin._parse_form_module,
+        # P-9 audit-2026-08) — раньше терялись молча, без счётчика и без записи в лог сборки.
+        self.skipped_form_modules = []
         # Индексировать ли MXL-макеты (SpreadsheetDocument). По умолчанию ВЫКЛ: у конфигураций/
         # расширений макеты — это тысячи layout-only объектов (корпус ~22k), они кратно
         # замедляют сборку и почти не несут семантики для анализа. Включается в parse() только
@@ -105,7 +121,31 @@ class ConfigurationParserCore:
         `MetaDataObject/ExternalDataProcessor` (внешняя обработка) и
         `MetaDataObject/ExternalReport` (внешний отчёт) — внешние объекты читаются через
         библиотеку onec_metadata_schema, см. external_processor.py.
+
+        P-8 (audit-2026-08): на время parse() поднимается ProcessPoolExecutor для форм
+        (self._form_pool) — сам объект процессов не порождает, они появляются лениво только
+        на первый submit() (см. FormsMixin._submit_forms), так что конфигурации без форм
+        (внешние отчёты/обработки почти всегда, мелкие тестовые фикстуры) ничего не платят.
+
+        ВАЖНО (Windows): вызывающий код обязан быть за ``if __name__ == '__main__':`` —
+        стандартное требование `multiprocessing` со spawn-стартом. Без этого дочерний
+        процесс переимпортирует entry-point со всем верхнеуровневым кодом заново → как
+        минимум мусор в выводе, как максимум `BrokenProcessPool`. `admin_tool/gui_v2.py` и
+        `admin_tool/cli.py` (оба билдера, единственные вызывающие build_from_xml_atomic)
+        уже так оформлены и вдобавок зовут `multiprocessing.freeze_support()` — это нужно
+        и для PyInstaller-сборки (иначе воркер перезапускает всё приложение).
         """
+        workers = max(1, (os.cpu_count() or 2) - 1)
+        pool_cls = concurrent.futures.ProcessPoolExecutor if (self._use_process_pool and workers > 1) else None
+        self._form_pool = pool_cls(max_workers=workers) if pool_cls else None
+        try:
+            return self._parse_root()
+        finally:
+            if self._form_pool is not None:
+                self._form_pool.shutdown(wait=True)
+                self._form_pool = None
+
+    def _parse_root(self):
         tree = ET.parse(_winlong(self.config_path))
         root = tree.getroot()
 
@@ -120,10 +160,10 @@ class ConfigurationParserCore:
         md_ns = 'http://v8.1c.ru/8.3/MDClasses'
         if self._get_object_element(root, 'ExternalDataProcessor', md_ns) is not None:
             self.index_spreadsheet_templates = True
-            return self._parse_external_data_processor(root)
+            return self._parse_external_data_processor()
         if self._get_object_element(root, 'ExternalReport', md_ns) is not None:
             self.index_spreadsheet_templates = True
-            return self._parse_external_report(root)
+            return self._parse_external_report()
 
         return {'name': '', 'objects': []}
 
@@ -173,6 +213,12 @@ class ConfigurationParserCore:
                     if obj_data:
                         objects.append(obj_data)
 
+        # P-8: forms were submitted to self._form_pool (when running) as we went, not parsed
+        # inline — resolve them all here, once, after the object loop above has finished
+        # queuing every object's forms job. By now the pool has had the whole non-forms part
+        # of the loop (modules/commands/dcs/properties, ~40% of parse time) to work through
+        # the forms queue in the background, so most futures are already done.
+        self._resolve_pending_forms(objects)
         return objects
 
     def _subsystem_qualified_name(self, xml_path):
@@ -316,7 +362,7 @@ class ConfigurationParserCore:
         # модулей/форм/команд по виду объекта отличается от типов-с-реквизитами.
         if obj_type in PROPERTY_ONLY_MIGRATED_TYPES:
             return self._assemble_property_only_object(
-                descriptor, name, obj_type, folder_name, xml_file
+                descriptor, name, obj_type, folder_name
             )
 
         with self._accumulate('properties'):
@@ -352,12 +398,12 @@ class ConfigurationParserCore:
             'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
             'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
         }
-        with self._accumulate('forms'):
-            forms = self._parse_forms(name, folder_name, default_forms)
-        # Команды читаются из сырого XML — file-walk метод берёт ET-корень, как и старый путь.
-        root = ET.parse(_winlong(xml_file)).getroot()
+        # P-8: submitted to the form pool (when running), resolved later in one batch by
+        # _resolve_pending_forms — see _parse_child_objects.
+        forms = self._submit_forms(name, folder_name, default_forms)
+        # Команды — из уже разобранного descriptor (P-7 audit-2026-08): второй ET.parse не нужен.
         with self._accumulate('commands'):
-            commands = self._parse_object_commands(root, name, folder_name, obj_type)
+            commands = self._parse_object_commands(descriptor, name, folder_name)
         with self._accumulate('dcs'):
             dcs_schemas = self._parse_dcs_schemas(name, folder_name)
             spreadsheet_templates = self._parse_spreadsheet_templates(name, folder_name)
@@ -392,7 +438,7 @@ class ConfigurationParserCore:
             result['route_transitions'] = route_transitions
         return result
 
-    def _assemble_property_only_object(self, descriptor, name, obj_type, folder_name, xml_file):
+    def _assemble_property_only_object(self, descriptor, name, obj_type, folder_name):
         """Собирает dict property-only объекта: нет реквизитов/секций/ТЧ, весь смысл — в
         свойствах дескриптора. Соседние файлы (модули/формы/команды/СКД) читаются file-walk
         методами по соседним файлам. Развилка modules/forms/commands по виду объекта — см.
@@ -409,8 +455,7 @@ class ConfigurationParserCore:
         #   CommonModule/CommonCommand/FunctionalOption — обычный file-walk (+CommandModule.bsl).
         if obj_type == 'CommonForm':
             modules = []
-            with self._accumulate('forms'):
-                forms = self._parse_common_form(name, folder_name, descriptor.uuid or '')
+            forms = self._submit_common_form(name, folder_name, descriptor.uuid or '')
         elif obj_type in ('ScheduledJob', 'DefinedType', 'EventSubscription'):
             # У подписки своего кода нет — обработчик живёт в общем модуле (Handler).
             modules = []
@@ -432,8 +477,7 @@ class ConfigurationParserCore:
                 'List': properties.get('default_list_form') or properties.get('auxiliary_list_form'),
                 'Choice': properties.get('default_choice_form') or properties.get('auxiliary_choice_form'),
             }
-            with self._accumulate('forms'):
-                forms = self._parse_forms(name, folder_name, default_forms)
+            forms = self._submit_forms(name, folder_name, default_forms)
 
         # Команды: читают только CommonModule/FunctionalOption (паритет со списком исключений
         # старого пути). У остальных — [].
@@ -441,9 +485,8 @@ class ConfigurationParserCore:
                         'Constant', 'EventSubscription'):
             commands = []
         else:
-            root = ET.parse(_winlong(xml_file)).getroot()
             with self._accumulate('commands'):
-                commands = self._parse_object_commands(root, name, folder_name, obj_type)
+                commands = self._parse_object_commands(descriptor, name, folder_name)
 
         with self._accumulate('dcs'):
             dcs_schemas = self._parse_dcs_schemas(name, folder_name)

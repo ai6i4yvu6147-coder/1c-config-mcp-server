@@ -1,4 +1,4 @@
-mcp
+mcp==1.29.0
 pyinstaller
 pyyaml>=6.0
 # onec_metadata_schema (read side for external data processors): editable install from the

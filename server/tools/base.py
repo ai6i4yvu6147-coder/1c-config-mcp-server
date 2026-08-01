@@ -120,6 +120,9 @@ class BaseTools:
             uri = p.resolve().as_uri() + '?mode=ro'
             conn = sqlite3.connect(uri, uri=True)
             conn.row_factory = sqlite3.Row
+            # Default page cache is 2 MB against multi-GB DB files (§4.4 audit-2026-08).
+            conn.execute('PRAGMA cache_size=-65536')  # 64 MB
+            conn.execute('PRAGMA mmap_size=1073741824')  # 1 GB, OS pages in on demand
             conn.create_function('py_lower', 1, _py_lower, deterministic=True)
             self.connections[db_path] = conn
             self._connection_mtime[db_path] = current_mtime

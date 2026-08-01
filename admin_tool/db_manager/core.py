@@ -134,6 +134,12 @@ class DatabaseManagerCore:
                     10, 100,
                     f"    ⚠ Пропущено форм при парсинге (ошибки): {len(parser.skipped_forms)} — см. лог выше",
                 )
+            if parser.skipped_form_modules:
+                progress_callback(
+                    10, 100,
+                    f"    ⚠ Пропущено модулей форм при парсинге (ошибки): "
+                    f"{len(parser.skipped_form_modules)} — см. лог выше",
+                )
 
         t0 = time.perf_counter()
         self._create_schema()

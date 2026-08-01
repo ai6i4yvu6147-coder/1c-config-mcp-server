@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -266,4 +267,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Required on Windows for the PyInstaller-frozen build: without it, every spawned
+    # ProcessPoolExecutor worker (P-8 parallel form parsing) would re-launch the whole CLI
+    # instead of running as a plain worker process.
+    multiprocessing.freeze_support()
     raise SystemExit(main())

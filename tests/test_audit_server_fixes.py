@@ -152,9 +152,8 @@ def test_fts_phrase_escapes_quotes():
 def _schema(name):
     for tool in TOOL_SCHEMAS:
         if tool.name == name:
-            # mcp.types.Tool — pydantic-модель: конструируется по алиасу inputSchema,
-            # читается по имени поля input_schema.
-            return tool.input_schema['properties']
+            # mcp.types.Tool (mcp>=1.29.0) — поле называется inputSchema без snake_case алиаса.
+            return tool.inputSchema['properties']
     raise AssertionError(f'нет tool {name}')
 
 

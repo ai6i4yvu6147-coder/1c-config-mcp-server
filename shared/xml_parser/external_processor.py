@@ -23,12 +23,13 @@ actual `Templates/` dir off disk for **both** DCS schemas and MXL macets: unlike
 scale), an external report/processor is a single object whose macet/schema is usually its
 whole payload, so both are indexed. See docs/mxl-macet-indexing.md.
 
-Modules (`.bsl`), form structure (`Form.xml`) and object commands are **separate files on
-disk**, not present in the descriptor Node — the library's `parse()` is single-file. They
-are read by the existing config-mcp file-walk methods with `folder_name=''`, because an
-external object's siblings sit directly next to `<Name>.xml`
+Modules (`.bsl`) and form structure (`Form.xml`) are **separate files on disk**, not present
+in the descriptor Node. They are read by the existing config-mcp file-walk methods with
+`folder_name=''`, because an external object's siblings sit directly next to `<Name>.xml`
 (`<root>/<Name>/Ext/…`, `<root>/<Name>/Forms/…`), i.e. the same relative layout an embedded
-`DataProcessor`/`Report` has under `DataProcessors/<Name>/…` / `Reports/<Name>/…`.
+`DataProcessor`/`Report` has under `DataProcessors/<Name>/…` / `Reports/<Name>/…`. Object
+commands (P-7, audit-2026-08) come from the descriptor's own `Command` children instead —
+same `Node` the library already parsed, no second `ET.parse` of `<Name>.xml`.
 
 Canon: docs/group/shared/metadata-library-cluster.md (Variant B); track
 `external-processor-root` in docs/todo.md.
@@ -41,20 +42,17 @@ EXTERNAL_REPORT_TAG = 'ExternalReport'
 class ExternalProcessorMixin:
     """Root dispatch + Node->dict adapter for external data processor / report descriptors."""
 
-    def _parse_external_data_processor(self, root):
-        return self._parse_external_root(root, EXTERNAL_DATA_PROCESSOR_TAG, 'DataProcessor')
+    def _parse_external_data_processor(self):
+        return self._parse_external_root(EXTERNAL_DATA_PROCESSOR_TAG, 'DataProcessor')
 
-    def _parse_external_report(self, root):
-        return self._parse_external_root(root, EXTERNAL_REPORT_TAG, 'Report')
+    def _parse_external_report(self):
+        return self._parse_external_root(EXTERNAL_REPORT_TAG, 'Report')
 
-    def _parse_external_root(self, root, descriptor_tag, obj_type):
+    def _parse_external_root(self, descriptor_tag, obj_type):
         """Build the same {name, extension_purpose, objects:[…]} structure `parse()`
         returns for a configuration, but for a single external object (`obj_type` is the
         internal type it maps onto: an external data processor -> 'DataProcessor', an
         external report -> 'Report').
-
-        `root` is the already-parsed ElementTree root of `<Name>.xml`; it is reused for the
-        file-walk methods that read from the raw XML (commands) rather than the library Node.
         """
         try:
             import onec_metadata_schema
@@ -84,7 +82,7 @@ class ExternalProcessorMixin:
         with self._accumulate('forms'):
             obj['forms'] = self._parse_forms(name, '', default_forms)
         with self._accumulate('commands'):
-            obj['commands'] = self._parse_object_commands(root, name, '', descriptor_tag)
+            obj['commands'] = self._parse_object_commands(descriptor, name, '')
         # Templates/ live at <root_dir>/<Name>/Templates/ (folder_name='') — same relative
         # shape as the embedded path. Unlike embedded objects, external reports/processors DO
         # index MXL macets (self.index_spreadsheet_templates set True in parse()): the macet is
