@@ -36,9 +36,6 @@ scratch/
 # Одноразовые handoff-отчёты для других команд (не коммитить)
 /HANDOFF-*.md
 
-# Group sync exports (ephemeral)
-docs/group/exports/
-
 # Claude Code (локальные worktrees, не в репозиторий)
 .claude/
 

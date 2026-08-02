@@ -43,7 +43,7 @@ Admin Hub владеет canonical registry (клиенты, выгрузки, �
 
 ### Согласованный mapping Hub ↔ config-mcp (2026-06-28)
 
-**Статус:** agreed async (2026-06-28). Канонический mapping — Head `docs/group/shared/registry-mapping.md` at `head.path` (`C:/projects/1c-admin-tool/docs/group/shared/registry-mapping.md`).
+**Статус:** agreed async (2026-06-28).
 
 | Термин Hub | Термин config-mcp | Соотношение | Примечание |
 |------------|-------------------|-------------|------------|
@@ -326,7 +326,7 @@ Hub может tail-ить файл для event feed и audit; `operationRunId`
 
 ### Отклонения и версии
 
-При конфликте между v1, v1.0.1, v1.0.2 и v1.0.3 — **приоритет у v1.0.3** ([`protocol-v1.0.3-addendum.md`](protocol-v1.0.3-addendum.md)).
+При конфликте между v1, v1.0.1, v1.0.2 и v1.0.3 — **приоритет у v1.0.3** (Head `1c-admin-tool` `docs/protocol/protocol-v1.0.3-addendum.md`).
 
 Планируемое отклонение (зафиксировать при реализации, если останется):
 

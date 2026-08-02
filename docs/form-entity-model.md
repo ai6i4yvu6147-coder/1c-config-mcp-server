@@ -186,16 +186,16 @@ CREATE INDEX ix_fep_name_querytext ON form_entity_properties(property_name) WHER
 
 **Target:** hard-coded **key property paths per element type** (or family). Overview tools read from EAV filtered by profile.
 
-**Invariant (implementation):** parser `item_types_set` ⊆ types with a defined profile (test or `project-doctor` check).
+**Invariant (implementation):** parser `item_types_set` ⊆ types with a defined profile (enforced by test).
 
 ### 4.1 Families
 
 | Family | Item types | Rationale |
 |--------|------------|-----------|
-| `field_like` | `InputField`, `LabelField`, `CheckBoxField`, `RadioButtonField` | Data-bound field; validated on АРМ `InputField`, Планета `LabelField` |
-| `list_like` | `Table` | List/table UI container; validated on Планета `ФормаСписка` `Table` |
+| `field_like` | `InputField`, `LabelField`, `CheckBoxField`, `RadioButtonField` | Data-bound field; validated on АРМ `InputField`, Альфа `LabelField` |
+| `list_like` | `Table` | List/table UI container; validated on Альфа `ФормаСписка` `Table` |
 | `column_container` | `Table` (+ `TreeField` when indexed) | Hides all descendant items from `get_form_structure`; columns on parent drill |
-| `command_like` | `Button` | Command binding; validated on Планета `Button` + `CommandName` |
+| `command_like` | `Button` | Command binding; validated on Альфа `Button` + `CommandName` |
 | `container` | `UsualGroup`, `Pages`, `Page`, `ButtonGroup`, `Popup`, `CommandBar` | Layout; validated on АРМ `UsualGroup`, Планировщик `Page` |
 | `decoration` | `LabelDecoration`, `PictureDecoration`, `ExtendedTooltip` | Non-data decorative |
 | `document_field` | `SpreadSheetDocumentField`, `HTMLDocumentField`, `FormattedDocumentField` | Document viewers |
@@ -357,7 +357,7 @@ get_form_structure → type-relevant overview (no column children in UI tree; no
 5. Implement `get_form_attribute`, `get_form_item` (with optional `column_name`); slim `get_form_structure` (suppress column children, column list hints).
 6. Extend `search_code` for `query_text`; extend `get_functional_options` for `FormAttributeColumn`.
 7. Retire redundant extractors after EAV ships.
-8. Tests: column encapsulation on Планета `ФормаСписка`, ValueTable columns on ТД АРМ, `column_name` drill.
+8. Tests: column encapsulation on Альфа `ФормаСписка`, ValueTable columns on ТД АРМ, `column_name` drill.
 9. `CHANGELOG.md` entry when shipped.
 
 ---
@@ -377,7 +377,7 @@ get_form_structure → type-relevant overview (no column children in UI tree; no
 ## 10. Reference scenario (specified behavior)
 
 ```
-get_form_structure("НастраиваемыйОтчет", "ФормаСписка", project_filter="Планета")
+get_form_structure("НастраиваемыйОтчет", "ФормаСписка", project_filter="Альфа")
 
 Attributes:
   • Список [Основной]: DynamicList
@@ -429,7 +429,7 @@ get_form_attribute(..., attribute_name="График", column_name="Заявка
 
 | Export | Form.xml | Validates |
 |--------|----------|-----------|
-| Планета / ERP Кашпур | `Documents/НастраиваемыйОтчет/Forms/ФормаСписка` | DynamicList + `Table` list_like profile |
+| Альфа / ERP Кашпур | `Documents/НастраиваемыйОтчет/Forms/ФормаСписка` | DynamicList + `Table` list_like profile |
 | ТД_ОперативныйУчет | `DataProcessors/ФТ_АРМДиспетчера/Forms/Форма` | ValueTable columns, `field_like`, `container` |
 | ТД_ОперативныйУчет | `InformationRegisters/ТД_ГрафикиДоставок/Forms/Планировщик` | `PlannerField` chart_like, ValueListType |
 

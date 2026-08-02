@@ -22,7 +22,6 @@ projects.json
 plans/
 scratch/
 .tasks/
-docs/group/exports/
 /HANDOFF-*.md
 
 # Optional local 1C help dump (uncomment in .gitignore when used)

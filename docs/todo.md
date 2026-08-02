@@ -6,13 +6,6 @@ Live list of open tasks and ideas for **1C configuration MCP server functionalit
 
 **Do not include** operational steps (portable rebuild, manual `databases/*.db` recreation by user, MCP setup in IDE) — those are not tool improvements.
 
-## Hub pending
-
-## Admin Hub / group integration
-
-- **Status:** `stable` (`sync_state`; see [`group/integration.md`](group/integration.md))
-- Admin Hub Phase 3 rebuild CLI — **done**; `operations.log` — **done**
-
 ## How to use
 
 | Role | Action |
@@ -54,7 +47,7 @@ Do not start implementation from the list without explicit user request.
 | Scheduled job search by `MethodName` | **no** — see `scheduled-job-search` |
 | Admin GUI: bulk update, operation status | **done** (2026-08-01) — «Обновить все базы проекта» / «Обновить все базы»; см. CHANGELOG |
 | Admin Hub protocol Phase 1 (manifest, read-only CLI) | **done** — see CHANGELOG, [`admin-hub-integration.md`](admin-hub-integration.md) |
-| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see `integration.md` |
+| Admin Hub protocol Phase 2–3 (sync, rebuild CLI) | **done** (incl. `operations.log`); see [`admin-hub-integration.md`](admin-hub-integration.md) |
 | Admin GUI: build stage log / timings | **done** — validated on real exports and live in the rebuilt admin GUI; see `gui-build-log-timings` |
 | Whitelist extension (Role, EventSubscription, …) | **partial** — `Subsystem` (phase 3), `Role` (phase 4); see `dependency-layer.md` phase 5 |
 | Type system (metadata + forms, `metadata_type_slots`) | **done** — v8–16; current index format — `INDEXER_VERSION` 16; see CHANGELOG, [`form-type-system.md`](form-type-system.md) |
@@ -76,7 +69,7 @@ Do not start implementation from the list without explicit user request.
 
 - **parser-streaming-pipeline** · **done** (2026-08-01) · Полный стриминг «парсить → вставлять → отпускать»; закрывает остаток P-4
 
-  - **Итог:** `ConfigurationParser.parse_streaming()` отдаёт `(header, генератор)`; `_insert_configuration` идёт по потоку и вставляет каждый объект **вместе с его формами**, вместо двух проходов по готовому дереву. На ЕРП «Планета»: пик RSS **4383 → 1087 МБ**, сборка 169.7 → 161.4 c, индекс 3157 → 3160 МБ. Замеры и A/B — в CHANGELOG (2026-08-01)
+  - **Итог:** `ConfigurationParser.parse_streaming()` отдаёт `(header, генератор)`; `_insert_configuration` идёт по потоку и вставляет каждый объект **вместе с его формами**, вместо двух проходов по готовому дереву. На ЕРП «Альфа»: пик RSS **4383 → 1087 МБ**, сборка 169.7 → 161.4 c, индекс 3157 → 3160 МБ. Замеры и A/B — в CHANGELOG (2026-08-01)
 
   - **Как согласовано с P-8:** пул форм жив на время генератора, объекты разбираются на окно вперёд (`FORM_WINDOW_PER_WORKER` × воркеры) — пул не простаивает, но в памяти не больше окна. Отдаётся всегда самый старый объект окна, порядок тот же, что у прежнего списка
 

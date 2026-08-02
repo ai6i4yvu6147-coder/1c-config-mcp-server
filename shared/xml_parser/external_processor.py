@@ -31,8 +31,6 @@ in the descriptor Node. They are read by the existing config-mcp file-walk metho
 commands (P-7, audit-2026-08) come from the descriptor's own `Command` children instead —
 same `Node` the library already parsed, no second `ET.parse` of `<Name>.xml`.
 
-Canon: docs/group/shared/metadata-library-cluster.md (Variant B); track
-`external-processor-root` in docs/todo.md.
 """
 
 EXTERNAL_DATA_PROCESSOR_TAG = 'ExternalDataProcessor'

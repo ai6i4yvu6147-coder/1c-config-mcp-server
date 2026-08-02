@@ -21,13 +21,10 @@ Tool for working with 1C configurations via an AI assistant with MCP support: co
 | `server/` | MCP server |
 | `shared/` | XML parser, ProjectManager, hub_protocol |
 | `docs/admin-hub-integration.md` | managed tool integration with Admin Hub |
-| `docs/group/` | sync with group `1c-cursor` (Sub) |
 | `projects.example.json` | example portable runtime config |
 
-## Group and Admin Hub
+## Admin Hub
 
-- **Role:** Sub · group `1c-cursor` · Head: `1c-admin-tool`
-- **Integration:** [`docs/group/integration.md`](docs/group/integration.md)
 - **Hub CLI:** `rebuild-index`, `apply-registry`, `status` — see [`docs/admin-hub-integration.md`](docs/admin-hub-integration.md)
 
 ## Portability

@@ -40,12 +40,12 @@ def _text(handler, tools, arguments):
 
 def test_find_role_text():
     tools = _StubTools(find_role={
-        'Планета': {'Основная конфигурация (base)': [
+        'Альфа': {'Основная конфигурация (base)': [
             {'role_name': 'ПолныеПрава', 'role_qualified_name': 'Role.ПолныеПрава',
              'uuid': 'u', 'synonym': 'Полные права', 'source_layer': 'main', 'extension_name': None},
         ]},
     })
-    text = _text(handle_find_role, tools, {'name': 'ПолныеПрава', 'project_filter': 'Планета'})
+    text = _text(handle_find_role, tools, {'name': 'ПолныеПрава', 'project_filter': 'Альфа'})
     assert not text.lstrip().startswith('{')
     assert 'Role.ПолныеПрава (Полные права)' in text
     assert 'слой: основная' in text
@@ -64,7 +64,7 @@ def test_get_role_rights_summary_text():
         'grants': [], 'extension_delta_grants': [], 'is_truncated': True, 'total_count': 10048,
         'hint': 'Admin role; use object_name filter or response_mode=full for enumeration.',
     })
-    text = _text(handle_get_role_rights, tools, {'role_name': 'ПолныеПрава', 'project_filter': 'Планета'})
+    text = _text(handle_get_role_rights, tools, {'role_name': 'ПолныеПрава', 'project_filter': 'Альфа'})
     assert '{' not in text
     assert 'сводка (admin_full)' in text
     assert 'всего 10048' in text
@@ -86,20 +86,20 @@ def test_get_role_rights_full_grants_and_denied():
         ],
         'is_truncated': False, 'total_count': 2,
     })
-    text = _text(handle_get_role_rights, tools, {'role_name': 'R', 'project_filter': 'Планета'})
+    text = _text(handle_get_role_rights, tools, {'role_name': 'R', 'project_filter': 'Альфа'})
     assert 'Catalog.Номенклатура: Read' in text
     assert 'Catalog.Номенклатура: Delete (запрещено)' in text
 
 
 def test_get_role_rights_not_found():
     tools = _StubTools(get_role_rights={'error': 'not_found', 'role_name': 'НетТакой'})
-    text = _text(handle_get_role_rights, tools, {'role_name': 'НетТакой', 'project_filter': 'Планета'})
+    text = _text(handle_get_role_rights, tools, {'role_name': 'НетТакой', 'project_filter': 'Альфа'})
     assert "Роль 'НетТакой' не найдена" in text
 
 
 def test_find_roles_for_object_merge_text():
     tools = _StubTools(find_roles_for_object={
-        'Планета': {
+        'Альфа': {
             'merge': True, 'target': {'type': 'Catalog', 'name': 'Номенклатура'},
             'roles': [{'role_qualified_name': 'Role.A', 'role_name': 'A', 'uuid': 'u',
                        'right_name': 'Read', 'db_name': 'Основная конфигурация', 'extension_purpose': None}],
@@ -108,7 +108,7 @@ def test_find_roles_for_object_merge_text():
         },
     })
     text = _text(handle_find_roles_for_object, tools,
-                 {'object_name': 'Номенклатура', 'project_filter': 'Планета', 'merge': True})
+                 {'object_name': 'Номенклатура', 'project_filter': 'Альфа', 'merge': True})
     assert not text.lstrip().startswith('{')
     assert 'Catalog.Номенклатура' in text
     assert 'Role.A — Read' in text

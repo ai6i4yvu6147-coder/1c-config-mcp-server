@@ -6,7 +6,7 @@ alwaysApply: true
 # Agent-facing docs are English
 
 Write documentation that agents read repeatedly — `README.md`, `AGENTS.md`,
-`docs/agent-map.md`, `architecture.md`, `docs/canons/**`, group specs, `.cursor/**`
+`docs/agent-map.md`, `architecture.md`, `.cursor/**`
 — in **English**, from the start. It is cached every session; one language keeps
 the cache tight and cheap.
 

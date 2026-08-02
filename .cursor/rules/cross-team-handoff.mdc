@@ -8,6 +8,6 @@ alwaysApply: true
 
 - Reports and correspondence **for other teams** (Admin Hub, ConfigAdmin, etc.) are **ephemeral**: a `HANDOFF-*.md` file at repo root or outside git; **do not commit** (see `.gitignore`).
 - Once handed off, the report is deleted; nothing in the repository **references** it.
-- All operational integration information is duplicated into canon: `docs/admin-hub-integration.md` and, if needed, Head `docs/group/shared/` at `head.path`.
+- All operational integration information is duplicated into canon: `docs/admin-hub-integration.md`.
 - In `docs/`, `AGENTS.md`, `CHANGELOG.md`, and Cursor rules — **links to** `HANDOFF-*.md` or one-off correspondence archives are **forbidden**.
 - Do not keep permanent documentation at repo root — only `docs/`, `AGENTS.md`, `CHANGELOG.md`.

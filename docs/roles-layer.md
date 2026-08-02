@@ -49,8 +49,6 @@ When implementing access-chain tools, data-mcp should:
 4. For “which roles can Read object X?” — call config-mcp **`find_roles_for_object(object_name, merge=true)`**.
 5. Use Hub **`configMcp.projectFilter`** / **`extensionFilter`** when scoping; ignore internal SQLite `source_db_name`.
 
-Contract body for group shared canon: see Sub handoff **THR-009** (pending Head).
-
 ### Link key (config ↔ data)
 
 Profile tabular section `Роли.Роль` → `Catalog.ИдентификаторыОбъектовМетаданных` or `Catalog.ИдентификаторыОбъектовРасширений` → field **`ПолноеИмя`** = `Role.<RoleName>`.
@@ -69,7 +67,7 @@ For adopted extension roles: extension `Role.xml` has its own `uuid` and `Extend
 
 **Adopted identity (agreed):** merge and lookup by role **`Name`**. API also returns `extended_configuration_object_uuid` when `ObjectBelonging=Adopted` (link to main role uuid).
 
-**Layer identity (agreed):** config-mcp MCP responses use `db_name` from `projects.json` / `active_databases` — the same value as `extension_filter` and Hub `configMcp.instances[].extensionFilter` (Head `docs/group/shared/registry-mapping-data-mcp.md` at `head.path` § C-MCP refs). data-mcp does not need `Configuration.xml` `Name` for layer disambiguation.
+**Layer identity (agreed):** config-mcp MCP responses use `db_name` from `projects.json` / `active_databases` — the same value as `extension_filter` and Hub `configMcp.instances[].extensionFilter`. data-mcp does not need `Configuration.xml` `Name` for layer disambiguation.
 
 ---
 
