@@ -4,4 +4,4 @@ pyyaml>=6.0
 # onec_metadata_schema (read side for external data processors): editable install from the
 # first existing path — done in build_all.bat, not pinned here (a relative -e is machine-fragile):
 #   C:\repo\1c-metadata-schema
-#   C:\projects\1c-metadata-schema
+#   C:\dev\projects\1c-metadata-schema
